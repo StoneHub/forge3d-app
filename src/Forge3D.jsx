@@ -503,6 +503,14 @@ function CodeEditor({ code, onChange, onUndo, onRedo, canUndo, canRedo }) {
 
 // ─── EXAMPLES ────────────────────────────────────────────────────────
 // ─── MAIN APP ────────────────────────────────────────────────────────
+function createHistoryState(initialCode) {
+  return {
+    past: [],
+    present: initialCode,
+    future: [],
+  };
+}
+
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
   const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
@@ -700,10 +708,10 @@ export default function Forge3D() {
             { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Undo (Ctrl/Cmd+Z)' },
             { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Redo (Ctrl/Cmd+Shift+Z / Ctrl+Y)' },
           ].map(({ icon: I, label, action, disabled, title }) => (
-            <button key={label} onClick={action} title={label}
-              style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-              onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
-              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
+            <button key={label} onClick={action} title={title || label} disabled={disabled}
+              style={{ background: 'none', border: '1px solid transparent', color: disabled ? '#4f5068' : '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: disabled ? 0.55 : 1 }}
+              onMouseEnter={e => { if (!disabled) Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' }); }}
+              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: disabled ? '#4f5068' : '#8a8baa' })}
             ><I /><span>{label}</span></button>
           ))}
           <div style={{ height: '20px', width: '1px', background: '#2a2b3d' }} />
@@ -785,6 +793,7 @@ export default function Forge3D() {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2b3d' }}>
           <div style={{ height: '30px', minHeight: '30px', background: '#1a1b2e', borderBottom: '1px solid #2a2b3d', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: '#8a8baa' }}>{currentFileName}{isDirty ? ' *' : ''}</span>
+            <span style={{ fontSize: '10px', color: canUndo || canRedo ? '#4fc3f7' : '#3a3b55', background: canUndo || canRedo ? '#4fc3f722' : 'transparent', border: canUndo || canRedo ? '1px solid #4fc3f744' : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
             <span style={{ fontSize: '10px', color: '#3a3b55', marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
           </div>
           <div style={{ flex: 1, background: '#1a1b2e', overflow: 'hidden' }}>
@@ -816,8 +825,8 @@ export default function Forge3D() {
             ))}
           </div>
 
-          <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: '#13141fcc', borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: '#5c5d7a', backdropFilter: 'blur(8px)', border: '1px solid #2a2b3d', display: 'flex', gap: '12px' }}>
-            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Objects: {result.objects.length}</span>
+          <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: '#13141fcc', borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: '#5c5d7a', backdropFilter: 'blur(8px)', border: '1px solid #2a2b3d', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl/Cmd+Z</span><span>Redo: Ctrl+Y</span><span>Objects: {result.objects.length}</span>
           </div>
 
           {result.objects.length > 0 && (
