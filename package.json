@@ -5,10 +5,18 @@
   "description": "Forge3D — A modern parametric 3D modeling IDE inspired by OpenSCAD",
   "type": "module",
   "main": "electron/main.mjs",
+  "packageManager": "npm@10.9.4",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:host": "vite --host 0.0.0.0 --strictPort",
     "build": "vite build",
+    "check": "npm run build",
     "preview": "vite preview",
+    "preview:host": "vite preview --host 0.0.0.0 --port 4173",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder"
   },
