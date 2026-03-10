@@ -1,25 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import * as THREE from "three";
+import Icons from "./forge3d/icons.jsx";
+import { useThreeRenderer } from "./forge3d/renderer.js";
+import { EXAMPLES } from "./forge3d/examples.js";
+import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace, downloadTextFile, openBrowserFile } from "./forge3d/workspace.js";
 
 // ─── ICONS ───────────────────────────────────────────────────────────
-const Icons = {
-  Play: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>,
-  Cube: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
-  Sphere: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><line x1="12" y1="2" x2="12" y2="22"/></svg>,
-  Cylinder: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/></svg>,
-  Grid: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>,
-  Eye: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-  File: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>,
-  Zap: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 10 10-12h-9l1-10z"/></svg>,
-  ChevRight: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>,
-  Warn: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
-  Err: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
-  Layers: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
-  Minus: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>,
-  Union: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="12" r="7"/><circle cx="15" cy="12" r="7"/></svg>,
-  Intersect: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="9" cy="12" r="7" strokeDasharray="3 2"/><circle cx="15" cy="12" r="7" strokeDasharray="3 2"/><path d="M12 6.2a7 7 0 0 1 0 11.6 7 7 0 0 1 0-11.6" fill="currentColor" opacity="0.3" stroke="currentColor" strokeDasharray="0"/></svg>,
-};
-
 // ─── TOKENIZER ───────────────────────────────────────────────────────
 const KEYWORDS = new Set(['module','function','if','else','for','let','each','include','use','true','false','undef']);
 const BUILTINS = new Set(['cube','sphere','cylinder','polyhedron','circle','square','polygon','text','linear_extrude','rotate_extrude','translate','rotate','scale','mirror','multmatrix','color','offset','hull','minkowski','union','difference','intersection','render','projection','surface','import','resize','children','echo','assert','concat','lookup','str','chr','ord','search','version','len','log','ln','pow','sqrt','exp','abs','sign','sin','cos','tan','asin','acos','atan','atan2','floor','ceil','round','min','max','norm','cross','rands','PI']);
@@ -421,135 +406,6 @@ function interpret(code) {
 }
 
 // ─── 3D RENDERER ─────────────────────────────────────────────────────
-function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0) {
-  const frameRef = useRef(null);
-  const mouseRef = useRef({ down: false, button: -1, x: 0, y: 0, theta: 0.8, phi: 0.6, dist: 50 });
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1a1b26');
-
-    const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
-    const m = mouseRef.current;
-    if (resetViewSignal > 0) {
-      Object.assign(m, { theta: 0.8, phi: 0.6, dist: 50, down: false, button: -1 });
-    }
-    const updateCam = () => {
-      camera.position.set(
-        m.dist * Math.sin(m.theta) * Math.cos(m.phi),
-        m.dist * Math.sin(m.phi),
-        m.dist * Math.cos(m.theta) * Math.cos(m.phi)
-      );
-      camera.lookAt(0, 0, 0);
-    };
-    updateCam();
-
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-
-    // Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const d1 = new THREE.DirectionalLight(0xffffff, 0.8);
-    d1.position.set(30, 50, 30); d1.castShadow = true; scene.add(d1);
-    const d2 = new THREE.DirectionalLight(0x88aaff, 0.3);
-    d2.position.set(-20, 30, -20); scene.add(d2);
-
-    if (viewSettings.grid) scene.add(new THREE.GridHelper(100, 20, 0x333355, 0x222244));
-    if (viewSettings.axes) scene.add(new THREE.AxesHelper(15));
-
-    for (const obj of objects) {
-      let geometry;
-      const matColor = new THREE.Color(obj.color);
-      const material = new THREE.MeshPhysicalMaterial({
-        color: matColor, metalness: 0.1, roughness: 0.4,
-        clearcoat: 0.3, clearcoatRoughness: 0.25, transparent: true, opacity: 0.92,
-      });
-
-      switch (obj.type) {
-        case 'cube': geometry = new THREE.BoxGeometry(obj.size[0], obj.size[2], obj.size[1]); break;
-        case 'sphere': geometry = new THREE.SphereGeometry(obj.r, Math.min(obj.fn, 64), Math.min(obj.fn / 2, 32)); break;
-        case 'cylinder': geometry = new THREE.CylinderGeometry(obj.r2, obj.r1, obj.h, Math.min(obj.fn, 64)); break;
-        case 'text': geometry = new THREE.BoxGeometry(obj.textSize * String(obj.text).length * 0.6, obj.textSize, obj.textSize * 0.2); break;
-        default: continue;
-      }
-
-      const mesh = new THREE.Mesh(geometry, material);
-      if (obj.type === 'cube' && !obj.center) mesh.position.set(obj.size[0] / 2, obj.size[2] / 2, obj.size[1] / 2);
-      if (obj.type === 'cylinder' && !obj.center) mesh.position.y = obj.h / 2;
-
-      mesh.scale.set(obj.scale[0], obj.scale[2], obj.scale[1]);
-      mesh.rotation.set(
-        THREE.MathUtils.degToRad(obj.rotate[0]),
-        THREE.MathUtils.degToRad(obj.rotate[2]),
-        THREE.MathUtils.degToRad(obj.rotate[1])
-      );
-      mesh.position.x += obj.translate[0];
-      mesh.position.y += obj.translate[2];
-      mesh.position.z += obj.translate[1];
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      scene.add(mesh);
-
-      if (viewSettings.wireframe) {
-        const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(geometry),
-          new THREE.LineBasicMaterial({ color: matColor.clone().multiplyScalar(0.6), transparent: true, opacity: 0.4 })
-        );
-        edges.position.copy(mesh.position);
-        edges.rotation.copy(mesh.rotation);
-        edges.scale.copy(mesh.scale);
-        scene.add(edges);
-      }
-    }
-
-    function animate() { frameRef.current = requestAnimationFrame(animate); renderer.render(scene, camera); }
-    animate();
-
-    const onDown = (e) => { m.down = true; m.button = e.button; m.x = e.clientX; m.y = e.clientY; };
-    const onUp = () => { m.down = false; };
-    const onMove = (e) => {
-      if (!m.down) return;
-      const dx = e.clientX - m.x, dy = e.clientY - m.y;
-      m.x = e.clientX; m.y = e.clientY;
-      m.theta -= dx * 0.01;
-      m.phi = Math.max(-1.5, Math.min(1.5, m.phi + dy * 0.01));
-      updateCam();
-    };
-    const onWheel = (e) => {
-      e.preventDefault();
-      m.dist = Math.max(5, Math.min(200, m.dist + e.deltaY * 0.05));
-      updateCam();
-    };
-    canvas.addEventListener('mousedown', onDown);
-    canvas.addEventListener('mouseup', onUp);
-    canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-
-    const onResize = () => {
-      if (!canvas.parentElement) return;
-      const w = canvas.parentElement.clientWidth, h = canvas.parentElement.clientHeight;
-      camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
-    };
-    window.addEventListener('resize', onResize);
-    setTimeout(onResize, 50);
-
-    return () => {
-      cancelAnimationFrame(frameRef.current); renderer.dispose();
-      canvas.removeEventListener('mousedown', onDown);
-      canvas.removeEventListener('mouseup', onUp);
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('wheel', onWheel);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [objects, viewSettings, resetViewSignal]);
-}
-
 // ─── SYNTAX HIGHLIGHTER (preserves whitespace for overlay) ──────────
 function HighlightedCode({ code }) {
   return useMemo(() => {
@@ -591,7 +447,7 @@ function HighlightedCode({ code }) {
 }
 
 // ─── CODE EDITOR COMPONENT ──────────────────────────────────────────
-function CodeEditor({ code, onChange }) {
+function CodeEditor({ code, onChange, onUndo, onRedo, canUndo, canRedo }) {
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
   const lineRef = useRef(null);
@@ -604,6 +460,18 @@ function CodeEditor({ code, onChange }) {
   };
 
   const handleKeyDown = (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) onRedo?.();
+      else onUndo?.();
+      return;
+    }
+    if (mod && !e.altKey && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      onRedo?.();
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       const ta = textareaRef.current;
@@ -634,329 +502,11 @@ function CodeEditor({ code, onChange }) {
 }
 
 // ─── EXAMPLES ────────────────────────────────────────────────────────
-const EXAMPLES = {
-  "Welcome": `// Welcome to Forge3D
-// A modern parametric 3D modeler
-
-base_w = 30;
-base_d = 20;
-base_h = 3;
-pillar_r = 2;
-pillar_h = 15;
-dome_r = 4;
-
-// Base plate
-color("#4fc3f7")
-  cube([base_w, base_d, base_h], center=true);
-
-// Four pillars
-for (x = [0:1])
-  for (y = [0:1])
-    translate([(x * 2 - 1) * base_w / 3, (y * 2 - 1) * base_d / 3, base_h / 2])
-      color("#81c784")
-        cylinder(h=pillar_h, r=pillar_r, $fn=24);
-
-// Dome caps
-for (x = [0:1])
-  for (y = [0:1])
-    translate([(x * 2 - 1) * base_w / 3, (y * 2 - 1) * base_d / 3, base_h / 2 + pillar_h])
-      color("#ffb74d")
-        sphere(r=dome_r, $fn=32);
-
-// Center spire
-translate([0, 0, base_h / 2])
-  color("#e57373")
-    cylinder(h=pillar_h + 8, r1=3, r2=0.5, $fn=6);
-
-echo("Model built: base + 4 pillars + 4 domes + spire");`,
-
-  "Gears": `// Parametric Gear
-teeth = 16;
-tooth_r = 20;
-inner_r = 15;
-hub_r = 6;
-thickness = 5;
-res = 48;
-
-// Outer ring
-color("#4fc3f7")
-  cylinder(h=thickness, r=tooth_r, center=true, $fn=32);
-
-// Hub
-color("#e57373")
-  cylinder(h=thickness + 2, r=hub_r, center=true, $fn=res);
-
-// Spokes
-for (i = [0:5])
-  rotate([0, 0, i * 60])
-    translate([inner_r / 2 + 2, 0, 0])
-      color("#81c784")
-        cube([inner_r - 4, 2, thickness], center=true);
-
-// Tooth markers
-for (i = [0:15])
-  rotate([0, 0, i * 360 / teeth])
-    translate([tooth_r, 0, 0])
-      color("#ffb74d")
-        cylinder(h=thickness + 1, r=1.5, center=true, $fn=6);
-
-echo("Gear: ", teeth, " teeth");`,
-
-  "Chess Pawn": `// Parametric Chess Pawn
-base_r = 10;
-base_h = 3;
-body_h = 15;
-neck_h = 2;
-head_r = 5;
-
-// Base
-color("#e0e0e0")
-  cylinder(h=base_h, r1=base_r, r2=base_r - 1, $fn=48);
-
-// Base rim
-color("#bdbdbd")
-  translate([0, 0, base_h])
-    cylinder(h=1.5, r1=base_r - 1, r2=8, $fn=48);
-
-// Body
-color("#f5f5f5")
-  translate([0, 0, base_h + 1.5])
-    cylinder(h=body_h, r1=8, r2=4, $fn=48);
-
-// Neck collar
-color("#e0e0e0")
-  translate([0, 0, base_h + 1.5 + body_h])
-    cylinder(h=neck_h, r1=4, r2=3, $fn=48);
-
-// Neck
-color("#f5f5f5")
-  translate([0, 0, base_h + 1.5 + body_h + neck_h])
-    cylinder(h=3, r=3, $fn=48);
-
-// Head
-color("#fafafa")
-  translate([0, 0, base_h + 1.5 + body_h + neck_h + 3 + head_r * 0.5])
-    sphere(r=head_r, $fn=48);
-
-echo("Chess pawn generated");`,
-
-  "Snowflake": `// Parametric Snowflake
-arms = 6;
-arm_len = 25;
-arm_w = 2;
-branch_len = 10;
-branch_w = 1.5;
-th = 2;
-
-// Center hub
-color("#81d4fa")
-  cylinder(h=th, r=4, center=true, $fn=6);
-
-// Main arms
-for (i = [0:5])
-  rotate([0, 0, i * 60])
-    translate([arm_len / 2, 0, 0])
-      color("#4fc3f7")
-        cube([arm_len, arm_w, th], center=true);
-
-// Inner branches
-for (i = [0:5])
-  rotate([0, 0, i * 60]) {
-    translate([10, 0, 0])
-      rotate([0, 0, 45])
-        translate([branch_len / 2, 0, 0])
-          color("#29b6f6")
-            cube([branch_len, branch_w, th], center=true);
-    translate([10, 0, 0])
-      rotate([0, 0, -45])
-        translate([branch_len / 2, 0, 0])
-          color("#29b6f6")
-            cube([branch_len, branch_w, th], center=true);
-  }
-
-// Outer branches
-for (i = [0:5])
-  rotate([0, 0, i * 60]) {
-    translate([18, 0, 0])
-      rotate([0, 0, 45])
-        translate([3, 0, 0])
-          color("#03a9f4")
-            cube([6, 1.2, th], center=true);
-    translate([18, 0, 0])
-      rotate([0, 0, -45])
-        translate([3, 0, 0])
-          color("#03a9f4")
-            cube([6, 1.2, th], center=true);
-  }
-
-// Tips
-for (i = [0:5])
-  rotate([0, 0, i * 60])
-    translate([arm_len, 0, 0])
-      color("#0288d1")
-        sphere(r=1.5, $fn=12);
-
-echo("Snowflake with ", arms, " arms");`,
-
-  "Tower": `// Parametric Tower Stack
-levels = 8;
-base_size = 24;
-shrink = 0.85;
-height = 4;
-gap = 1;
-
-for (i = [0:7]) {
-  s = base_size * pow(shrink, i);
-  translate([0, 0, i * (height + gap)])
-    color("#4fc3f7")
-      cube([s, s, height], center=true);
-}
-
-// Top sphere
-translate([0, 0, levels * (height + gap)])
-  color("#fff176")
-    sphere(r=3, $fn=32);
-
-echo("Tower with ", levels, " levels");`,
-
-  "Molecule": `// Simple Molecule
-bond_len = 12;
-atom_r = 3;
-bond_r = 0.8;
-
-// Center atom
-color("#e57373")
-  sphere(r=atom_r + 1, $fn=32);
-
-// Ring atoms + bonds
-for (i = [0:5]) {
-  a = i * 60;
-  dx = bond_len * cos(a);
-  dy = bond_len * sin(a);
-
-  translate([dx / 2, dy / 2, 0])
-    rotate([0, 0, a])
-      color("#90a4ae")
-        cube([bond_len, bond_r * 2, bond_r * 2], center=true);
-
-  translate([dx, dy, 0])
-    color("#4fc3f7")
-      sphere(r=atom_r, $fn=24);
-}
-
-// Top + bottom atoms
-translate([0, 0, bond_len])
-  color("#81c784")
-    sphere(r=atom_r, $fn=24);
-translate([0, 0, 0 - bond_len])
-  color("#81c784")
-    sphere(r=atom_r, $fn=24);
-
-// Vertical bonds
-translate([0, 0, bond_len / 2])
-  color("#90a4ae")
-    cylinder(h=bond_len, r=bond_r, center=true, $fn=12);
-translate([0, 0, 0 - bond_len / 2])
-  color("#90a4ae")
-    cylinder(h=bond_len, r=bond_r, center=true, $fn=12);
-
-echo("Molecule: 8 atoms, 8 bonds");`,
-
-  "Castle": `// Mini Castle
-wall_h = 20;
-wall_w = 40;
-wall_t = 3;
-tower_r = 5;
-tower_h = 28;
-
-// Walls
-color("#8d6e63")
-  translate([0, 0 - wall_w / 2, 0])
-    cube([wall_w, wall_t, wall_h]);
-color("#8d6e63")
-  translate([0, wall_w / 2 - wall_t, 0])
-    cube([wall_w, wall_t, wall_h]);
-color("#a1887f")
-  translate([0, 0 - wall_w / 2, 0])
-    cube([wall_t, wall_w, wall_h]);
-color("#a1887f")
-  translate([wall_w - wall_t, 0 - wall_w / 2, 0])
-    cube([wall_t, wall_w, wall_h]);
-
-// Corner towers + caps
-for (x = [0:1])
-  for (y = [0:1]) {
-    translate([x * wall_w, y * wall_w - wall_w / 2, 0])
-      color("#6d4c41")
-        cylinder(h=tower_h, r=tower_r, $fn=24);
-    translate([x * wall_w, y * wall_w - wall_w / 2, tower_h])
-      color("#e57373")
-        cylinder(h=6, r1=tower_r + 1, r2=0, $fn=24);
-  }
-
-// Gate
-color("#4e342e")
-  translate([wall_w / 2 - 4, 0 - wall_w / 2 - 0.5, 0])
-    cube([8, wall_t + 1, 12]);
-
-echo("Castle with 4 towers");`,
-};
-
 // ─── MAIN APP ────────────────────────────────────────────────────────
-const STORAGE_KEY = 'forge3d.workspace.v1';
-const DEFAULT_FILE_NAME = 'main.scad';
-
-function getDefaultWorkspace() {
-  return {
-    code: EXAMPLES["Welcome"],
-    viewSettings: { grid: true, axes: true, wireframe: true },
-    autoRun: true,
-    currentFileName: DEFAULT_FILE_NAME,
-  };
-}
-
-function loadWorkspace() {
-  if (typeof window === 'undefined') return getDefaultWorkspace();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return getDefaultWorkspace();
-    const parsed = JSON.parse(raw);
-    return { ...getDefaultWorkspace(), ...parsed, viewSettings: { ...getDefaultWorkspace().viewSettings, ...(parsed.viewSettings || {}) } };
-  } catch {
-    return getDefaultWorkspace();
-  }
-}
-
-function downloadTextFile(name, content) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-async function openBrowserFile() {
-  return await new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.scad,.txt,text/plain';
-    input.onchange = async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return resolve(null);
-      resolve({
-        name: file.name,
-        content: await file.text(),
-      });
-    };
-    input.click();
-  });
-}
-
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
-  const [code, setCode] = useState(initialWorkspace.code);
+  const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
+  const code = history.present;
   const [result, setResult] = useState({ objects: [], logs: [], errors: [], warnings: [], variables: {} });
   const [activeTab, setActiveTab] = useState('console');
   const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
@@ -972,6 +522,58 @@ export default function Forge3D() {
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
 
+  const applyCodeChange = useCallback((nextCodeOrUpdater) => {
+    setHistory((current) => {
+      const nextCode = typeof nextCodeOrUpdater === 'function'
+        ? nextCodeOrUpdater(current.present)
+        : nextCodeOrUpdater;
+
+      if (nextCode === current.present) return current;
+
+      return {
+        past: [...current.past, current.present].slice(-100),
+        present: nextCode,
+        future: [],
+      };
+    });
+  }, []);
+
+  const replaceCodeWithoutHistory = useCallback((nextCode) => {
+    setHistory(createHistoryState(nextCode));
+  }, []);
+
+  const undoCode = useCallback(() => {
+    let changed = false;
+    setHistory((current) => {
+      if (current.past.length === 0) return current;
+      const previous = current.past[current.past.length - 1];
+      changed = true;
+      return {
+        past: current.past.slice(0, -1),
+        present: previous,
+        future: [current.present, ...current.future],
+      };
+    });
+    if (changed) setStatusMessage('Undo applied');
+  }, []);
+
+  const redoCode = useCallback(() => {
+    let changed = false;
+    setHistory((current) => {
+      if (current.future.length === 0) return current;
+      const [next, ...rest] = current.future;
+      changed = true;
+      return {
+        past: [...current.past, current.present].slice(-100),
+        present: next,
+        future: rest,
+      };
+    });
+    if (changed) setStatusMessage('Redo applied');
+  }, []);
+
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
   const isDirty = code !== lastSavedCode;
 
   const runCode = useCallback(() => {
@@ -984,18 +586,18 @@ export default function Forge3D() {
 
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
-    setCode(next.code);
+    replaceCodeWithoutHistory(next.code);
     setLastSavedCode(next.code);
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
     setStatusMessage('Started a new workspace');
-  }, []);
+  }, [replaceCodeWithoutHistory]);
 
   const openFile = useCallback(async () => {
     try {
       const payload = window.forgeAPI?.openFile ? await window.forgeAPI.openFile() : await openBrowserFile();
       if (!payload) return;
-      setCode(payload.content);
+      replaceCodeWithoutHistory(payload.content);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
@@ -1003,7 +605,7 @@ export default function Forge3D() {
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, []);
+  }, [replaceCodeWithoutHistory]);
 
   const saveFile = useCallback(async () => {
     try {
@@ -1039,6 +641,13 @@ export default function Forge3D() {
   useEffect(() => {
     const onKeyDown = (event) => {
       const mod = event.metaKey || event.ctrlKey;
+      if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoCode();
+        else undoCode();
+        return;
+      }
+      if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
       if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); saveFile(); }
       if (mod && event.key.toLowerCase() === 'o') { event.preventDefault(); openFile(); }
       if (mod && event.key.toLowerCase() === 'n') { event.preventDefault(); resetWorkspace(); }
@@ -1056,7 +665,7 @@ export default function Forge3D() {
       window.removeEventListener('keydown', onKeyDown);
       removeMenu?.();
     };
-  }, [openFile, resetWorkspace, runCode, saveFile]);
+  }, [openFile, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
 
   useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal);
 
@@ -1088,7 +697,9 @@ export default function Forge3D() {
             { icon: Icons.File, label: 'New', action: resetWorkspace },
             { icon: Icons.File, label: 'Open', action: openFile },
             { icon: Icons.File, label: 'Save', action: saveFile },
-          ].map(({ icon: I, label, action }) => (
+            { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Undo (Ctrl/Cmd+Z)' },
+            { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Redo (Ctrl/Cmd+Shift+Z / Ctrl+Y)' },
+          ].map(({ icon: I, label, action, disabled, title }) => (
             <button key={label} onClick={action} title={label}
               style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
               onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
@@ -1101,7 +712,7 @@ export default function Forge3D() {
             { icon: Icons.Sphere, label: 'Sphere', s: "sphere(r=5, $fn=32);" },
             { icon: Icons.Cylinder, label: 'Cylinder', s: "cylinder(h=10, r=5, $fn=32);" },
           ].map(({ icon: I, label, s }) => (
-            <button key={label} onClick={() => setCode(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
+            <button key={label} onClick={() => applyCodeChange(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
               style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
               onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
               onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
@@ -1131,7 +742,7 @@ export default function Forge3D() {
               {sidebarTab === 'examples' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {Object.entries(EXAMPLES).map(([name, exampleCode]) => (
-                    <button key={name} onClick={() => { setCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setStatusMessage(`Loaded example: ${name}`); }}
+                    <button key={name} onClick={() => { replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
                       style={{ background: '#1e1f30', border: '1px solid #2a2b3d', color: '#c8c9db', padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
                       onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#252640', borderColor: '#4fc3f7' })}
                       onMouseLeave={e => Object.assign(e.currentTarget.style, { background: '#1e1f30', borderColor: '#2a2b3d' })}
@@ -1149,7 +760,7 @@ export default function Forge3D() {
                         <span style={{ color: '#6a6b8a' }}>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
                       </div>
                       <input type='range' min={0} max={Math.max(value * 3, 50)} step={value > 10 ? 1 : 0.1} value={value}
-                        onChange={e => { const nv = parseFloat(e.target.value); setCode(c => c.replace(new RegExp(`(${name}\s*=\s*)[\d.]+`), `$1${nv}`)); }}
+                        onChange={e => { const nv = parseFloat(e.target.value); applyCodeChange(c => c.replace(new RegExp(`(${name}\\s*=\\s*)[\\d.]+`), `$1${nv}`)); }}
                         style={{ width: '100%', accentColor: '#4fc3f7', height: '4px' }}
                       />
                     </div>
@@ -1177,7 +788,7 @@ export default function Forge3D() {
             <span style={{ fontSize: '10px', color: '#3a3b55', marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
           </div>
           <div style={{ flex: 1, background: '#1a1b2e', overflow: 'hidden' }}>
-            <CodeEditor code={code} onChange={setCode} />
+            <CodeEditor code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} />
           </div>
 
           <div style={{ height: '180px', minHeight: '100px', borderTop: '1px solid #2a2b3d', display: 'flex', flexDirection: 'column', background: '#16172a' }}>
