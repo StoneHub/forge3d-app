@@ -18,6 +18,8 @@ const Icons = {
   Minus: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>,
   Union: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="12" r="7"/><circle cx="15" cy="12" r="7"/></svg>,
   Intersect: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="9" cy="12" r="7" strokeDasharray="3 2"/><circle cx="15" cy="12" r="7" strokeDasharray="3 2"/><path d="M12 6.2a7 7 0 0 1 0 11.6 7 7 0 0 1 0-11.6" fill="currentColor" opacity="0.3" stroke="currentColor" strokeDasharray="0"/></svg>,
+  Undo: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 1 1 0 14h-1"/></svg>,
+  Redo: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5"/><path d="M20 9h-9a7 7 0 1 0 0 14h1"/></svg>,
 };
 
 // ─── TOKENIZER ───────────────────────────────────────────────────────
@@ -591,7 +593,7 @@ function HighlightedCode({ code }) {
 }
 
 // ─── CODE EDITOR COMPONENT ──────────────────────────────────────────
-function CodeEditor({ code, onChange }) {
+function CodeEditor({ code, onChange, onUndo, onRedo }) {
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
   const lineRef = useRef(null);
@@ -604,6 +606,18 @@ function CodeEditor({ code, onChange }) {
   };
 
   const handleKeyDown = (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) onRedo?.();
+      else onUndo?.();
+      return;
+    }
+    if (mod && !e.altKey && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      onRedo?.();
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       const ta = textareaRef.current;
@@ -954,9 +968,18 @@ async function openBrowserFile() {
   });
 }
 
+function createHistoryState(initialCode) {
+  return {
+    past: [],
+    present: initialCode,
+    future: [],
+  };
+}
+
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
-  const [code, setCode] = useState(initialWorkspace.code);
+  const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
+  const code = history.present;
   const [result, setResult] = useState({ objects: [], logs: [], errors: [], warnings: [], variables: {} });
   const [activeTab, setActiveTab] = useState('console');
   const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
@@ -972,6 +995,58 @@ export default function Forge3D() {
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
 
+  const applyCodeChange = useCallback((nextCodeOrUpdater) => {
+    setHistory((current) => {
+      const nextCode = typeof nextCodeOrUpdater === 'function'
+        ? nextCodeOrUpdater(current.present)
+        : nextCodeOrUpdater;
+
+      if (nextCode === current.present) return current;
+
+      return {
+        past: [...current.past, current.present].slice(-100),
+        present: nextCode,
+        future: [],
+      };
+    });
+  }, []);
+
+  const replaceCodeWithoutHistory = useCallback((nextCode) => {
+    setHistory(createHistoryState(nextCode));
+  }, []);
+
+  const undoCode = useCallback(() => {
+    let changed = false;
+    setHistory((current) => {
+      if (current.past.length === 0) return current;
+      const previous = current.past[current.past.length - 1];
+      changed = true;
+      return {
+        past: current.past.slice(0, -1),
+        present: previous,
+        future: [current.present, ...current.future],
+      };
+    });
+    if (changed) setStatusMessage('Undo applied');
+  }, []);
+
+  const redoCode = useCallback(() => {
+    let changed = false;
+    setHistory((current) => {
+      if (current.future.length === 0) return current;
+      const [next, ...rest] = current.future;
+      changed = true;
+      return {
+        past: [...current.past, current.present].slice(-100),
+        present: next,
+        future: rest,
+      };
+    });
+    if (changed) setStatusMessage('Redo applied');
+  }, []);
+
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
   const isDirty = code !== lastSavedCode;
 
   const runCode = useCallback(() => {
@@ -984,18 +1059,18 @@ export default function Forge3D() {
 
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
-    setCode(next.code);
+    replaceCodeWithoutHistory(next.code);
     setLastSavedCode(next.code);
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
     setStatusMessage('Started a new workspace');
-  }, []);
+  }, [replaceCodeWithoutHistory]);
 
   const openFile = useCallback(async () => {
     try {
       const payload = window.forgeAPI?.openFile ? await window.forgeAPI.openFile() : await openBrowserFile();
       if (!payload) return;
-      setCode(payload.content);
+      replaceCodeWithoutHistory(payload.content);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
@@ -1003,7 +1078,7 @@ export default function Forge3D() {
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, []);
+  }, [replaceCodeWithoutHistory]);
 
   const saveFile = useCallback(async () => {
     try {
@@ -1039,6 +1114,13 @@ export default function Forge3D() {
   useEffect(() => {
     const onKeyDown = (event) => {
       const mod = event.metaKey || event.ctrlKey;
+      if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoCode();
+        else undoCode();
+        return;
+      }
+      if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
       if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); saveFile(); }
       if (mod && event.key.toLowerCase() === 'o') { event.preventDefault(); openFile(); }
       if (mod && event.key.toLowerCase() === 'n') { event.preventDefault(); resetWorkspace(); }
@@ -1056,7 +1138,7 @@ export default function Forge3D() {
       window.removeEventListener('keydown', onKeyDown);
       removeMenu?.();
     };
-  }, [openFile, resetWorkspace, runCode, saveFile]);
+  }, [openFile, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
 
   useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal);
 
@@ -1088,11 +1170,13 @@ export default function Forge3D() {
             { icon: Icons.File, label: 'New', action: resetWorkspace },
             { icon: Icons.File, label: 'Open', action: openFile },
             { icon: Icons.File, label: 'Save', action: saveFile },
-          ].map(({ icon: I, label, action }) => (
-            <button key={label} onClick={action} title={label}
-              style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-              onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
-              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
+            { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Undo (Ctrl/Cmd+Z)' },
+            { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Redo (Ctrl/Cmd+Shift+Z / Ctrl+Y)' },
+          ].map(({ icon: I, label, action, disabled, title }) => (
+            <button key={label} onClick={action} title={title || label} disabled={disabled}
+              style={{ background: 'none', border: '1px solid transparent', color: disabled ? '#4f5068' : '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: disabled ? 0.55 : 1 }}
+              onMouseEnter={e => { if (!disabled) Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' }); }}
+              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: disabled ? '#4f5068' : '#8a8baa' })}
             ><I /><span>{label}</span></button>
           ))}
           <div style={{ height: '20px', width: '1px', background: '#2a2b3d' }} />
@@ -1101,7 +1185,7 @@ export default function Forge3D() {
             { icon: Icons.Sphere, label: 'Sphere', s: "sphere(r=5, $fn=32);" },
             { icon: Icons.Cylinder, label: 'Cylinder', s: "cylinder(h=10, r=5, $fn=32);" },
           ].map(({ icon: I, label, s }) => (
-            <button key={label} onClick={() => setCode(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
+            <button key={label} onClick={() => applyCodeChange(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
               style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
               onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
               onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
@@ -1131,7 +1215,7 @@ export default function Forge3D() {
               {sidebarTab === 'examples' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {Object.entries(EXAMPLES).map(([name, exampleCode]) => (
-                    <button key={name} onClick={() => { setCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setStatusMessage(`Loaded example: ${name}`); }}
+                    <button key={name} onClick={() => { replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
                       style={{ background: '#1e1f30', border: '1px solid #2a2b3d', color: '#c8c9db', padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
                       onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#252640', borderColor: '#4fc3f7' })}
                       onMouseLeave={e => Object.assign(e.currentTarget.style, { background: '#1e1f30', borderColor: '#2a2b3d' })}
@@ -1149,7 +1233,7 @@ export default function Forge3D() {
                         <span style={{ color: '#6a6b8a' }}>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
                       </div>
                       <input type='range' min={0} max={Math.max(value * 3, 50)} step={value > 10 ? 1 : 0.1} value={value}
-                        onChange={e => { const nv = parseFloat(e.target.value); setCode(c => c.replace(new RegExp(`(${name}\s*=\s*)[\d.]+`), `$1${nv}`)); }}
+                        onChange={e => { const nv = parseFloat(e.target.value); applyCodeChange(c => c.replace(new RegExp(`(${name}\s*=\s*)[\d.]+`), `$1${nv}`)); }}
                         style={{ width: '100%', accentColor: '#4fc3f7', height: '4px' }}
                       />
                     </div>
@@ -1174,10 +1258,11 @@ export default function Forge3D() {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2b3d' }}>
           <div style={{ height: '30px', minHeight: '30px', background: '#1a1b2e', borderBottom: '1px solid #2a2b3d', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: '#8a8baa' }}>{currentFileName}{isDirty ? ' *' : ''}</span>
+            <span style={{ fontSize: '10px', color: canUndo || canRedo ? '#4fc3f7' : '#3a3b55', background: canUndo || canRedo ? '#4fc3f722' : 'transparent', border: canUndo || canRedo ? '1px solid #4fc3f744' : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
             <span style={{ fontSize: '10px', color: '#3a3b55', marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
           </div>
           <div style={{ flex: 1, background: '#1a1b2e', overflow: 'hidden' }}>
-            <CodeEditor code={code} onChange={setCode} />
+            <CodeEditor code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} />
           </div>
 
           <div style={{ height: '180px', minHeight: '100px', borderTop: '1px solid #2a2b3d', display: 'flex', flexDirection: 'column', background: '#16172a' }}>
@@ -1205,8 +1290,8 @@ export default function Forge3D() {
             ))}
           </div>
 
-          <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: '#13141fcc', borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: '#5c5d7a', backdropFilter: 'blur(8px)', border: '1px solid #2a2b3d', display: 'flex', gap: '12px' }}>
-            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Objects: {result.objects.length}</span>
+          <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: '#13141fcc', borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: '#5c5d7a', backdropFilter: 'blur(8px)', border: '1px solid #2a2b3d', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl/Cmd+Z</span><span>Redo: Ctrl+Y</span><span>Objects: {result.objects.length}</span>
           </div>
 
           {result.objects.length > 0 && (
