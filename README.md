@@ -187,7 +187,10 @@ forge3d-app/
 | Key | Action |
 |-----|--------|
 | Tab | Insert 2 spaces |
-| Ctrl+Click Build | Manual build |
+| Ctrl/Cmd + S | Save current `.scad` file |
+| Ctrl/Cmd + O | Open a local `.scad` file |
+| Ctrl/Cmd + N | Reset to a fresh workspace |
+| Shift + Enter / F5 | Manual build |
 | Scroll | Zoom viewport |
 | Left-drag | Orbit camera |
 
@@ -198,7 +201,8 @@ forge3d-app/
 
 ## Roadmap ideas
 
-- [ ] File save/load (.scad files)
+- [x] File save/load (.scad files)
+- [x] Local workspace persistence between refreshes
 - [ ] STL export for 3D printing
 - [ ] Custom module support
 - [ ] True CSG boolean operations

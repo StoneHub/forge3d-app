@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron'
+import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -16,17 +17,19 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
-  // Custom menu
+  const sendMenuAction = (action) => win.webContents.send('menu-action', action)
+
   const menu = Menu.buildFromTemplate([
     {
       label: 'File',
       submenu: [
-        { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => win.webContents.send('new-file') },
-        { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => win.webContents.send('open-file') },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => win.webContents.send('save-file') },
+        { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-file') },
+        { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('open-file') },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save-file') },
         { type: 'separator' },
         { role: 'quit' },
       ],
@@ -66,6 +69,38 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 }
+
+ipcMain.handle('dialog:openFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Open SCAD file',
+    filters: [{ name: 'SCAD files', extensions: ['scad', 'txt'] }],
+    properties: ['openFile'],
+  })
+
+  if (canceled || filePaths.length === 0) return null
+
+  const filePath = filePaths[0]
+  const content = await fs.readFile(filePath, 'utf8')
+  return { filePath, content, name: path.basename(filePath) }
+})
+
+ipcMain.handle('dialog:saveFile', async (_event, payload = {}) => {
+  const { content = '', filePath: existingPath, suggestedName = 'model.scad' } = payload
+  let filePath = existingPath
+
+  if (!filePath) {
+    const { canceled, filePath: chosenPath } = await dialog.showSaveDialog({
+      title: 'Save SCAD file',
+      defaultPath: suggestedName,
+      filters: [{ name: 'SCAD files', extensions: ['scad'] }],
+    })
+    if (canceled || !chosenPath) return null
+    filePath = chosenPath
+  }
+
+  await fs.writeFile(filePath, content, 'utf8')
+  return { filePath, name: path.basename(filePath) }
+})
 
 app.whenReady().then(createWindow)
 

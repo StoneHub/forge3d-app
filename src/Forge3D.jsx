@@ -421,7 +421,7 @@ function interpret(code) {
 }
 
 // ─── 3D RENDERER ─────────────────────────────────────────────────────
-function useThreeRenderer(canvasRef, objects, viewSettings) {
+function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0) {
   const frameRef = useRef(null);
   const mouseRef = useRef({ down: false, button: -1, x: 0, y: 0, theta: 0.8, phi: 0.6, dist: 50 });
 
@@ -434,6 +434,9 @@ function useThreeRenderer(canvasRef, objects, viewSettings) {
 
     const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
     const m = mouseRef.current;
+    if (resetViewSignal > 0) {
+      Object.assign(m, { theta: 0.8, phi: 0.6, dist: 50, down: false, button: -1 });
+    }
     const updateCam = () => {
       camera.position.set(
         m.dist * Math.sin(m.theta) * Math.cos(m.phi),
@@ -544,7 +547,7 @@ function useThreeRenderer(canvasRef, objects, viewSettings) {
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
     };
-  }, [objects, viewSettings]);
+  }, [objects, viewSettings, resetViewSignal]);
 }
 
 // ─── SYNTAX HIGHLIGHTER (preserves whitespace for overlay) ──────────
@@ -900,24 +903,126 @@ echo("Castle with 4 towers");`,
 };
 
 // ─── MAIN APP ────────────────────────────────────────────────────────
+const STORAGE_KEY = 'forge3d.workspace.v1';
+const DEFAULT_FILE_NAME = 'main.scad';
+
+function getDefaultWorkspace() {
+  return {
+    code: EXAMPLES["Welcome"],
+    viewSettings: { grid: true, axes: true, wireframe: true },
+    autoRun: true,
+    currentFileName: DEFAULT_FILE_NAME,
+  };
+}
+
+function loadWorkspace() {
+  if (typeof window === 'undefined') return getDefaultWorkspace();
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return getDefaultWorkspace();
+    const parsed = JSON.parse(raw);
+    return { ...getDefaultWorkspace(), ...parsed, viewSettings: { ...getDefaultWorkspace().viewSettings, ...(parsed.viewSettings || {}) } };
+  } catch {
+    return getDefaultWorkspace();
+  }
+}
+
+function downloadTextFile(name, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function openBrowserFile() {
+  return await new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.scad,.txt,text/plain';
+    input.onchange = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return resolve(null);
+      resolve({
+        name: file.name,
+        content: await file.text(),
+      });
+    };
+    input.click();
+  });
+}
+
 export default function Forge3D() {
-  const [code, setCode] = useState(EXAMPLES["Welcome"]);
+  const initialWorkspace = useMemo(() => loadWorkspace(), []);
+  const [code, setCode] = useState(initialWorkspace.code);
   const [result, setResult] = useState({ objects: [], logs: [], errors: [], warnings: [], variables: {} });
   const [activeTab, setActiveTab] = useState('console');
-  const [viewSettings, setViewSettings] = useState({ grid: true, axes: true, wireframe: true });
+  const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarTab, setSidebarTab] = useState('examples');
-  const [autoRun, setAutoRun] = useState(true);
+  const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [buildTime, setBuildTime] = useState(0);
+  const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
+  const [currentFilePath, setCurrentFilePath] = useState(null);
+  const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.code);
+  const [statusMessage, setStatusMessage] = useState('Workspace restored');
+  const [resetViewSignal, setResetViewSignal] = useState(0);
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
+
+  const isDirty = code !== lastSavedCode;
 
   const runCode = useCallback(() => {
     const start = performance.now();
     const r = interpret(code);
     setBuildTime(Math.round(performance.now() - start));
     setResult(r);
+    setActiveTab(r.errors.length > 0 || r.warnings.length > 0 ? 'errors' : 'console');
   }, [code]);
+
+  const resetWorkspace = useCallback(() => {
+    const next = getDefaultWorkspace();
+    setCode(next.code);
+    setLastSavedCode(next.code);
+    setCurrentFileName(DEFAULT_FILE_NAME);
+    setCurrentFilePath(null);
+    setStatusMessage('Started a new workspace');
+  }, []);
+
+  const openFile = useCallback(async () => {
+    try {
+      const payload = window.forgeAPI?.openFile ? await window.forgeAPI.openFile() : await openBrowserFile();
+      if (!payload) return;
+      setCode(payload.content);
+      setLastSavedCode(payload.content);
+      setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
+      setCurrentFilePath(payload.filePath || null);
+      setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
+    } catch (error) {
+      setStatusMessage(`Open failed: ${error.message}`);
+    }
+  }, []);
+
+  const saveFile = useCallback(async () => {
+    try {
+      const suggestedName = currentFileName?.endsWith('.scad') ? currentFileName : `${currentFileName || 'model'}.scad`;
+      if (window.forgeAPI?.saveFile) {
+        const saved = await window.forgeAPI.saveFile({ content: code, filePath: currentFilePath, suggestedName });
+        if (!saved) return;
+        setCurrentFileName(saved.name || suggestedName);
+        setCurrentFilePath(saved.filePath || null);
+      } else {
+        downloadTextFile(suggestedName, code);
+        setCurrentFileName(suggestedName);
+      }
+      setLastSavedCode(code);
+      setStatusMessage(`Saved ${suggestedName}`);
+    } catch (error) {
+      setStatusMessage(`Save failed: ${error.message}`);
+    }
+  }, [code, currentFileName, currentFilePath]);
 
   useEffect(() => {
     if (!autoRun) return;
@@ -926,7 +1031,34 @@ export default function Forge3D() {
     return () => clearTimeout(timerRef.current);
   }, [code, autoRun, runCode]);
 
-  useThreeRenderer(canvasRef, result.objects, viewSettings);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, viewSettings, autoRun, currentFileName }));
+  }, [code, viewSettings, autoRun, currentFileName]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); saveFile(); }
+      if (mod && event.key.toLowerCase() === 'o') { event.preventDefault(); openFile(); }
+      if (mod && event.key.toLowerCase() === 'n') { event.preventDefault(); resetWorkspace(); }
+      if (event.key === 'F5' || (event.shiftKey && event.key === 'Enter')) { event.preventDefault(); runCode(); }
+    };
+
+    const removeMenu = window.forgeAPI?.onMenuAction?.((action) => {
+      if (action === 'new-file') resetWorkspace();
+      if (action === 'open-file') openFile();
+      if (action === 'save-file') saveFile();
+    });
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      removeMenu?.();
+    };
+  }, [openFile, resetWorkspace, runCode, saveFile]);
+
+  useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal);
 
   const varEntries = Object.entries(result.variables).filter(([, v]) => typeof v === 'number');
 
@@ -942,54 +1074,50 @@ export default function Forge3D() {
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', background: '#13141f', color: '#c8c9db', fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", overflow: 'hidden' }}>
 
-      {/* TOP BAR */}
       <div style={{ height: '42px', minHeight: '42px', background: 'linear-gradient(180deg,#1e1f30,#181924)', borderBottom: '1px solid #2a2b3d', display: 'flex', alignItems: 'center', padding: '0 12px', gap: '8px', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: '22px', height: '22px', background: 'linear-gradient(135deg,#4fc3f7,#7c4dff)', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icons.Cube /></div>
             <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px' }}>
               <span style={{ color: '#4fc3f7' }}>FORGE</span><span style={{ color: '#7c4dff' }}>3D</span>
             </span>
-            <span style={{ fontSize: '10px', color: '#5c5d7a', marginLeft: '4px' }}>v2.1</span>
+            <span style={{ fontSize: '10px', color: '#5c5d7a', marginLeft: '4px' }}>v2.2</span>
           </div>
+          <div style={{ height: '20px', width: '1px', background: '#2a2b3d' }} />
+          {[
+            { icon: Icons.File, label: 'New', action: resetWorkspace },
+            { icon: Icons.File, label: 'Open', action: openFile },
+            { icon: Icons.File, label: 'Save', action: saveFile },
+          ].map(({ icon: I, label, action }) => (
+            <button key={label} onClick={action} title={label}
+              style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
+              onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
+              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
+            ><I /><span>{label}</span></button>
+          ))}
           <div style={{ height: '20px', width: '1px', background: '#2a2b3d' }} />
           {[
             { icon: Icons.Cube, label: 'Cube', s: "cube([10,10,10], center=true);" },
             { icon: Icons.Sphere, label: 'Sphere', s: "sphere(r=5, $fn=32);" },
             { icon: Icons.Cylinder, label: 'Cylinder', s: "cylinder(h=10, r=5, $fn=32);" },
           ].map(({ icon: I, label, s }) => (
-            <button key={label} onClick={() => setCode(c => c + '\n' + s + '\n')} title={`Insert ${label}`}
+            <button key={label} onClick={() => setCode(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
               style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
               onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
               onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
-            ><I /><span>{label}</span></button>
-          ))}
-          <div style={{ height: '20px', width: '1px', background: '#2a2b3d' }} />
-          {[
-            { icon: Icons.Union, label: 'Union', s: "union() {\n  \n}" },
-            { icon: Icons.Minus, label: 'Diff', s: "difference() {\n  \n}" },
-            { icon: Icons.Intersect, label: 'Intersect', s: "intersection() {\n  \n}" },
-          ].map(({ icon: I, label, s }) => (
-            <button key={label} title={label}
-              style={{ background: 'none', border: '1px solid transparent', color: '#8a8baa', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-              onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#2a2b40', borderColor: '#3a3b55', color: '#c8c9db' })}
-              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: '#8a8baa' })}
-              onClick={() => setCode(c => c + '\n' + s + '\n')}
             ><I /><span>{label}</span></button>
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button onClick={() => setResetViewSignal(v => v + 1)} style={{ background: '#1a1b2ecc', border: '1px solid #2a2b3d', color: '#c8c9db', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>Reset View</button>
           <button onClick={runCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}><Icons.Play /> Build</button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#6a6b8a', cursor: 'pointer' }}>
-            <input type="checkbox" checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: '#4fc3f7' }} />Auto
+            <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: '#4fc3f7' }} />Auto
           </label>
         </div>
       </div>
 
-      {/* MAIN AREA */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
-        {/* SIDEBAR */}
         {sidebarOpen && (
           <div style={{ width: '220px', minWidth: '220px', background: '#16172a', borderRight: '1px solid #2a2b3d', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', borderBottom: '1px solid #2a2b3d' }}>
@@ -1002,8 +1130,8 @@ export default function Forge3D() {
             <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
               {sidebarTab === 'examples' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {Object.keys(EXAMPLES).map(name => (
-                    <button key={name} onClick={() => setCode(EXAMPLES[name])}
+                  {Object.entries(EXAMPLES).map(([name, exampleCode]) => (
+                    <button key={name} onClick={() => { setCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setStatusMessage(`Loaded example: ${name}`); }}
                       style={{ background: '#1e1f30', border: '1px solid #2a2b3d', color: '#c8c9db', padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
                       onMouseEnter={e => Object.assign(e.currentTarget.style, { background: '#252640', borderColor: '#4fc3f7' })}
                       onMouseLeave={e => Object.assign(e.currentTarget.style, { background: '#1e1f30', borderColor: '#2a2b3d' })}
@@ -1020,8 +1148,8 @@ export default function Forge3D() {
                         <span style={{ color: '#e5c07b', fontFamily: 'monospace' }}>{name}</span>
                         <span style={{ color: '#6a6b8a' }}>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
                       </div>
-                      <input type="range" min={0} max={Math.max(value * 3, 50)} step={value > 10 ? 1 : 0.1} value={value}
-                        onChange={e => { const nv = parseFloat(e.target.value); setCode(c => c.replace(new RegExp(`(${name}\\s*=\\s*)[\\d.]+`), `$1${nv}`)); }}
+                      <input type='range' min={0} max={Math.max(value * 3, 50)} step={value > 10 ? 1 : 0.1} value={value}
+                        onChange={e => { const nv = parseFloat(e.target.value); setCode(c => c.replace(new RegExp(`(${name}\s*=\s*)[\d.]+`), `$1${nv}`)); }}
                         style={{ width: '100%', accentColor: '#4fc3f7', height: '4px' }}
                       />
                     </div>
@@ -1030,7 +1158,7 @@ export default function Forge3D() {
                     <div style={{ fontSize: '10px', color: '#5c5d7a', fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>View</div>
                     {['grid','axes','wireframe'].map(key => (
                       <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8a8baa', cursor: 'pointer', padding: '3px 0' }}>
-                        <input type="checkbox" checked={viewSettings[key]} onChange={e => setViewSettings(s => ({ ...s, [key]: e.target.checked }))} style={{ accentColor: '#4fc3f7' }} />
+                        <input type='checkbox' checked={viewSettings[key]} onChange={e => setViewSettings(s => ({ ...s, [key]: e.target.checked }))} style={{ accentColor: '#4fc3f7' }} />
                         {key.charAt(0).toUpperCase() + key.slice(1)}
                       </label>
                     ))}
@@ -1041,22 +1169,17 @@ export default function Forge3D() {
           </div>
         )}
 
-        {/* SIDEBAR TOGGLE */}
-        <button onClick={() => setSidebarOpen(o => !o)}
-          style={{ width: '20px', minWidth: '20px', background: '#1a1b2e', border: 'none', borderRight: '1px solid #2a2b3d', color: '#5c5d7a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}
-        >{sidebarOpen ? '◀' : '▶'}</button>
+        <button onClick={() => setSidebarOpen(o => !o)} style={{ width: '20px', minWidth: '20px', background: '#1a1b2e', border: 'none', borderRight: '1px solid #2a2b3d', color: '#5c5d7a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}>{sidebarOpen ? '◀' : '▶'}</button>
 
-        {/* CODE EDITOR */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid #2a2b3d' }}>
           <div style={{ height: '30px', minHeight: '30px', background: '#1a1b2e', borderBottom: '1px solid #2a2b3d', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
-            <Icons.File /><span style={{ fontSize: '12px', color: '#8a8baa' }}>main.scad</span>
-            <span style={{ fontSize: '10px', color: '#3a3b55', marginLeft: 'auto' }}>{code.split('\n').length} lines</span>
+            <Icons.File /><span style={{ fontSize: '12px', color: '#8a8baa' }}>{currentFileName}{isDirty ? ' *' : ''}</span>
+            <span style={{ fontSize: '10px', color: '#3a3b55', marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
           </div>
           <div style={{ flex: 1, background: '#1a1b2e', overflow: 'hidden' }}>
             <CodeEditor code={code} onChange={setCode} />
           </div>
 
-          {/* CONSOLE */}
           <div style={{ height: '180px', minHeight: '100px', borderTop: '1px solid #2a2b3d', display: 'flex', flexDirection: 'column', background: '#16172a' }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #2a2b3d', padding: '0 8px', gap: '2px' }}>
               {[{ id: 'console', label: 'Console', count: result.logs.length }, { id: 'errors', label: 'Problems', count: result.errors.length + result.warnings.length }].map(({ id, label, count }) => (
@@ -1069,24 +1192,12 @@ export default function Forge3D() {
               </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
-              {activeTab === 'console' && (<>
-                {result.logs.length === 0 && <div style={{ color: '#3a3b55' }}>// Console output appears here...</div>}
-                {result.logs.map((log, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: '#81c784' }}>
-                    <span style={{ color: '#4a4b6a', minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span>
-                  </div>
-                ))}
-              </>)}
-              {activeTab === 'errors' && (<>
-                {result.errors.length === 0 && result.warnings.length === 0 && <div style={{ color: '#81c784' }}>✓ No problems detected</div>}
-                {result.errors.map((e, i) => <div key={`e${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '3px 0', color: '#e57373' }}><Icons.Err /><span>{e}</span></div>)}
-                {result.warnings.map((w, i) => <div key={`w${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '3px 0', color: '#ffb74d' }}><Icons.Warn /><span>{w}</span></div>)}
-              </>)}
+              {activeTab === 'console' && (<><div style={{ color: '#5c5d7a', marginBottom: '6px' }}>{statusMessage}</div>{result.logs.length === 0 && <div style={{ color: '#3a3b55' }}>// Console output appears here...</div>}{result.logs.map((log, i) => (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: '#81c784' }}><span style={{ color: '#4a4b6a', minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span></div>))}</>)}
+              {activeTab === 'errors' && (<>{result.errors.length === 0 && result.warnings.length === 0 && <div style={{ color: '#81c784' }}>✓ No problems detected</div>}{result.errors.map((e, i) => <div key={`e${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '3px 0', color: '#e57373' }}><Icons.Err /><span>{e}</span></div>)}{result.warnings.map((w, i) => <div key={`w${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '3px 0', color: '#ffb74d' }}><Icons.Warn /><span>{w}</span></div>)}</>)}
             </div>
           </div>
         </div>
 
-        {/* 3D VIEWPORT */}
         <div style={{ flex: 1.3, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: '#1a1b26' }}>
           <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
             {[{ icon: Icons.Grid, key: 'grid', label: 'Grid' }, { icon: Icons.Layers, key: 'axes', label: 'Axes' }, { icon: Icons.Eye, key: 'wireframe', label: 'Edges' }].map(({ icon: I, key, label }) => (
@@ -1095,7 +1206,7 @@ export default function Forge3D() {
           </div>
 
           <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: '#13141fcc', borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: '#5c5d7a', backdropFilter: 'blur(8px)', border: '1px solid #2a2b3d', display: 'flex', gap: '12px' }}>
-            <span>Orbit: LMB</span><span>Zoom: Scroll</span><span>Objects: {result.objects.length}</span>
+            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Objects: {result.objects.length}</span>
           </div>
 
           {result.objects.length > 0 && (
@@ -1114,11 +1225,11 @@ export default function Forge3D() {
         </div>
       </div>
 
-      {/* STATUS BAR */}
       <div style={{ height: '24px', minHeight: '24px', background: result.errors.length > 0 ? '#e57373' : '#4fc3f7', display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: '#111', fontWeight: 500, transition: 'background 0.3s' }}>
-        <span>{result.errors.length === 0 ? '✓ Ready' : `✗ ${result.errors.length} error(s)`}</span>
+        <span>{result.errors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${result.errors.length} error(s)`}</span>
         <span>{result.objects.length} objects</span>
-        <span>{code.split('\n').length} lines</span>
+        <span>{code.split("\n").length} lines</span>
+        <span>{currentFilePath ? currentFilePath : currentFileName}</span>
         <span style={{ marginLeft: 'auto' }}>Forge3D — Parametric 3D Modeling</span>
       </div>
     </div>
