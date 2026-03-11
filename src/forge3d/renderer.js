@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0, theme = 'dark') {
+function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0, theme = 'dark', stlGeometry = null) {
   const frameRef = useRef(null);
   const mouseRef = useRef({
     down: false, button: -1, x: 0, y: 0,
@@ -70,6 +70,35 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       newScene.add(new THREE.GridHelper(100, 20, gridColor, gridColor2));
     }
     if (viewSettings.axes) newScene.add(new THREE.AxesHelper(15));
+
+    // ── STL geometry from openscad-wasm (Phase 1) ──
+    if (stlGeometry) {
+      const stlMaterial = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color('#4fc3f7'),
+        metalness: 0.05,
+        roughness: 0.3,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.15,
+        transparent: true,
+        opacity: 0.94,
+        envMapIntensity: 1.2,
+      });
+      const stlMesh = new THREE.Mesh(stlGeometry, stlMaterial);
+      // OpenSCAD Y↔Z swap: rotate -90° around X to convert Z-up to Y-up
+      stlMesh.rotation.x = -Math.PI / 2;
+      stlMesh.castShadow = true;
+      stlMesh.receiveShadow = true;
+      newScene.add(stlMesh);
+
+      if (viewSettings.wireframe) {
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(stlGeometry),
+          new THREE.LineBasicMaterial({ color: new THREE.Color('#4fc3f7').multiplyScalar(0.6), transparent: true, opacity: 0.4 }),
+        );
+        edges.rotation.copy(stlMesh.rotation);
+        newScene.add(edges);
+      }
+    }
 
     for (const obj of objects) {
       let geometry;
@@ -239,7 +268,7 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
     };
-  }, [objects, viewSettings, resetViewSignal, theme]);
+  }, [objects, viewSettings, resetViewSignal, theme, stlGeometry]);
 
   return scene;
 }

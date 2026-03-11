@@ -23,10 +23,10 @@ mode = "smart";    // hardcoded per-letter positions for A–Z (best quality)
 // mode = "manual";  // use magnet_positions list below
 
 // ── Font ─────────────────────────────────────────────────────────────────────
-font_name = "Comic Sans MS:style=Bold";   // ← the MOE font
+// font_name = "Comic Sans MS:style=Bold";   // ← the MOE font (not in WASM)
 // font_name = "Bahnschrift:style=Bold";
 // font_name = "Bahnschrift:style=Bold Condensed";
-// font_name = "Liberation Sans:style=Bold";
+font_name = "Liberation Sans:style=Bold";  // ← works in both WASM and desktop
 // font_name = "Arial:style=Bold";
 // font_name = "Impact";
 // font_name = "Anton";                    // Google Font — narrow + punchy

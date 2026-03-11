@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import * as THREE from "three";
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
 import { EXAMPLES } from "./forge3d/examples.js";
@@ -7,6 +8,8 @@ import { interpret } from "./forge3d/interpreter.js";
 import { CodeEditor } from "./forge3d/editor.jsx";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
 import InterpreterWorker from "./forge3d/interpreter.worker.js?worker";
+import OpenSCADWorker from "./forge3d/openscad.worker.js?worker";
+import { parseSTL } from "./forge3d/stl-parser.js";
 
 // ─── EXAMPLES ────────────────────────────────────────────────────────
 // ─── MAIN APP ────────────────────────────────────────────────────────
@@ -39,6 +42,11 @@ export default function Forge3D() {
   const timerRef = useRef(null);
   const editorRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [stlGeometry, setStlGeometry] = useState(null);
+  const [useWasm, setUseWasm] = useState(true); // true = openscad-wasm, false = legacy interpreter
+  const [wasmReady, setWasmReady] = useState(false);
+  const [wasmLoading, setWasmLoading] = useState(false);
+  const openscadWorkerRef = useRef(null);
 
   const colors = theme === 'dark' ? {
     bg: '#13141f', bgPanel: '#1e1f30', bgDark: '#16172a', bgDarker: '#1a1b2e',
@@ -113,63 +121,128 @@ export default function Forge3D() {
   const buildStartRef = useRef(0);
   const [building, setBuilding] = useState(false);
 
-  const BUILD_TIMEOUT = 15000; // ms
+  const BUILD_TIMEOUT = 30000; // ms — WASM renders can take longer
 
-  const runCode = useCallback(() => {
-    // Kill any in-flight worker
-    if (workerRef.current) {
-      workerRef.current.terminate();
-      workerRef.current = null;
-    }
-
+  // ── Legacy interpreter build (fallback) ──
+  const runLegacyBuild = useCallback(() => {
+    if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; }
     const id = ++buildIdRef.current;
     buildStartRef.current = performance.now();
     setBuilding(true);
+    setStlGeometry(null);
 
     const worker = new InterpreterWorker();
     workerRef.current = worker;
 
     const timer = setTimeout(() => {
-      worker.terminate();
-      workerRef.current = null;
-      setBuilding(false);
+      worker.terminate(); workerRef.current = null; setBuilding(false);
       setBuildTime(BUILD_TIMEOUT);
-      setResult({
-        objects: [], logs: [],
-        errors: [`Build timed out after ${BUILD_TIMEOUT / 1000}s — code may contain an infinite loop or unsupported construct`],
-        warnings: [], variables: {},
-      });
+      setResult({ objects: [], logs: [], errors: [`Build timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
       setActiveTab('errors');
     }, BUILD_TIMEOUT);
 
     worker.onmessage = (e) => {
-      if (e.data.id !== id) return; // stale result
-      clearTimeout(timer);
-      workerRef.current = null;
-      setBuilding(false);
-      const elapsed = Math.round(performance.now() - buildStartRef.current);
-      setBuildTime(elapsed);
+      if (e.data.id !== id) return;
+      clearTimeout(timer); workerRef.current = null; setBuilding(false);
+      setBuildTime(Math.round(performance.now() - buildStartRef.current));
       const r = e.data.result;
       setResult(r);
       setActiveTab(r.errors.length > 0 || r.warnings.length > 0 ? 'errors' : 'console');
     };
-
     worker.onerror = (err) => {
-      clearTimeout(timer);
-      worker.terminate();
-      workerRef.current = null;
-      setBuilding(false);
+      clearTimeout(timer); worker.terminate(); workerRef.current = null; setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      setResult({
-        objects: [], logs: [],
-        errors: [err.message || 'Worker crashed'],
-        warnings: [], variables: {},
-      });
+      setResult({ objects: [], logs: [], errors: [err.message || 'Worker crashed'], warnings: [], variables: {} });
+      setActiveTab('errors');
+    };
+    worker.postMessage({ code, id });
+  }, [code]);
+
+  // ── OpenSCAD WASM build (primary) ──
+  const runWasmBuild = useCallback(() => {
+    const id = ++buildIdRef.current;
+    buildStartRef.current = performance.now();
+    setBuilding(true);
+
+    // Create a persistent worker if we don't have one
+    if (!openscadWorkerRef.current) {
+      setWasmLoading(true);
+      openscadWorkerRef.current = new OpenSCADWorker();
+    }
+    const worker = openscadWorkerRef.current;
+
+    const timer = setTimeout(() => {
+      // Kill and recreate worker on timeout
+      worker.terminate();
+      openscadWorkerRef.current = null;
+      setBuilding(false);
+      setWasmReady(false);
+      setBuildTime(BUILD_TIMEOUT);
+      setResult({ objects: [], logs: [], errors: [`WASM render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
+      setActiveTab('errors');
+    }, BUILD_TIMEOUT);
+
+    const handler = (e) => {
+      if (e.data.id !== id) return;
+      clearTimeout(timer);
+      setBuilding(false);
+      setWasmLoading(false);
+      setWasmReady(true);
+      const elapsed = Math.round(performance.now() - buildStartRef.current);
+      setBuildTime(elapsed);
+
+      if (e.data.type === 'error') {
+        setStlGeometry(null);
+        const logs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
+        const stderrLines = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
+        const errorMsg = e.data.error != null ? String(e.data.error) : '';
+        const errors = stderrLines.length > 0 ? stderrLines : (errorMsg ? [errorMsg] : ['Unknown WASM error']);
+        setResult({ objects: [], logs, errors, warnings: [], variables: {} });
+        setActiveTab('errors');
+      } else {
+        // Parse STL into Three.js geometry
+        try {
+          const stlData = e.data.stl;
+          const parsed = parseSTL(stlData instanceof ArrayBuffer ? stlData : (typeof stlData === 'string' ? stlData : new Uint8Array(stlData)));
+          const geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3));
+          geometry.setAttribute('normal', new THREE.BufferAttribute(parsed.normals, 3));
+          geometry.computeBoundingBox();
+          setStlGeometry(geometry);
+
+          const logs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
+          const warnings = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
+          setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`, ...logs], errors: [], warnings, variables: {} });
+          setActiveTab('console');
+        } catch (parseErr) {
+          setStlGeometry(null);
+          setResult({ objects: [], logs: [], errors: [`STL parse error: ${parseErr.message}`], warnings: [], variables: {} });
+          setActiveTab('errors');
+        }
+      }
+    };
+
+    const errorHandler = (err) => {
+      clearTimeout(timer);
+      setBuilding(false);
+      setWasmLoading(false);
+      setBuildTime(Math.round(performance.now() - buildStartRef.current));
+      // Worker crashed — recreate on next build
+      openscadWorkerRef.current = null;
+      setWasmReady(false);
+      setResult({ objects: [], logs: [], errors: [`WASM worker error: ${err.message || 'crashed'}`], warnings: [], variables: {} });
       setActiveTab('errors');
     };
 
-    worker.postMessage({ code, id });
+    worker.onmessage = handler;
+    worker.onerror = errorHandler;
+    worker.postMessage({ type: 'render', id, code, outputFormat: 'stl' });
   }, [code]);
+
+  const runCode = useCallback(() => {
+    if (useWasm) runWasmBuild();
+    else runLegacyBuild();
+  }, [useWasm, runWasmBuild, runLegacyBuild]);
 
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
@@ -254,12 +327,15 @@ export default function Forge3D() {
     };
   }, [openFile, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
 
-  // Clean up worker on unmount
+  // Clean up workers on unmount
   useEffect(() => {
-    return () => { if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; } };
+    return () => {
+      if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; }
+      if (openscadWorkerRef.current) { openscadWorkerRef.current.terminate(); openscadWorkerRef.current = null; }
+    };
   }, []);
 
-  const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme);
+  const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
 
   // ── Drag-and-drop .scad file import ──
   const handleDragOver = useCallback((e) => {
@@ -317,11 +393,11 @@ ${errorText || 'None'}
 ${warnText || 'None'}
 
 Please explain what's wrong and show me the corrected code.`;
-    navigator.clipboard.writeText(prompt).catch(() => {});
-    // Open Claude.ai with the prompt pre-filled via URL
-    const url = `https://claude.ai/new?q=${encodeURIComponent(prompt.slice(0, 2000))}`;
-    window.open(url, '_blank');
-    setStatusMessage('Prompt opened in Claude.ai (also copied to clipboard)');
+    navigator.clipboard.writeText(prompt).then(() => {
+      setStatusMessage('AI debug prompt copied to clipboard');
+    }).catch(() => {
+      setStatusMessage('Failed to copy to clipboard');
+    });
   }, [code, result.errors, result.warnings, currentFileName]);
 
   const varEntries = Object.entries(result.variables).filter(([, v]) => typeof v === 'number');
@@ -401,6 +477,9 @@ Please explain what's wrong and show me the corrected code.`;
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textMuted, cursor: 'pointer' }}>
             <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: colors.accent }} />Auto
           </label>
+          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: useWasm ? `${colors.success}22` : `${colors.warn}22`, color: useWasm ? colors.success : colors.warn, border: `1px solid ${useWasm ? colors.success : colors.warn}44`, cursor: 'pointer' }} onClick={() => setUseWasm(w => !w)} title={useWasm ? 'Using OpenSCAD WASM (click for legacy)' : 'Using legacy interpreter (click for WASM)'}>
+            {useWasm ? (wasmLoading ? 'WASM loading…' : 'WASM') : 'Legacy'}
+          </span>
         </div>
       </div>
 
@@ -489,13 +568,14 @@ Please explain what's wrong and show me the corrected code.`;
               {activeTab === 'errors' && (
                 <>
                   {result.errors.length === 0 && result.warnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
-                  {result.errors.map((e, i) => {
-                    const lineMatch = e.match(/line (\d+)/);
+                  {result.errors.map((rawErr, i) => {
+                    const msg = typeof rawErr === 'string' ? rawErr : (rawErr?.message ?? JSON.stringify(rawErr));
+                    const lineMatch = msg.match(/line (\d+)/);
                     const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
                     return (
                       <div key={`e${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
                         <span style={{ color: colors.error, flexShrink: 0, marginTop: '1px' }}><Icons.Err /></span>
-                        <span style={{ color: colors.error, flex: 1 }}>{e.replace(/ \(line \d+\)/, '')}</span>
+                        <span style={{ color: colors.error, flex: 1 }}>{msg.replace(/ \(line \d+\)/, '')}</span>
                         {lineNum && (
                           <button onClick={() => jumpToLine(lineNum)} style={{ background: `${colors.error}22`, border: `1px solid ${colors.error}44`, borderRadius: '4px', color: colors.error, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                             line {lineNum} ↗
@@ -504,13 +584,14 @@ Please explain what's wrong and show me the corrected code.`;
                       </div>
                     );
                   })}
-                  {result.warnings.map((w, i) => {
-                    const lineMatch = w.match(/line (\d+)/);
+                  {result.warnings.map((rawWarn, i) => {
+                    const msg = typeof rawWarn === 'string' ? rawWarn : (rawWarn?.message ?? JSON.stringify(rawWarn));
+                    const lineMatch = msg.match(/line (\d+)/);
                     const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
                     return (
                       <div key={`w${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
                         <span style={{ color: colors.warn, flexShrink: 0, marginTop: '1px' }}><Icons.Warn /></span>
-                        <span style={{ color: colors.warn, flex: 1 }}>{w.replace(/ \(line \d+\)/, '')}</span>
+                        <span style={{ color: colors.warn, flex: 1 }}>{msg.replace(/ \(line \d+\)/, '')}</span>
                         {lineNum && (
                           <button onClick={() => jumpToLine(lineNum)} style={{ background: `${colors.warn}22`, border: `1px solid ${colors.warn}44`, borderRadius: '4px', color: colors.warn, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                             line {lineNum} ↗
