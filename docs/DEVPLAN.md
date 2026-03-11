@@ -1,5 +1,5 @@
 # Forge3D — Development Plan for Next Agent
-_Last updated: 2026-03-11_
+_Last updated: 2026-03-11 (session 3)_
 
 ---
 
@@ -26,19 +26,50 @@ The user makes 3D-printed fridge magnet letters using OpenSCAD. Their files work
 | Ask AI (clipboard dump) | `src/Forge3D.jsx` | Copies debug prompt to clipboard |
 | Sample file: magnetic_letter_only.scad | `Samples/` | Uses Liberation Sans:style=Bold |
 
-### ⚠️ PARTIALLY WORKING
-| Feature | Issue | What to do |
-|---------|-------|-----------|
-| openscad-wasm rendering | Renders in Node.js tests (143ms, valid STL). Browser render status unknown — need DevTools check. "Still not working" from user but exact error unclear. | Open DevTools (F12 → Console) and note the exact error. See Debugging section below. |
-| Font support in WASM | Liberation Sans fetched from CDN at startup, written to WASM FS + fontconfig. Best-effort, not verified in browser. | Confirm font fetch succeeds (Network tab: filter by "Liberation") |
+### ⚠️ CONFIRMED BROKEN — Fix this first
+| Feature | Root Cause | Fix |
+|---------|-----------|-----|
+| `text()` / font support in WASM | **The CDN URL for Liberation Sans returns 404.** `fetch('https://cdn.jsdelivr.net/gh/liberationfonts/...')` fails silently, no fonts are written to WASM FS, `text()` produces empty geometry. | See Font Fix section below. |
+
+### ✅ CONFIRMED WORKING
+- WASM render pipeline — simple shapes (cube, sphere, cylinder) render correctly in browser
+- STL parser — binary and ASCII both work
+- Three.js display — orbit, pan, shadows, correct coordinate system
 
 ### ❌ NOT STARTED
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| OpenSCAD LSP in Electron | **HIGH — next task** | See LSP Implementation Plan below |
+| OpenSCAD LSP in Electron | **HIGH** | See LSP Implementation Plan below |
 | Print Mode UI | MEDIUM | See `docs/WORKFLOW.md` |
 | PrusaSlicer CLI integration | MEDIUM | See `docs/WORKFLOW.md` |
 | Print bed arrangement | LOW | Three.js scene with drag/rotate |
+
+---
+
+## 🔥 Font Fix — Do This First
+
+### Root cause (confirmed)
+The CDN URL `https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/...` returns **404**. Font loading silently fails. OpenSCAD's `text()` produces no geometry. All letter files render blank.
+
+### Fix option A — Bundle fonts in `/public/fonts/` (recommended)
+1. Research agent: find working download URLs for Liberation Sans Bold + Regular TTF (try GitHub releases, Google Fonts, or the `npm` package `liberation-fonts-ttf`)
+2. Download to `public/fonts/LiberationSans-Bold.ttf` and `public/fonts/LiberationSans-Regular.ttf`
+3. Update `src/forge3d/openscad.worker.js` `loadFonts()` to fetch from local URL:
+   ```js
+   // Replace CDN urls with:
+   { name: 'LiberationSans-Bold.ttf',    url: '/fonts/LiberationSans-Bold.ttf' },
+   { name: 'LiberationSans-Regular.ttf', url: '/fonts/LiberationSans-Regular.ttf' },
+   ```
+   In a Web Worker `fetch('/fonts/...')` resolves to `http://localhost:5173/fonts/...` which Vite serves from `public/`. ✓
+4. Test: load `Samples/magnetic_letter_only.scad`, click Build — should render letter M with magnet pockets.
+
+### Fix option B — Use desktop OpenSCAD binary via Electron IPC (Electron-only, simpler)
+The user has OpenSCAD installed at `C:\Program Files\OpenSCAD\openscad.com`. In Electron mode, skip WASM entirely for the render:
+1. In `electron/main.mjs`, add `ipcMain.handle('openscad:render', async (_e, { code, outputPath }) => { ... })` that writes code to temp file, runs `openscad.com -o output.stl input.scad`, returns STL bytes.
+2. In `src/Forge3D.jsx`, when `window.forgeAPI?.renderOpenSCAD` is available, use it instead of WASM worker.
+3. Result: 100% OpenSCAD compatibility including all system fonts, no WASM font headaches.
+
+**Recommendation**: Do Option A for the browser WASM path (needed for non-Electron), and Option B for Electron (better quality). Both can coexist — Electron uses native, browser uses WASM.
 
 ---
 
