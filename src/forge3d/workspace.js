@@ -1,3 +1,4 @@
+import { EXAMPLES } from './examples.js';
 const STORAGE_KEY = 'forge3d.workspace.v1';
 const DEFAULT_FILE_NAME = 'main.scad';
 
