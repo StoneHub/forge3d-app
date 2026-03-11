@@ -20,10 +20,12 @@ async function getInstance() {
 }
 
 async function loadFonts(fs_instance) {
-  // Fetch Liberation Sans from CDN — open-source font, SIL license
+  // Fonts served locally from /public/fonts/ (copied from OpenSCAD installation)
+  // self.location.origin gives the Vite dev server or Electron origin
+  const origin = self.location.origin;
   const fonts = [
-    { name: 'LiberationSans-Bold.ttf',    url: 'https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/liberation-fonts-ttf-2.1.5/LiberationSans-Bold.ttf' },
-    { name: 'LiberationSans-Regular.ttf', url: 'https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/liberation-fonts-ttf-2.1.5/LiberationSans-Regular.ttf' },
+    { name: 'LiberationSans-Bold.ttf',    url: `${origin}/fonts/LiberationSans-Bold.ttf` },
+    { name: 'LiberationSans-Regular.ttf', url: `${origin}/fonts/LiberationSans-Regular.ttf` },
   ];
 
   try { fs_instance.FS.mkdir('/fonts'); } catch (_) {}
