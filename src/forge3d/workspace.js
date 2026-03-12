@@ -9,7 +9,7 @@ export const DEFAULT_FILE_NAME = 'main.scad';
 export function getDefaultWorkspace() {
   return {
     code: EXAMPLES["Welcome"],
-    viewSettings: { grid: true, axes: true, wireframe: true },
+    viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true },
     autoRun: true,
     currentFileName: DEFAULT_FILE_NAME,
   };

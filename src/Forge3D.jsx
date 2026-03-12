@@ -8,6 +8,8 @@ import { CodeEditor } from "./forge3d/editor.jsx";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
 import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
+import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
+import TerminalPane from "./forge3d/terminal.jsx";
 
 // ─── HISTORY ────────────────────────────────────────────────────────
 function createHistoryState(initialCode) {
@@ -39,6 +41,12 @@ export default function Forge3D() {
   const [stlGeometry, setStlGeometry] = useState(null);
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [] });
+
+  // ─── Phase 1 state ──────────────────────────────────────────────────
+  const [recentFiles, setRecentFiles] = useState([]);
+  const [workspaceFolder, setWorkspaceFolder] = useState(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState([]);
+  const [parsedParams, setParsedParams] = useState([]);
 
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
@@ -168,6 +176,26 @@ export default function Forge3D() {
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
       setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
+      // Refresh recent files list
+      window.forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
+    } catch (error) {
+      setStatusMessage(`Open failed: ${error.message}`);
+    }
+  }, [replaceCodeWithoutHistory]);
+
+  const openFilePath = useCallback(async (filePath) => {
+    try {
+      const payload = await window.forgeAPI.openFilePath(filePath);
+      if (!payload || payload.error) {
+        setStatusMessage(`Failed to open: ${payload?.error || 'unknown error'}`);
+        return;
+      }
+      replaceCodeWithoutHistory(payload.content);
+      setLastSavedCode(payload.content);
+      setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
+      setCurrentFilePath(payload.filePath || null);
+      setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
+      window.forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
@@ -200,6 +228,27 @@ export default function Forge3D() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, viewSettings, autoRun, currentFileName, theme }));
   }, [code, viewSettings, autoRun, currentFileName, theme]);
 
+  // ─── Load recent files & workspace on mount ──────────────────────────
+  useEffect(() => {
+    window.forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
+    window.forgeAPI.getWorkspaceFolder?.().then(folder => {
+      if (folder) {
+        setWorkspaceFolder(folder);
+        window.forgeAPI.listWorkspaceFiles?.().then(setWorkspaceFiles).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  // ─── Parse @param annotations on code change ─────────────────────────
+  useEffect(() => {
+    try {
+      const params = parseParams(code);
+      setParsedParams(params);
+    } catch (_) {
+      setParsedParams([]);
+    }
+  }, [code]);
+
   // ─── Global keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -220,11 +269,16 @@ export default function Forge3D() {
       if (action === 'new-file') resetWorkspace();
       if (action === 'open-file') openFile();
       if (action === 'save-file') saveFile();
+      // Handle open-recent:<path> from Electron menu
+      if (action.startsWith('open-recent:')) {
+        const fp = action.slice('open-recent:'.length);
+        openFilePath(fp);
+      }
     });
 
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); removeMenu?.(); };
-  }, [openFile, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
+  }, [openFile, openFilePath, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
@@ -371,17 +425,45 @@ export default function Forge3D() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Sidebar */}
         {sidebarOpen && (
-          <div style={{ width: '220px', minWidth: '220px', background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ width: '240px', minWidth: '240px', background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${colors.border}` }}>
-              {['examples', 'params'].map(tab => (
-                <button key={tab} onClick={() => setSidebarTab(tab)}
-                  style={{ flex: 1, padding: '8px', background: sidebarTab === tab ? colors.bgPanel : 'transparent', border: 'none', borderBottom: sidebarTab === tab ? `2px solid ${colors.accent}` : '2px solid transparent', color: sidebarTab === tab ? colors.accent : colors.textMuted, cursor: 'pointer', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}
-                >{tab === 'examples' ? '📂 Examples' : '⚙ Params'}</button>
+              {[{ id: 'examples', label: '📂 Examples' }, { id: 'workspace', label: '📁 Workspace' }, { id: 'params', label: '⚙ Params' }].map(({ id, label }) => (
+                <button key={id} onClick={() => {
+                  setSidebarTab(id);
+                  if (id === 'workspace' && workspaceFolder) {
+                    window.forgeAPI.listWorkspaceFiles?.().then(setWorkspaceFiles).catch(() => {});
+                  }
+                }}
+                  style={{ flex: 1, padding: '6px 2px', background: sidebarTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: sidebarTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: sidebarTab === id ? colors.accent : colors.textMuted, cursor: 'pointer', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}
+                >{label}</button>
               ))}
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
-              {sidebarTab === 'examples' ? (
+              {/* ── Examples Tab ── */}
+              {sidebarTab === 'examples' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {/* Recent Files Section */}
+                  {recentFiles.length > 0 && (
+                    <>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '4px 2px 2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>🕐 Recent</span>
+                        <button onClick={() => { window.forgeAPI.clearRecentFiles?.().then(() => setRecentFiles([])); }} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '9px', padding: '2px 4px' }} title="Clear recent files">✕</button>
+                      </div>
+                      {recentFiles.slice(0, 5).map(fp => {
+                        const fname = fp.split(/[\\/]/).pop();
+                        return (
+                          <button key={fp} onClick={() => openFilePath(fp)} title={fp}
+                            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+                            onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
+                            onMouseLeave={e => Object.assign(e.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
+                          >🕐 {fname}</button>
+                        );
+                      })}
+                      <div style={{ height: '1px', background: colors.border, margin: '4px 0' }} />
+                    </>
+                  )}
+                  {/* Examples Section */}
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '4px 2px 2px', letterSpacing: '0.5px' }}>Built-in Examples</div>
                   {Object.entries(EXAMPLES).map(([name, exampleCode]) => (
                     <button key={name} onClick={() => { replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
                       style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
@@ -390,8 +472,147 @@ export default function Forge3D() {
                     ><Icons.File />{name}</button>
                   ))}
                 </div>
-              ) : (
-                <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>Variable sliders coming soon.</div>
+              )}
+
+              {/* ── Workspace Tab ── */}
+              {sidebarTab === 'workspace' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {workspaceFolder ? (
+                    <>
+                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span title={workspaceFolder}>📁 {workspaceFolder.split(/[\\/]/).pop()}</span>
+                        <button onClick={async () => {
+                          const folder = await window.forgeAPI.setWorkspaceFolder?.();
+                          if (folder) {
+                            setWorkspaceFolder(folder);
+                            const files = await window.forgeAPI.listWorkspaceFiles?.();
+                            setWorkspaceFiles(files || []);
+                          }
+                        }} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Change folder">📂</button>
+                      </div>
+                      {workspaceFiles.length === 0 ? (
+                        <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>No .scad files found</div>
+                      ) : (
+                        workspaceFiles.map(f => (
+                          <button key={f.fullPath} onClick={() => openFilePath(f.fullPath)} title={f.relativePath}
+                            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
+                            onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
+                            onMouseLeave={e => Object.assign(e.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
+                          ><Icons.File /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.relativePath}</span></button>
+                        ))
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '16px 8px' }}>
+                      <div style={{ color: colors.textFaint, fontSize: '11px', marginBottom: '10px' }}>Set a workspace folder to browse .scad files</div>
+                      <button onClick={async () => {
+                        const folder = await window.forgeAPI.setWorkspaceFolder?.();
+                        if (folder) {
+                          setWorkspaceFolder(folder);
+                          const files = await window.forgeAPI.listWorkspaceFiles?.();
+                          setWorkspaceFiles(files || []);
+                        }
+                      }}
+                        style={{ background: `${colors.accent}22`, border: `1px solid ${colors.accent}`, color: colors.accent, padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                      >📁 Set Workspace Folder</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Params Tab ── */}
+              {sidebarTab === 'params' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {parsedParams.length === 0 ? (
+                    <div style={{ color: colors.textFaint, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>
+                      <div style={{ marginBottom: '8px' }}>No parameters detected.</div>
+                      <div style={{ fontSize: '10px', color: colors.textFaint, lineHeight: '1.45' }}>Add <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>// @param</code> annotations to your .scad code:</div>
+                      <pre style={{ textAlign: 'left', fontSize: '9px', marginTop: '8px', padding: '6px', background: colors.bgDarker, borderRadius: '4px', border: `1px solid ${colors.border}`, lineHeight: '1.4', overflow: 'auto' }}>{`// @param size = 10  // type: number, min: 1, max: 50
+size = 10;`}</pre>
+                    </div>
+                  ) : (
+                    parsedParams.map(param => (
+                      <div key={param.name} style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.accent, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{param.name}</span>
+                          <span style={{ fontSize: '10px', color: colors.textFaint, fontWeight: 400 }}>{param.type}</span>
+                        </div>
+
+                        {/* Number → Slider */}
+                        {param.type === 'number' && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input type="range"
+                              min={param.min ?? 0}
+                              max={param.max ?? (param.value * 3 || 100)}
+                              step={param.step ?? (param.value < 1 ? 0.01 : param.value < 10 ? 0.1 : 1)}
+                              value={param.value}
+                              onChange={e => {
+                                const newCode = applyParamChange(code, param.name, parseFloat(e.target.value));
+                                applyCodeChange(newCode);
+                              }}
+                              style={{ flex: 1, accentColor: colors.accent, height: '4px' }}
+                            />
+                            <input type="number"
+                              value={param.value}
+                              min={param.min}
+                              max={param.max}
+                              step={param.step ?? 0.1}
+                              onChange={e => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val)) {
+                                  const newCode = applyParamChange(code, param.name, val);
+                                  applyCodeChange(newCode);
+                                }
+                              }}
+                              style={{ width: '52px', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '2px 4px', fontSize: '11px', textAlign: 'center' }}
+                            />
+                          </div>
+                        )}
+
+                        {/* String → Text input */}
+                        {param.type === 'string' && (
+                          <input type="text"
+                            value={param.value}
+                            onChange={e => {
+                              const newCode = applyParamChange(code, param.name, e.target.value);
+                              applyCodeChange(newCode);
+                            }}
+                            style={{ width: '100%', boxSizing: 'border-box', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
+                          />
+                        )}
+
+                        {/* Enum → Dropdown */}
+                        {param.type === 'enum' && param.options && (
+                          <select
+                            value={param.value}
+                            onChange={e => {
+                              const newCode = applyParamChange(code, param.name, e.target.value);
+                              applyCodeChange(newCode);
+                            }}
+                            style={{ width: '100%', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
+                          >
+                            {param.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
+                        )}
+
+                        {/* Boolean → Checkbox */}
+                        {param.type === 'boolean' && (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.text, cursor: 'pointer' }}>
+                            <input type="checkbox"
+                              checked={param.value}
+                              onChange={e => {
+                                const newCode = applyParamChange(code, param.name, e.target.checked);
+                                applyCodeChange(newCode);
+                              }}
+                              style={{ accentColor: colors.accent }}
+                            />
+                            {param.value ? 'true' : 'false'}
+                          </label>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -410,10 +631,14 @@ export default function Forge3D() {
             <CodeEditor ref={editorRef} code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} theme={theme} onBuild={runCode} />
           </div>
 
-          {/* Console / Problems panel */}
+          {/* Console / Problems / Terminal panel */}
           <div style={{ height: '180px', minHeight: '100px', borderTop: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
-              {[{ id: 'console', label: 'Console', count: result.logs.length }, { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length }].map(({ id, label, count }) => (
+              {[
+                { id: 'console', label: 'Console', count: result.logs.length },
+                { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length },
+                { id: 'terminal', label: '>_ Terminal', count: 0 }
+              ].map(({ id, label, count }) => (
                 <button key={id} onClick={() => setActiveTab(id)}
                   style={{ background: activeTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: activeTab === id ? colors.text : colors.textMuted, cursor: 'pointer', padding: '5px 10px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}
                 >{label}{count > 0 && <span style={{ background: id === 'errors' && allErrors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && allErrors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>{count}</span>}</button>
@@ -427,7 +652,7 @@ export default function Forge3D() {
                 <Icons.Zap /><span>{buildTime}ms</span>
               </div>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
+            <div style={{ flex: 1, overflow: 'auto', padding: activeTab === 'terminal' ? '0' : '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
               {activeTab === 'console' && (<>{result.logs.length === 0 && <div style={{ color: colors.textFaint, marginBottom: '6px' }}>{statusMessage}</div>}{result.logs.length === 0 && <div style={{ color: colors.borderHover }}>// Console output appears here...</div>}{result.logs.map((log, i) => (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}><span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span></div>))}</>)}
               {activeTab === 'errors' && (
                 <>
@@ -466,6 +691,7 @@ export default function Forge3D() {
                   })}
                 </>
               )}
+              {activeTab === 'terminal' && <TerminalPane colors={colors} />}
             </div>
           </div>
         </div>
@@ -473,7 +699,12 @@ export default function Forge3D() {
         {/* 3D viewport */}
         <div style={{ flex: 1.3, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
           <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
-            {[{ icon: Icons.Grid, key: 'grid', label: 'Grid' }, { icon: Icons.Layers, key: 'axes', label: 'Axes' }, { icon: Icons.Eye, key: 'wireframe', label: 'Edges' }].map(({ icon: I, key, label }) => (
+            {[
+              { icon: Icons.Grid, key: 'grid', label: 'Grid' },
+              { icon: Icons.Layers, key: 'axes', label: 'Axes' },
+              { icon: Icons.Eye, key: 'wireframe', label: 'Edges' },
+              { icon: Icons.Ruler, key: 'dimensions', label: 'Dimensions' }
+            ].map(({ icon: I, key, label }) => (
               <button key={key} title={label} onClick={() => setViewSettings(s => ({ ...s, [key]: !s[key] }))} style={BtnStyle(viewSettings[key])}><I /></button>
             ))}
           </div>

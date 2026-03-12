@@ -1,0 +1,36 @@
+/* Terminal container styling to ensure proper fit */
+.xterm {
+  padding: 8px;
+  height: 100%;
+}
+
+.xterm .xterm-viewport {
+  overflow-y: auto;
+}
+
+.xterm .xterm-screen {
+  width: 100%;
+}
+
+/* Ensure terminal uses full container space */
+.xterm-rows {
+  width: 100%;
+}
+
+/* Custom scrollbar for terminal */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

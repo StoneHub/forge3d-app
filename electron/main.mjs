@@ -7,12 +7,44 @@ import { fileURLToPath } from 'url'
 import { spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
+// ── node-pty import (with fallback) ─────────────────────────────────────────
+let pty = null
+
 const execFileAsync = promisify(execFile)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_BIN = 'C:\\Program Files\\OpenSCAD\\openscad.com'
+
+// ── Config (userData JSON) ──────────────────────────────────────────────────
+const CONFIG_PATH = path.join(app.getPath('userData'), 'forge3d-config.json')
+const MAX_RECENT_FILES = 10
+
+function loadConfig() {
+  try {
+    if (fsSync.existsSync(CONFIG_PATH)) {
+      return JSON.parse(fsSync.readFileSync(CONFIG_PATH, 'utf8'))
+    }
+  } catch (_) {}
+  return { recentFiles: [], workspaceFolder: null }
+}
+
+function saveConfig(config) {
+  try {
+    fsSync.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
+  } catch (err) {
+    console.warn('[Config] Failed to save:', err.message)
+  }
+}
+
+function addRecentFile(filePath) {
+  const config = loadConfig()
+  // Remove duplicate if exists, then prepend
+  config.recentFiles = [filePath, ...config.recentFiles.filter(f => f !== filePath)].slice(0, MAX_RECENT_FILES)
+  saveConfig(config)
+  return config.recentFiles
+}
 
 // ── LSP process ────────────────────────────────────────────────────────────
 let lspProcess = null
@@ -63,23 +95,28 @@ function spawnLSP(win) {
   }
 }
 
-// ── Window ──────────────────────────────────────────────────────────────────
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
-    title: 'Forge3D',
-    backgroundColor: '#13141f',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.cjs'),
-    },
-  })
+// ── Dynamic menu builder ────────────────────────────────────────────────────
+let mainWin = null
 
-  const sendMenuAction = (action) => win.webContents.send('menu-action', action)
+function buildAppMenu() {
+  const config = loadConfig()
+  const recentSubmenu = config.recentFiles.length > 0
+    ? [
+        ...config.recentFiles.map(fp => ({
+          label: fp,
+          click: () => mainWin?.webContents.send('menu-action', `open-recent:${fp}`),
+        })),
+        { type: 'separator' },
+        { label: 'Clear Recent Files', click: () => {
+          const cfg = loadConfig()
+          cfg.recentFiles = []
+          saveConfig(cfg)
+          buildAppMenu() // Rebuild menu
+        }},
+      ]
+    : [{ label: 'No recent files', enabled: false }]
+
+  const sendMenuAction = (action) => mainWin?.webContents.send('menu-action', action)
 
   const menu = Menu.buildFromTemplate([
     {
@@ -88,6 +125,8 @@ function createWindow() {
         { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-file') },
         { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('open-file') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendMenuAction('save-file') },
+        { type: 'separator' },
+        { label: 'Recent Files', submenu: recentSubmenu },
         { type: 'separator' },
         { role: 'quit' },
       ],
@@ -119,6 +158,26 @@ function createWindow() {
     },
   ])
   Menu.setApplicationMenu(menu)
+}
+
+// ── Window ──────────────────────────────────────────────────────────────────
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Forge3D',
+    backgroundColor: '#13141f',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
+  })
+
+  mainWin = win
+  buildAppMenu()
 
   if (isDev) {
     win.loadURL('http://localhost:5173')
@@ -142,6 +201,9 @@ ipcMain.handle('dialog:openFile', async () => {
 
   const filePath = filePaths[0]
   const content = await fs.readFile(filePath, 'utf8')
+  // Auto-add to recent files
+  addRecentFile(filePath)
+  buildAppMenu()
   return { filePath, content, name: path.basename(filePath) }
 })
 
@@ -161,6 +223,97 @@ ipcMain.handle('dialog:saveFile', async (_event, payload = {}) => {
 
   await fs.writeFile(filePath, content, 'utf8')
   return { filePath, name: path.basename(filePath) }
+})
+
+// ── Open a specific file by path (for recent files / workspace) ─────────────
+ipcMain.handle('file:openPath', async (_event, filePath) => {
+  try {
+    const content = await fs.readFile(filePath, 'utf8')
+    addRecentFile(filePath)
+    buildAppMenu()
+    return { filePath, content, name: path.basename(filePath) }
+  } catch (err) {
+    return { error: err.message }
+  }
+})
+
+// ── Recent files IPC ────────────────────────────────────────────────────────
+ipcMain.handle('recentFiles:get', () => {
+  const config = loadConfig()
+  // Filter out files that no longer exist
+  const valid = config.recentFiles.filter(f => fsSync.existsSync(f))
+  if (valid.length !== config.recentFiles.length) {
+    config.recentFiles = valid
+    saveConfig(config)
+    buildAppMenu()
+  }
+  return valid
+})
+
+ipcMain.handle('recentFiles:add', (_event, filePath) => {
+  const updated = addRecentFile(filePath)
+  buildAppMenu()
+  return updated
+})
+
+ipcMain.handle('recentFiles:clear', () => {
+  const config = loadConfig()
+  config.recentFiles = []
+  saveConfig(config)
+  buildAppMenu()
+  return []
+})
+
+// ── Workspace folder IPC ────────────────────────────────────────────────────
+ipcMain.handle('workspace:getFolder', () => {
+  const config = loadConfig()
+  return config.workspaceFolder || null
+})
+
+ipcMain.handle('workspace:setFolder', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Select Workspace Folder',
+    properties: ['openDirectory'],
+  })
+  if (canceled || filePaths.length === 0) return null
+  const folderPath = filePaths[0]
+  console.log('[Workspace] Folder set to:', folderPath)
+  const config = loadConfig()
+  config.workspaceFolder = folderPath
+  saveConfig(config)
+  return folderPath
+})
+
+async function scanScadFiles(dir, baseDir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  let results = []
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+      results = results.concat(await scanScadFiles(fullPath, baseDir))
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.scad')) {
+      results.push({
+        name: entry.name,
+        relativePath: path.relative(baseDir, fullPath),
+        fullPath,
+      })
+    }
+  }
+  return results
+}
+
+ipcMain.handle('workspace:listFiles', async () => {
+  const config = loadConfig()
+  console.log('[Workspace] Listing files in:', config.workspaceFolder)
+  if (!config.workspaceFolder) return []
+  try {
+    const files = await scanScadFiles(config.workspaceFolder, config.workspaceFolder)
+    console.log('[Workspace] Found', files.length, 'scad files:', files.map(f => f.name))
+    return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+  } catch (err) {
+    console.warn('[Workspace] Failed to list files:', err.message)
+    return []
+  }
 })
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
@@ -189,11 +342,75 @@ ipcMain.handle('openscad:render', async (_event, { code }) => {
   }
 })
 
+// ── Terminal PTY ────────────────────────────────────────────────────────────
+let ptyProcess = null
+
+ipcMain.handle('terminal:spawn', async (_event, cwd) => {
+  // Lazy-load node-pty (only when terminal is actually opened)
+  if (!pty) {
+    try {
+      pty = await import('node-pty')
+    } catch (err) {
+      console.warn('[Terminal] node-pty not available:', err.message)
+      return { error: 'Terminal not available. node-pty failed to load. Try running: npm install --save-optional node-pty' }
+    }
+  }
+
+  const config = loadConfig()
+  const workingDir = cwd || config.workspaceFolder || os.homedir()
+  const shell = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash'
+
+  try {
+    ptyProcess = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: workingDir,
+      env: process.env,
+    })
+
+    ptyProcess.onData((data) => {
+      mainWin?.webContents.send('terminal:data', data)
+    })
+
+    ptyProcess.onExit(({ exitCode }) => {
+      console.log('[Terminal] PTY exited with code', exitCode)
+      ptyProcess = null
+    })
+
+    console.log('[Terminal] Spawned PTY PID', ptyProcess.pid, 'in', workingDir)
+    return { success: true, pid: ptyProcess.pid }
+  } catch (err) {
+    console.error('[Terminal] Failed to spawn PTY:', err.message)
+    return { error: err.message }
+  }
+})
+
+ipcMain.handle('terminal:write', (_event, data) => {
+  if (ptyProcess) {
+    ptyProcess.write(data)
+  }
+})
+
+ipcMain.handle('terminal:resize', (_event, cols, rows) => {
+  if (ptyProcess) {
+    ptyProcess.resize(cols, rows)
+  }
+})
+
+ipcMain.handle('terminal:kill', () => {
+  if (ptyProcess) {
+    ptyProcess.kill()
+    ptyProcess = null
+  }
+})
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
   if (lspProcess) { lspProcess.kill(); lspProcess = null }
+  if (ptyProcess) { ptyProcess.kill(); ptyProcess = null }
   if (process.platform !== 'darwin') app.quit()
 })
 

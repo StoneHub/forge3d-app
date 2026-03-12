@@ -2,6 +2,77 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
+// ── Dimension Brackets Helper ───────────────────────────────────────────────
+function createDimensionBracket(start, end, offset, label, color = 0x4fc3f7) {
+  const group = new THREE.Group();
+
+  // Main dimension line
+  const points = [start.clone(), end.clone()];
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+  const lineMaterial = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+  const line = new THREE.Line(lineGeometry, lineMaterial);
+  group.add(line);
+
+  // End brackets (perpendicular ticks)
+  const direction = end.clone().sub(start).normalize();
+  const perpendicular = new THREE.Vector3();
+
+  // Choose perpendicular based on which axis we're measuring
+  if (Math.abs(direction.x) > 0.9) {
+    perpendicular.set(0, 1, 0); // X-axis measurement, brackets in Y
+  } else if (Math.abs(direction.y) > 0.9) {
+    perpendicular.set(1, 0, 0); // Y-axis measurement, brackets in X
+  } else {
+    perpendicular.set(1, 0, 0); // Z-axis measurement, brackets in X
+  }
+
+  const bracketSize = 1.5;
+
+  // Start bracket
+  const startBracket = new THREE.BufferGeometry().setFromPoints([
+    start.clone().add(perpendicular.clone().multiplyScalar(bracketSize)),
+    start.clone().add(perpendicular.clone().multiplyScalar(-bracketSize))
+  ]);
+  group.add(new THREE.Line(startBracket, lineMaterial));
+
+  // End bracket
+  const endBracket = new THREE.BufferGeometry().setFromPoints([
+    end.clone().add(perpendicular.clone().multiplyScalar(bracketSize)),
+    end.clone().add(perpendicular.clone().multiplyScalar(-bracketSize))
+  ]);
+  group.add(new THREE.Line(endBracket, lineMaterial));
+
+  // Text label using canvas texture
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 256;
+  canvas.height = 64;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = 'bold 32px Arial';
+  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const spriteMaterial = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  });
+  const sprite = new THREE.Sprite(spriteMaterial);
+
+  // Position label at midpoint with offset
+  const midpoint = start.clone().add(end).multiplyScalar(0.5);
+  sprite.position.copy(midpoint).add(offset);
+  sprite.scale.set(8, 2, 1);
+  group.add(sprite);
+
+  return group;
+}
+
 function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0, theme = 'dark', stlGeometry = null) {
   const frameRef = useRef(null);
   const mouseRef = useRef({
@@ -70,6 +141,19 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       newScene.add(new THREE.GridHelper(100, 20, gridColor, gridColor2));
     }
     if (viewSettings.axes) newScene.add(new THREE.AxesHelper(15));
+
+    // ── Compute scene bounding box ──
+    let sceneBBox = null;
+    const computeBoundingBox = () => {
+      const box = new THREE.Box3();
+      newScene.traverse((obj) => {
+        if (obj.isMesh && obj.geometry) {
+          const meshBox = new THREE.Box3().setFromObject(obj);
+          box.union(meshBox);
+        }
+      });
+      return box.isEmpty() ? null : box;
+    };
 
     // ── STL geometry from openscad-wasm (Phase 1) ──
     if (stlGeometry) {
@@ -203,6 +287,56 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
         edges.rotation.copy(mesh.rotation);
         edges.scale.copy(mesh.scale);
         newScene.add(edges);
+      }
+    }
+
+    // ── Add dimension brackets ──
+    if (viewSettings.dimensions) {
+      sceneBBox = computeBoundingBox();
+      if (sceneBBox) {
+        const min = sceneBBox.min;
+        const max = sceneBBox.max;
+        const size = new THREE.Vector3();
+        sceneBBox.getSize(size);
+
+        const dimColor = theme === 'dark' ? 0x4fc3f7 : 0x1565c0;
+        const offsetDist = 3;
+
+        // Width (X-axis) - bottom front
+        if (size.x > 0.1) {
+          const dimGroup = createDimensionBracket(
+            new THREE.Vector3(min.x, min.y - offsetDist, max.z + offsetDist),
+            new THREE.Vector3(max.x, min.y - offsetDist, max.z + offsetDist),
+            new THREE.Vector3(0, 0, 2),
+            `${size.x.toFixed(1)}mm`,
+            dimColor
+          );
+          newScene.add(dimGroup);
+        }
+
+        // Depth (Z-axis) - right side
+        if (size.z > 0.1) {
+          const dimGroup = createDimensionBracket(
+            new THREE.Vector3(max.x + offsetDist, min.y - offsetDist, min.z),
+            new THREE.Vector3(max.x + offsetDist, min.y - offsetDist, max.z),
+            new THREE.Vector3(2, 0, 0),
+            `${size.z.toFixed(1)}mm`,
+            dimColor
+          );
+          newScene.add(dimGroup);
+        }
+
+        // Height (Y-axis) - right back corner
+        if (size.y > 0.1) {
+          const dimGroup = createDimensionBracket(
+            new THREE.Vector3(max.x + offsetDist, min.y, min.z - offsetDist),
+            new THREE.Vector3(max.x + offsetDist, max.y, min.z - offsetDist),
+            new THREE.Vector3(2, 0, 0),
+            `${size.y.toFixed(1)}mm`,
+            dimColor
+          );
+          newScene.add(dimGroup);
+        }
       }
     }
 

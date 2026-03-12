@@ -21,7 +21,16 @@
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts' -ErrorAction SilentlyContinue | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1' | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf' | Select-Object Name\")",
-      "Bash(powershell -Command \"\nNew-Item -ItemType Directory -Force -Path 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts' | Out-Null;\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Bold.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Bold.ttf';\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Regular.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Regular.ttf';\nWrite-Host 'Done'\n\")"
+      "Bash(powershell -Command \"\nNew-Item -ItemType Directory -Force -Path 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts' | Out-Null;\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Bold.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Bold.ttf';\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Regular.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Regular.ttf';\nWrite-Host 'Done'\n\")",
+      "Bash(test:*)",
+      "Bash(npm run dev:*)",
+      "Bash(cat:*)",
+      "Bash(npx electron .)",
+      "Bash(node:*)",
+      "Bash(tasklist:*)",
+      "Bash(git stash:*)",
+      "Bash(npm run electron:dev:*)",
+      "Bash(git add:*)"
     ]
   }
 }

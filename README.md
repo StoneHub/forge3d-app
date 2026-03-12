@@ -4,9 +4,9 @@ A desktop IDE for OpenSCAD built with Electron — write parametric code, render
 
 ![Version](https://img.shields.io/badge/version-3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
-![Forge3D running as Electron app with native OpenSCAD rendering](docs/screenshots/forge3d-electron-demo.png)
+![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
-> *Chess pawn rendered in 3.3s via native OpenSCAD binary. ⚡ Native badge — full OpenSCAD compatibility including all fonts and file includes.*
+> *Parametric tower with automatic dimension brackets showing precise measurements. Built in 1088ms via native OpenSCAD binary. ⚡ Native badge — full OpenSCAD compatibility including all fonts and file includes.*
 
 ---
 
@@ -51,9 +51,11 @@ npm run electron:dev
 
 - **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
 - **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
+- **Automatic dimension brackets** — CAD-style measurement overlays showing width, depth, and height of rendered objects
 - **OpenSCAD LSP** — bundled `openscad-lsp` binary, diagnostics appear in Problems tab as you type
 - **Syntax-highlighted editor** — bracket matching, auto-close, auto-indent, tab-to-spaces
-- **Three.js viewport** — orbit (LMB), pan (RMB), zoom (scroll), grid, axes, edge overlay
+- **Three.js viewport** — orbit (LMB), pan (RMB), zoom (scroll), grid, axes, edge overlay, dimensions
+- **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
 - **STL export** — one-click export of the rendered geometry
 - **Dark / light theme**
 
@@ -106,11 +108,13 @@ forge3d-app/
 - [x] Native OpenSCAD binary render (Electron IPC)
 - [x] OpenSCAD LSP diagnostics (Problems tab)
 - [x] STL export, file open/save with native dialogs
+- [x] Automatic dimension brackets with CAD-style measurements
+- [x] Embedded terminal pane (PowerShell/bash)
+- [x] Recent files menu + workspace folder browser
+- [x] Enhanced Params tab with slider/input UI from `// @param` annotations
 - [x] MIT license, public repo
-- [ ] Recent files menu + workspace folder browser
 - [ ] Print Mode — bed arrangement + PrusaSlicer integration
 - [ ] Slicer settings embedded in `.scad` file as comment block
-- [ ] Enhanced Params tab with slider/input UI from `// @param` annotations
 - [ ] AI code generation (plain English → OpenSCAD)
 - [ ] Editor upgrades: LSP squiggles, find/replace, multi-cursor
 
