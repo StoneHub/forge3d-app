@@ -226,7 +226,7 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
           Math.sin(m.phi),
           Math.cos(m.theta) * Math.cos(m.phi),
         ).normalize();
-        right.crossVectors(forward, up).normalize().multiplyScalar(dx * panSpeed);
+        right.crossVectors(forward, up).normalize().multiplyScalar(-dx * panSpeed);
         const upVec = up.clone().multiplyScalar(-dy * panSpeed);
         m.panX -= right.x + upVec.x;
         m.panY -= right.y + upVec.y;
