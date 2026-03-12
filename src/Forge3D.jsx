@@ -3,25 +3,18 @@ import * as THREE from "three";
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
 import { EXAMPLES } from "./forge3d/examples.js";
-import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace, downloadTextFile, openBrowserFile } from "./forge3d/workspace.js";
-import { interpret } from "./forge3d/interpreter.js";
+import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
 import { CodeEditor } from "./forge3d/editor.jsx";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
-import InterpreterWorker from "./forge3d/interpreter.worker.js?worker";
-import OpenSCADWorker from "./forge3d/openscad.worker.js?worker";
 import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
 
-// ─── EXAMPLES ────────────────────────────────────────────────────────
-// ─── MAIN APP ────────────────────────────────────────────────────────
+// ─── HISTORY ────────────────────────────────────────────────────────
 function createHistoryState(initialCode) {
-  return {
-    past: [],
-    present: initialCode,
-    future: [],
-  };
+  return { past: [], present: initialCode, future: [] };
 }
 
+// ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
   const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
@@ -44,13 +37,12 @@ export default function Forge3D() {
   const editorRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [stlGeometry, setStlGeometry] = useState(null);
-  const [useWasm, setUseWasm] = useState(true); // true = openscad-wasm, false = legacy interpreter
-  const [wasmReady, setWasmReady] = useState(false);
-  const [wasmLoading, setWasmLoading] = useState(false);
-  const openscadWorkerRef = useRef(null);
+  const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [] });
-  const isElectron = typeof window !== 'undefined' && !!window.forgeAPI;
-  const hasNativeRender = isElectron && !!window.forgeAPI?.renderOpenSCAD;
+
+  const buildIdRef = useRef(0);
+  const buildStartRef = useRef(0);
+  const BUILD_TIMEOUT = 60000;
 
   const colors = theme === 'dark' ? {
     bg: '#13141f', bgPanel: '#1e1f30', bgDark: '#16172a', bgDarker: '#1a1b2e',
@@ -66,19 +58,14 @@ export default function Forge3D() {
     logoGlow: 'linear-gradient(135deg,#1565c0,#4527a0)', btnHover: '#f0f0f0'
   };
 
+  // ─── History ────────────────────────────────────────────────────────
   const applyCodeChange = useCallback((nextCodeOrUpdater) => {
     setHistory((current) => {
       const nextCode = typeof nextCodeOrUpdater === 'function'
         ? nextCodeOrUpdater(current.present)
         : nextCodeOrUpdater;
-
       if (nextCode === current.present) return current;
-
-      return {
-        past: [...current.past, current.present].slice(-100),
-        present: nextCode,
-        future: [],
-      };
+      return { past: [...current.past, current.present].slice(-100), present: nextCode, future: [] };
     });
   }, []);
 
@@ -92,11 +79,7 @@ export default function Forge3D() {
       if (current.past.length === 0) return current;
       const previous = current.past[current.past.length - 1];
       changed = true;
-      return {
-        past: current.past.slice(0, -1),
-        present: previous,
-        future: [current.present, ...current.future],
-      };
+      return { past: current.past.slice(0, -1), present: previous, future: [current.present, ...current.future] };
     });
     if (changed) setStatusMessage('Undo applied');
   }, []);
@@ -107,11 +90,7 @@ export default function Forge3D() {
       if (current.future.length === 0) return current;
       const [next, ...rest] = current.future;
       changed = true;
-      return {
-        past: [...current.past, current.present].slice(-100),
-        present: next,
-        future: rest,
-      };
+      return { past: [...current.past, current.present].slice(-100), present: next, future: rest };
     });
     if (changed) setStatusMessage('Redo applied');
   }, []);
@@ -120,62 +99,20 @@ export default function Forge3D() {
   const canRedo = history.future.length > 0;
   const isDirty = code !== lastSavedCode;
 
-  const workerRef = useRef(null);
-  const buildIdRef = useRef(0);
-  const buildStartRef = useRef(0);
-  const [building, setBuilding] = useState(false);
-
-  const BUILD_TIMEOUT = 30000; // ms — WASM renders can take longer
-
-  // ── Legacy interpreter build (fallback) ──
-  const runLegacyBuild = useCallback(() => {
-    if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; }
-    const id = ++buildIdRef.current;
-    buildStartRef.current = performance.now();
-    setBuilding(true);
-    setStlGeometry(null);
-
-    const worker = new InterpreterWorker();
-    workerRef.current = worker;
-
-    const timer = setTimeout(() => {
-      worker.terminate(); workerRef.current = null; setBuilding(false);
-      setBuildTime(BUILD_TIMEOUT);
-      setResult({ objects: [], logs: [], errors: [`Build timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
-      setActiveTab('errors');
-    }, BUILD_TIMEOUT);
-
-    worker.onmessage = (e) => {
-      if (e.data.id !== id) return;
-      clearTimeout(timer); workerRef.current = null; setBuilding(false);
-      setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      const r = e.data.result;
-      setResult(r);
-      setActiveTab(r.errors.length > 0 || r.warnings.length > 0 ? 'errors' : 'console');
-    };
-    worker.onerror = (err) => {
-      clearTimeout(timer); worker.terminate(); workerRef.current = null; setBuilding(false);
-      setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      setResult({ objects: [], logs: [], errors: [err.message || 'Worker crashed'], warnings: [], variables: {} });
-      setActiveTab('errors');
-    };
-    worker.postMessage({ code, id });
-  }, [code]);
-
-  // ── Helper: load STL bytes into Three.js geometry ──
-  const loadStlBytes = useCallback((bytes, elapsed, extraLogs = [], extraWarnings = []) => {
-    const parsed = parseSTL(bytes instanceof ArrayBuffer ? bytes : (typeof bytes === 'string' ? bytes : new Uint8Array(bytes)));
+  // ─── STL loader helper ───────────────────────────────────────────────
+  const loadStlBytes = useCallback((bytes, elapsed) => {
+    const parsed = parseSTL(bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes));
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(parsed.normals, 3));
     geometry.computeBoundingBox();
     setStlGeometry(geometry);
-    setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`, ...extraLogs], errors: [], warnings: extraWarnings, variables: {} });
+    setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`], errors: [], warnings: [], variables: {} });
     setActiveTab('console');
   }, []);
 
-  // ── Native Electron render (shells out to openscad.com) ──
-  const runNativeBuild = useCallback(async () => {
+  // ─── Native build (Electron → openscad.com IPC) ──────────────────────
+  const runCode = useCallback(async () => {
     const id = ++buildIdRef.current;
     buildStartRef.current = performance.now();
     setBuilding(true);
@@ -183,13 +120,13 @@ export default function Forge3D() {
     const timer = setTimeout(() => {
       setBuilding(false);
       setBuildTime(BUILD_TIMEOUT);
-      setResult({ objects: [], logs: [], errors: [`Native render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
+      setResult({ objects: [], logs: [], errors: [`Render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
       setActiveTab('errors');
     }, BUILD_TIMEOUT);
 
     try {
       const response = await window.forgeAPI.renderOpenSCAD(code);
-      if (buildIdRef.current !== id) return; // stale
+      if (buildIdRef.current !== id) return; // stale build
       clearTimeout(timer);
       setBuilding(false);
       const elapsed = Math.round(performance.now() - buildStartRef.current);
@@ -207,89 +144,12 @@ export default function Forge3D() {
       clearTimeout(timer);
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      setResult({ objects: [], logs: [], errors: [`Native render error: ${err.message}`], warnings: [], variables: {} });
+      setResult({ objects: [], logs: [], errors: [`Render error: ${err.message}`], warnings: [], variables: {} });
       setActiveTab('errors');
     }
   }, [code, loadStlBytes]);
 
-  // ── OpenSCAD WASM build (browser fallback) ──
-  const runWasmBuild = useCallback(() => {
-    const id = ++buildIdRef.current;
-    buildStartRef.current = performance.now();
-    setBuilding(true);
-
-    // Create a persistent worker if we don't have one
-    if (!openscadWorkerRef.current) {
-      setWasmLoading(true);
-      openscadWorkerRef.current = new OpenSCADWorker();
-    }
-    const worker = openscadWorkerRef.current;
-
-    const timer = setTimeout(() => {
-      // Kill and recreate worker on timeout
-      worker.terminate();
-      openscadWorkerRef.current = null;
-      setBuilding(false);
-      setWasmReady(false);
-      setBuildTime(BUILD_TIMEOUT);
-      setResult({ objects: [], logs: [], errors: [`WASM render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
-      setActiveTab('errors');
-    }, BUILD_TIMEOUT);
-
-    const handler = (e) => {
-      if (e.data.id !== id) return;
-      clearTimeout(timer);
-      setBuilding(false);
-      setWasmLoading(false);
-      setWasmReady(true);
-      const elapsed = Math.round(performance.now() - buildStartRef.current);
-      setBuildTime(elapsed);
-
-      if (e.data.type === 'error') {
-        setStlGeometry(null);
-        const logs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
-        const stderrLines = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
-        const errorMsg = e.data.error != null ? String(e.data.error) : '';
-        const errors = stderrLines.length > 0 ? stderrLines : (errorMsg ? [errorMsg] : ['Unknown WASM error']);
-        setResult({ objects: [], logs, errors, warnings: [], variables: {} });
-        setActiveTab('errors');
-      } else {
-        try {
-          const stlData = e.data.stl;
-          const extraWarnings = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
-          const extraLogs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
-          loadStlBytes(stlData, elapsed, extraLogs, extraWarnings);
-        } catch (parseErr) {
-          setStlGeometry(null);
-          setResult({ objects: [], logs: [], errors: [`STL parse error: ${parseErr.message}`], warnings: [], variables: {} });
-          setActiveTab('errors');
-        }
-      }
-    };
-
-    const errorHandler = (err) => {
-      clearTimeout(timer);
-      setBuilding(false);
-      setWasmLoading(false);
-      setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      // Worker crashed — recreate on next build
-      openscadWorkerRef.current = null;
-      setWasmReady(false);
-      setResult({ objects: [], logs: [], errors: [`WASM worker error: ${err.message || 'crashed'}`], warnings: [], variables: {} });
-      setActiveTab('errors');
-    };
-
-    worker.onmessage = handler;
-    worker.onerror = errorHandler;
-    worker.postMessage({ type: 'render', id, code, outputFormat: 'stl' });
-  }, [code, loadStlBytes]);
-
-  const runCode = useCallback(() => {
-    if (hasNativeRender) runNativeBuild();
-    else if (useWasm) runWasmBuild();
-    else runLegacyBuild();
-  }, [hasNativeRender, useWasm, runNativeBuild, runWasmBuild, runLegacyBuild]);
-
+  // ─── File operations ──────────────────────────────────────────────────
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
     replaceCodeWithoutHistory(next.code);
@@ -301,7 +161,7 @@ export default function Forge3D() {
 
   const openFile = useCallback(async () => {
     try {
-      const payload = window.forgeAPI?.openFile ? await window.forgeAPI.openFile() : await openBrowserFile();
+      const payload = await window.forgeAPI.openFile();
       if (!payload) return;
       replaceCodeWithoutHistory(payload.content);
       setLastSavedCode(payload.content);
@@ -316,22 +176,18 @@ export default function Forge3D() {
   const saveFile = useCallback(async () => {
     try {
       const suggestedName = currentFileName?.endsWith('.scad') ? currentFileName : `${currentFileName || 'model'}.scad`;
-      if (window.forgeAPI?.saveFile) {
-        const saved = await window.forgeAPI.saveFile({ content: code, filePath: currentFilePath, suggestedName });
-        if (!saved) return;
-        setCurrentFileName(saved.name || suggestedName);
-        setCurrentFilePath(saved.filePath || null);
-      } else {
-        downloadTextFile(suggestedName, code);
-        setCurrentFileName(suggestedName);
-      }
+      const saved = await window.forgeAPI.saveFile({ content: code, filePath: currentFilePath, suggestedName });
+      if (!saved) return;
+      setCurrentFileName(saved.name || suggestedName);
+      setCurrentFilePath(saved.filePath || null);
       setLastSavedCode(code);
-      setStatusMessage(`Saved ${suggestedName}`);
+      setStatusMessage(`Saved ${saved.name || suggestedName}`);
     } catch (error) {
       setStatusMessage(`Save failed: ${error.message}`);
     }
   }, [code, currentFileName, currentFilePath]);
 
+  // ─── Auto-run ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!autoRun) return;
     clearTimeout(timerRef.current);
@@ -339,18 +195,18 @@ export default function Forge3D() {
     return () => clearTimeout(timerRef.current);
   }, [code, autoRun, runCode]);
 
+  // ─── Persist workspace ────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, viewSettings, autoRun, currentFileName, theme }));
   }, [code, viewSettings, autoRun, currentFileName, theme]);
 
+  // ─── Global keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (event) => {
       const mod = event.metaKey || event.ctrlKey;
       if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        if (event.shiftKey) redoCode();
-        else undoCode();
+        if (event.shiftKey) redoCode(); else undoCode();
         return;
       }
       if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
@@ -367,28 +223,18 @@ export default function Forge3D() {
     });
 
     window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      removeMenu?.();
-    };
+    return () => { window.removeEventListener('keydown', onKeyDown); removeMenu?.(); };
   }, [openFile, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
 
-  // Clean up workers on unmount
-  useEffect(() => {
-    return () => {
-      if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; }
-      if (openscadWorkerRef.current) { openscadWorkerRef.current.terminate(); openscadWorkerRef.current = null; }
-    };
-  }, []);
-
+  // ─── Three.js scene ───────────────────────────────────────────────────
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
 
-  // ── LSP diagnostics (Electron-only, Problems tab) ──
+  // ─── LSP diagnostics (Problems tab) ───────────────────────────────────
   useLSP(code, currentFilePath, setLspDiagnostics);
   const allErrors = [...result.errors, ...lspDiagnostics.errors];
   const allWarnings = [...result.warnings, ...lspDiagnostics.warnings];
 
-  // ── Drag-and-drop .scad file import ──
+  // ─── Drag-and-drop ────────────────────────────────────────────────────
   const handleDragOver = useCallback((e) => {
     const hasFile = Array.from(e.dataTransfer.types).includes('Files');
     if (hasFile) { e.preventDefault(); setIsDraggingFile(true); }
@@ -408,7 +254,7 @@ export default function Forge3D() {
       setLastSavedCode(content);
       setCurrentFileName(file.name);
       setCurrentFilePath(null);
-      setStatusMessage(`Dropped: ${file.name}`);
+      setStatusMessage(`Opened: ${file.name}`);
     };
     reader.readAsText(file);
   }, [replaceCodeWithoutHistory]);
@@ -420,38 +266,20 @@ export default function Forge3D() {
     setStatusMessage(`Exported ${baseName}.stl`);
   }, [scene, currentFileName]);
 
-  // Jump to a specific line in the editor
   const jumpToLine = useCallback((lineNum) => {
     editorRef.current?.jumpToLine(lineNum);
     setActiveTab('console');
   }, []);
 
-  // Build an AI debugging prompt and open Claude.ai
   const askAI = useCallback(() => {
-    const errorText = result.errors.map(e => `- ${e}`).join('\n');
-    const warnText = result.warnings.map(w => `- ${w}`).join('\n');
-    const prompt = `I'm writing OpenSCAD-style parametric 3D modeling code in Forge3D and getting errors. Please help me fix the issue.
-
-## My Code (${currentFileName})
-\`\`\`openscad
-${code}
-\`\`\`
-
-## Errors
-${errorText || 'None'}
-
-## Warnings
-${warnText || 'None'}
-
-Please explain what's wrong and show me the corrected code.`;
-    navigator.clipboard.writeText(prompt).then(() => {
-      setStatusMessage('AI debug prompt copied to clipboard');
-    }).catch(() => {
-      setStatusMessage('Failed to copy to clipboard');
-    });
-  }, [code, result.errors, result.warnings, currentFileName]);
-
-  const varEntries = Object.entries(result.variables).filter(([, v]) => typeof v === 'number');
+    const errorText = allErrors.map(e => `- ${e}`).join('\n');
+    const warnText = allWarnings.map(w => `- ${w}`).join('\n');
+    const prompt = `I'm writing OpenSCAD code in Forge3D and getting errors. Please help me fix the issue.\n\n## My Code (${currentFileName})\n\`\`\`openscad\n${code}\n\`\`\`\n\n## Errors\n${errorText || 'None'}\n\n## Warnings\n${warnText || 'None'}\n\nPlease explain what's wrong and show me the corrected code.`;
+    navigator.clipboard.writeText(prompt).then(
+      () => setStatusMessage('AI debug prompt copied to clipboard'),
+      () => setStatusMessage('Failed to copy to clipboard')
+    );
+  }, [code, allErrors, allWarnings, currentFileName]);
 
   const BtnStyle = (active) => ({
     background: active ? `${colors.accent}33` : `${colors.bgDarker}cc`,
@@ -462,6 +290,7 @@ Please explain what's wrong and show me the corrected code.`;
     backdropFilter: 'blur(8px)',
   });
 
+  // ─── RENDER ──────────────────────────────────────────────────────────
   return (
     <div
       onDragOver={handleDragOver}
@@ -478,23 +307,26 @@ Please explain what's wrong and show me the corrected code.`;
         </div>
       )}
 
+      {/* ── Toolbar ── */}
       <div style={{ height: '42px', minHeight: '42px', background: theme === 'dark' ? 'linear-gradient(180deg,#1e1f30,#181924)' : colors.bgPanel, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '8px', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: '22px', height: '22px', background: colors.logoGlow, borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><Icons.Cube /></div>
             <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px' }}>
               <span style={{ color: colors.accent }}>FORGE</span><span style={{ color: theme === 'dark' ? '#7c4dff' : '#4527a0' }}>3D</span>
             </span>
-            <span style={{ fontSize: '10px', color: colors.textFaint, marginLeft: '4px' }}>v2.2</span>
+            <span style={{ fontSize: '10px', color: colors.textFaint, marginLeft: '4px' }}>v3.0</span>
           </div>
           <div style={{ height: '20px', width: '1px', background: colors.border }} />
+          {/* File ops */}
           {[
             { icon: Icons.File, label: 'New', action: resetWorkspace },
             { icon: Icons.File, label: 'Open', action: openFile },
             { icon: Icons.File, label: 'Save', action: saveFile },
-            { icon: Icons.Grid, label: 'Export STL', action: handleExportSTL, disabled: result.objects.length === 0 },
-            { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Undo (Ctrl/Cmd+Z)' },
-            { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Redo (Ctrl/Cmd+Shift+Z / Ctrl+Y)' },
+            { icon: Icons.Grid, label: 'Export STL', action: handleExportSTL },
+            { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Ctrl/Cmd+Z' },
+            { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Ctrl/Cmd+Shift+Z' },
           ].map(({ icon: I, label, action, disabled, title }) => (
             <button key={label} onClick={action} title={title || label} disabled={disabled}
               style={{ background: 'none', border: '1px solid transparent', color: disabled ? colors.textFaint : colors.textMuted, padding: '4px 8px', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: disabled ? 0.55 : 1 }}
@@ -503,6 +335,7 @@ Please explain what's wrong and show me the corrected code.`;
             ><I /><span>{label}</span></button>
           ))}
           <div style={{ height: '20px', width: '1px', background: colors.border }} />
+          {/* Quick-insert primitives */}
           {[
             { icon: Icons.Cube, label: 'Cube', s: "cube([10,10,10], center=true);" },
             { icon: Icons.Sphere, label: 'Sphere', s: "sphere(r=5, $fn=32);" },
@@ -515,26 +348,28 @@ Please explain what's wrong and show me the corrected code.`;
             ><I /><span>{label}</span></button>
           ))}
         </div>
+
+        {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '12px' }}>
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
           <button onClick={() => setResetViewSignal(v => v + 1)} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.text, padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>Reset View</button>
           {building ? (
-            <button onClick={() => { if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; } setBuilding(false); setStatusMessage('Build cancelled'); }} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600, animation: 'pulse 1s infinite' }}>⏹ Cancel</button>
+            <button onClick={() => { setBuilding(false); setStatusMessage('Build cancelled'); }} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}>⏹ Cancel</button>
           ) : (
             <button onClick={runCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}><Icons.Play /> Build</button>
           )}
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textMuted, cursor: 'pointer' }}>
             <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: colors.accent }} />Auto
           </label>
-          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: hasNativeRender ? `${colors.success}22` : useWasm ? `${colors.accent}22` : `${colors.warn}22`, color: hasNativeRender ? colors.success : useWasm ? colors.accent : colors.warn, border: `1px solid ${hasNativeRender ? colors.success : useWasm ? colors.accent : colors.warn}44`, cursor: hasNativeRender ? 'default' : 'pointer' }} onClick={() => { if (!hasNativeRender) setUseWasm(w => !w); }} title={hasNativeRender ? 'Using native OpenSCAD binary (Electron)' : useWasm ? 'Using OpenSCAD WASM (click for legacy)' : 'Using legacy interpreter (click for WASM)'}>
-            {hasNativeRender ? '⚡ Native' : useWasm ? (wasmLoading ? 'WASM loading…' : 'WASM') : 'Legacy'}
-          </span>
+          <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: `${colors.success}22`, color: colors.success, border: `1px solid ${colors.success}44` }}>⚡ Native</span>
         </div>
       </div>
 
+      {/* ── Body ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Sidebar */}
         {sidebarOpen && (
           <div style={{ width: '220px', minWidth: '220px', background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${colors.border}` }}>
@@ -556,31 +391,7 @@ Please explain what's wrong and show me the corrected code.`;
                   ))}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {varEntries.length === 0 ? (
-                    <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>Define variables in code to see interactive sliders here.</div>
-                  ) : varEntries.map(([name, value]) => (
-                    <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                        <span style={{ color: theme === 'dark' ? '#e5c07b' : '#d16a1b', fontFamily: 'monospace' }}>{name}</span>
-                        <span style={{ color: colors.textMuted }}>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
-                      </div>
-                      <input type='range' min={0} max={Math.max(value * 3, 50)} step={value > 10 ? 1 : 0.1} value={value}
-                        onChange={e => { const nv = parseFloat(e.target.value); applyCodeChange(c => c.replace(new RegExp(`(${name}\\s*=\\s*)[\\d.]+`), `$1${nv}`)); }}
-                        style={{ width: '100%', accentColor: colors.accent, height: '4px' }}
-                      />
-                    </div>
-                  ))}
-                  <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: '8px', marginTop: '4px' }}>
-                    <div style={{ fontSize: '10px', color: colors.textFaint, fontWeight: 600, textTransform: 'uppercase', marginBottom: '6px' }}>View</div>
-                    {['grid','axes','wireframe'].map(key => (
-                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', padding: '3px 0' }}>
-                        <input type='checkbox' checked={viewSettings[key]} onChange={e => setViewSettings(s => ({ ...s, [key]: e.target.checked }))} style={{ accentColor: colors.accent }} />
-                        {key.charAt(0).toUpperCase() + key.slice(1)}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>Variable sliders coming soon.</div>
               )}
             </div>
           </div>
@@ -588,6 +399,7 @@ Please explain what's wrong and show me the corrected code.`;
 
         <button onClick={() => setSidebarOpen(o => !o)} style={{ width: '20px', minWidth: '20px', background: colors.bgDarker, border: 'none', borderRight: `1px solid ${colors.border}`, color: colors.textFaint, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}>{sidebarOpen ? '◀' : '▶'}</button>
 
+        {/* Editor panel */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${colors.border}` }}>
           <div style={{ height: '30px', minHeight: '30px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted }}>{currentFileName}{isDirty ? ' *' : ''}</span>
@@ -598,6 +410,7 @@ Please explain what's wrong and show me the corrected code.`;
             <CodeEditor ref={editorRef} code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} theme={theme} onBuild={runCode} />
           </div>
 
+          {/* Console / Problems panel */}
           <div style={{ height: '180px', minHeight: '100px', borderTop: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
               {[{ id: 'console', label: 'Console', count: result.logs.length }, { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length }].map(({ id, label, count }) => (
@@ -607,11 +420,11 @@ Please explain what's wrong and show me the corrected code.`;
               ))}
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: colors.textFaint }}>
                 {(allErrors.length > 0 || allWarnings.length > 0) && (
-                  <button onClick={askAI} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', padding: '3px 9px', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', letterSpacing: '0.02em' }}>
+                  <button onClick={askAI} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', padding: '3px 9px', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span>✦</span> Ask AI
                   </button>
                 )}
-                <Icons.Zap /><span>{buildTime}ms</span><span>·</span><span>{result.objects.length} obj</span>
+                <Icons.Zap /><span>{buildTime}ms</span>
               </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
@@ -657,6 +470,7 @@ Please explain what's wrong and show me the corrected code.`;
           </div>
         </div>
 
+        {/* 3D viewport */}
         <div style={{ flex: 1.3, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
           <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
             {[{ icon: Icons.Grid, key: 'grid', label: 'Grid' }, { icon: Icons.Layers, key: 'axes', label: 'Axes' }, { icon: Icons.Eye, key: 'wireframe', label: 'Edges' }].map(({ icon: I, key, label }) => (
@@ -665,31 +479,19 @@ Please explain what's wrong and show me the corrected code.`;
           </div>
 
           <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: `${colors.bg}cc`, borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: colors.textFaint, backdropFilter: 'blur(8px)', border: `1px solid ${colors.border}`, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl/Cmd+Z</span><span>Redo: Ctrl+Y</span><span>Objects: {result.objects.length}</span>
+            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span>
           </div>
-
-          {result.objects.length > 0 && (
-            <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 10, background: `${colors.bgDark}cc`, borderRadius: '8px', padding: '8px', fontSize: '11px', backdropFilter: 'blur(8px)', border: `1px solid ${colors.border}`, maxHeight: '200px', overflow: 'auto', minWidth: '140px' }}>
-              <div style={{ fontSize: '10px', color: colors.textFaint, fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Scene Tree</div>
-              {result.objects.map((obj, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '2px 0', color: colors.textMuted }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: obj.color, flexShrink: 0 }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>{obj.type}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
         </div>
       </div>
 
+      {/* ── Status bar ── */}
       <div style={{ height: '24px', minHeight: '24px', background: allErrors.length > 0 ? colors.error : colors.accent, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: theme === 'dark' ? '#111' : '#fff', fontWeight: 500, transition: 'background 0.3s' }}>
         <span>{allErrors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${allErrors.length} error(s)`}</span>
-        <span>{result.objects.length} objects</span>
         <span>{code.split("\n").length} lines</span>
         <span>{currentFilePath ? currentFilePath : currentFileName}</span>
-        <span style={{ marginLeft: 'auto' }}>Forge3D — Parametric 3D Modeling</span>
+        <span style={{ marginLeft: 'auto' }}>Forge3D — OpenSCAD Modeling</span>
       </div>
     </div>
   );
