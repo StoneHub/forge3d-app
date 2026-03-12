@@ -217,9 +217,8 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       const dx = e.clientX - m.x, dy = e.clientY - m.y;
       m.x = e.clientX; m.y = e.clientY;
       if (m.button === 2) {
-        // Right-click: pan
+        // Right-click: pan (drag direction matches view movement)
         const panSpeed = m.dist * 0.001;
-        // Build a pan vector perpendicular to the view direction
         const right = new THREE.Vector3();
         const up = new THREE.Vector3(0, 1, 0);
         const forward = new THREE.Vector3(
@@ -227,11 +226,11 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
           Math.sin(m.phi),
           Math.cos(m.theta) * Math.cos(m.phi),
         ).normalize();
-        right.crossVectors(forward, up).normalize().multiplyScalar(-dx * panSpeed);
-        const upVec = up.clone().multiplyScalar(dy * panSpeed);
-        m.panX += right.x + upVec.x;
-        m.panY += right.y + upVec.y;
-        m.panZ += right.z + upVec.z;
+        right.crossVectors(forward, up).normalize().multiplyScalar(dx * panSpeed);
+        const upVec = up.clone().multiplyScalar(-dy * panSpeed);
+        m.panX -= right.x + upVec.x;
+        m.panY -= right.y + upVec.y;
+        m.panZ -= right.z + upVec.z;
       } else {
         // Left-click: orbit
         m.theta -= dx * 0.01;
