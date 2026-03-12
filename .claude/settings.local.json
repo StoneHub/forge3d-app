@@ -30,7 +30,8 @@
       "Bash(tasklist:*)",
       "Bash(git stash:*)",
       "Bash(npm run electron:dev:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
