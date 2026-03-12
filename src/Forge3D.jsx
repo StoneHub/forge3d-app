@@ -10,6 +10,7 @@ import { exportSceneToSTL } from "./forge3d/exporter.js";
 import InterpreterWorker from "./forge3d/interpreter.worker.js?worker";
 import OpenSCADWorker from "./forge3d/openscad.worker.js?worker";
 import { parseSTL } from "./forge3d/stl-parser.js";
+import { useLSP } from "./forge3d/lsp-client.js";
 
 // ─── EXAMPLES ────────────────────────────────────────────────────────
 // ─── MAIN APP ────────────────────────────────────────────────────────
@@ -47,6 +48,9 @@ export default function Forge3D() {
   const [wasmReady, setWasmReady] = useState(false);
   const [wasmLoading, setWasmLoading] = useState(false);
   const openscadWorkerRef = useRef(null);
+  const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [] });
+  const isElectron = typeof window !== 'undefined' && !!window.forgeAPI;
+  const hasNativeRender = isElectron && !!window.forgeAPI?.renderOpenSCAD;
 
   const colors = theme === 'dark' ? {
     bg: '#13141f', bgPanel: '#1e1f30', bgDark: '#16172a', bgDarker: '#1a1b2e',
@@ -158,7 +162,57 @@ export default function Forge3D() {
     worker.postMessage({ code, id });
   }, [code]);
 
-  // ── OpenSCAD WASM build (primary) ──
+  // ── Helper: load STL bytes into Three.js geometry ──
+  const loadStlBytes = useCallback((bytes, elapsed, extraLogs = [], extraWarnings = []) => {
+    const parsed = parseSTL(bytes instanceof ArrayBuffer ? bytes : (typeof bytes === 'string' ? bytes : new Uint8Array(bytes)));
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(parsed.normals, 3));
+    geometry.computeBoundingBox();
+    setStlGeometry(geometry);
+    setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`, ...extraLogs], errors: [], warnings: extraWarnings, variables: {} });
+    setActiveTab('console');
+  }, []);
+
+  // ── Native Electron render (shells out to openscad.com) ──
+  const runNativeBuild = useCallback(async () => {
+    const id = ++buildIdRef.current;
+    buildStartRef.current = performance.now();
+    setBuilding(true);
+
+    const timer = setTimeout(() => {
+      setBuilding(false);
+      setBuildTime(BUILD_TIMEOUT);
+      setResult({ objects: [], logs: [], errors: [`Native render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
+      setActiveTab('errors');
+    }, BUILD_TIMEOUT);
+
+    try {
+      const response = await window.forgeAPI.renderOpenSCAD(code);
+      if (buildIdRef.current !== id) return; // stale
+      clearTimeout(timer);
+      setBuilding(false);
+      const elapsed = Math.round(performance.now() - buildStartRef.current);
+      setBuildTime(elapsed);
+
+      if (response.error) {
+        setStlGeometry(null);
+        const lines = response.error.split('\n').filter(Boolean);
+        setResult({ objects: [], logs: [], errors: lines, warnings: [], variables: {} });
+        setActiveTab('errors');
+      } else {
+        loadStlBytes(new Uint8Array(response.stl), elapsed);
+      }
+    } catch (err) {
+      clearTimeout(timer);
+      setBuilding(false);
+      setBuildTime(Math.round(performance.now() - buildStartRef.current));
+      setResult({ objects: [], logs: [], errors: [`Native render error: ${err.message}`], warnings: [], variables: {} });
+      setActiveTab('errors');
+    }
+  }, [code, loadStlBytes]);
+
+  // ── OpenSCAD WASM build (browser fallback) ──
   const runWasmBuild = useCallback(() => {
     const id = ++buildIdRef.current;
     buildStartRef.current = performance.now();
@@ -200,20 +254,11 @@ export default function Forge3D() {
         setResult({ objects: [], logs, errors, warnings: [], variables: {} });
         setActiveTab('errors');
       } else {
-        // Parse STL into Three.js geometry
         try {
           const stlData = e.data.stl;
-          const parsed = parseSTL(stlData instanceof ArrayBuffer ? stlData : (typeof stlData === 'string' ? stlData : new Uint8Array(stlData)));
-          const geometry = new THREE.BufferGeometry();
-          geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3));
-          geometry.setAttribute('normal', new THREE.BufferAttribute(parsed.normals, 3));
-          geometry.computeBoundingBox();
-          setStlGeometry(geometry);
-
-          const logs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
-          const warnings = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
-          setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`, ...logs], errors: [], warnings, variables: {} });
-          setActiveTab('console');
+          const extraWarnings = e.data.stderr ? e.data.stderr.split('\n').filter(Boolean) : [];
+          const extraLogs = e.data.stdout ? e.data.stdout.split('\n').filter(Boolean) : [];
+          loadStlBytes(stlData, elapsed, extraLogs, extraWarnings);
         } catch (parseErr) {
           setStlGeometry(null);
           setResult({ objects: [], logs: [], errors: [`STL parse error: ${parseErr.message}`], warnings: [], variables: {} });
@@ -237,12 +282,13 @@ export default function Forge3D() {
     worker.onmessage = handler;
     worker.onerror = errorHandler;
     worker.postMessage({ type: 'render', id, code, outputFormat: 'stl' });
-  }, [code]);
+  }, [code, loadStlBytes]);
 
   const runCode = useCallback(() => {
-    if (useWasm) runWasmBuild();
+    if (hasNativeRender) runNativeBuild();
+    else if (useWasm) runWasmBuild();
     else runLegacyBuild();
-  }, [useWasm, runWasmBuild, runLegacyBuild]);
+  }, [hasNativeRender, useWasm, runNativeBuild, runWasmBuild, runLegacyBuild]);
 
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
@@ -336,6 +382,11 @@ export default function Forge3D() {
   }, []);
 
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
+
+  // ── LSP diagnostics (Electron-only, Problems tab) ──
+  useLSP(code, currentFilePath, setLspDiagnostics);
+  const allErrors = [...result.errors, ...lspDiagnostics.errors];
+  const allWarnings = [...result.warnings, ...lspDiagnostics.warnings];
 
   // ── Drag-and-drop .scad file import ──
   const handleDragOver = useCallback((e) => {
@@ -477,8 +528,8 @@ Please explain what's wrong and show me the corrected code.`;
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textMuted, cursor: 'pointer' }}>
             <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: colors.accent }} />Auto
           </label>
-          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: useWasm ? `${colors.success}22` : `${colors.warn}22`, color: useWasm ? colors.success : colors.warn, border: `1px solid ${useWasm ? colors.success : colors.warn}44`, cursor: 'pointer' }} onClick={() => setUseWasm(w => !w)} title={useWasm ? 'Using OpenSCAD WASM (click for legacy)' : 'Using legacy interpreter (click for WASM)'}>
-            {useWasm ? (wasmLoading ? 'WASM loading…' : 'WASM') : 'Legacy'}
+          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: hasNativeRender ? `${colors.success}22` : useWasm ? `${colors.accent}22` : `${colors.warn}22`, color: hasNativeRender ? colors.success : useWasm ? colors.accent : colors.warn, border: `1px solid ${hasNativeRender ? colors.success : useWasm ? colors.accent : colors.warn}44`, cursor: hasNativeRender ? 'default' : 'pointer' }} onClick={() => { if (!hasNativeRender) setUseWasm(w => !w); }} title={hasNativeRender ? 'Using native OpenSCAD binary (Electron)' : useWasm ? 'Using OpenSCAD WASM (click for legacy)' : 'Using legacy interpreter (click for WASM)'}>
+            {hasNativeRender ? '⚡ Native' : useWasm ? (wasmLoading ? 'WASM loading…' : 'WASM') : 'Legacy'}
           </span>
         </div>
       </div>
@@ -549,13 +600,13 @@ Please explain what's wrong and show me the corrected code.`;
 
           <div style={{ height: '180px', minHeight: '100px', borderTop: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
-              {[{ id: 'console', label: 'Console', count: result.logs.length }, { id: 'errors', label: 'Problems', count: result.errors.length + result.warnings.length }].map(({ id, label, count }) => (
+              {[{ id: 'console', label: 'Console', count: result.logs.length }, { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length }].map(({ id, label, count }) => (
                 <button key={id} onClick={() => setActiveTab(id)}
                   style={{ background: activeTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: activeTab === id ? colors.text : colors.textMuted, cursor: 'pointer', padding: '5px 10px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}
-                >{label}{count > 0 && <span style={{ background: id === 'errors' && result.errors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && result.errors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>{count}</span>}</button>
+                >{label}{count > 0 && <span style={{ background: id === 'errors' && allErrors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && allErrors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>{count}</span>}</button>
               ))}
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: colors.textFaint }}>
-                {(result.errors.length > 0 || result.warnings.length > 0) && (
+                {(allErrors.length > 0 || allWarnings.length > 0) && (
                   <button onClick={askAI} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', padding: '3px 9px', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', letterSpacing: '0.02em' }}>
                     <span>✦</span> Ask AI
                   </button>
@@ -567,8 +618,8 @@ Please explain what's wrong and show me the corrected code.`;
               {activeTab === 'console' && (<>{result.logs.length === 0 && <div style={{ color: colors.textFaint, marginBottom: '6px' }}>{statusMessage}</div>}{result.logs.length === 0 && <div style={{ color: colors.borderHover }}>// Console output appears here...</div>}{result.logs.map((log, i) => (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}><span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span></div>))}</>)}
               {activeTab === 'errors' && (
                 <>
-                  {result.errors.length === 0 && result.warnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
-                  {result.errors.map((rawErr, i) => {
+                  {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
+                  {allErrors.map((rawErr, i) => {
                     const msg = typeof rawErr === 'string' ? rawErr : (rawErr?.message ?? JSON.stringify(rawErr));
                     const lineMatch = msg.match(/line (\d+)/);
                     const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
@@ -584,7 +635,7 @@ Please explain what's wrong and show me the corrected code.`;
                       </div>
                     );
                   })}
-                  {result.warnings.map((rawWarn, i) => {
+                  {allWarnings.map((rawWarn, i) => {
                     const msg = typeof rawWarn === 'string' ? rawWarn : (rawWarn?.message ?? JSON.stringify(rawWarn));
                     const lineMatch = msg.match(/line (\d+)/);
                     const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
@@ -633,8 +684,8 @@ Please explain what's wrong and show me the corrected code.`;
         </div>
       </div>
 
-      <div style={{ height: '24px', minHeight: '24px', background: result.errors.length > 0 ? colors.error : colors.accent, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: theme === 'dark' ? '#111' : '#fff', fontWeight: 500, transition: 'background 0.3s' }}>
-        <span>{result.errors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${result.errors.length} error(s)`}</span>
+      <div style={{ height: '24px', minHeight: '24px', background: allErrors.length > 0 ? colors.error : colors.accent, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: theme === 'dark' ? '#111' : '#fff', fontWeight: 500, transition: 'background 0.3s' }}>
+        <span>{allErrors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${allErrors.length} error(s)`}</span>
         <span>{result.objects.length} objects</span>
         <span>{code.split("\n").length} lines</span>
         <span>{currentFilePath ? currentFilePath : currentFileName}</span>

@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm search:*)",
+      "Bash(npm view:*)",
+      "Bash(npm pack:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(lsof -i :5173 2>/dev/null || netstat -ano 2>/dev/null | grep 5173 | head -5)",
+      "Bash(taskkill //PID 42660 //F 2>&1; taskkill //PID 3448 //F 2>&1)",
+      "Bash(node --max-old-space-size=512 -e \"\nimport { createOpenSCAD } from 'openscad-wasm';\nconst inst = await createOpenSCAD\\({ noInitialRun: true }\\);\nconst openscad = inst.getInstance\\(\\);\n\nfunction listDir\\(path, depth\\) {\n  if \\(depth > 3\\) return;\n  try {\n    const entries = openscad.FS.readdir\\(path\\);\n    for \\(const e of entries\\) {\n      if \\(e === '.' || e === '..'\\) continue;\n      const full = path === '/' ? '/' + e : path + '/' + e;\n      try {\n        const stat = openscad.FS.stat\\(full\\);\n        if \\(stat.mode & 0o40000\\) {\n          console.log\\('D ' + full\\);\n          listDir\\(full, depth+1\\);\n        } else {\n          console.log\\('F ' + full + ' \\(' + stat.size + '\\)'\\);\n        }\n      } catch\\(_\\) { console.log\\('? ' + full\\); }\n    }\n  } catch\\(_\\) {}\n}\nlistDir\\('/', 0\\);\n\" 2>&1)",
+      "Bash(ls node_modules/openscad-wasm/*.js node_modules/openscad-wasm/**/*.js 2>/dev/null)",
+      "Bash(find \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\" -name \"*.wasm\" 2>/dev/null | head -5)",
+      "Bash(grep -l \"renderToStl\\\\|createOpenSCAD\" \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\"/*.js 2>/dev/null | head -3)",
+      "Bash(find \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\" -type f 2>/dev/null | grep -v \".js$\" | head -20)",
+      "Bash(grep -l \"addFonts\\\\|renderToStl\" \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\"/*.js 2>/dev/null)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\" && powershell -Command \"Invoke-WebRequest 'https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/liberation-fonts-ttf-2.1.5/LiberationSans-Bold.ttf' -OutFile 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Bold.ttf'\" && echo \"Bold done\" && powershell -Command \"Invoke-WebRequest 'https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/liberation-fonts-ttf-2.1.5/LiberationSans-Regular.ttf' -OutFile 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Regular.ttf'\" && echo \"Regular done\")",
+      "mcp__tavily__tavily_search",
+      "Bash(grep -oa \"Liberation[A-Za-z-]*\" \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\\\\openscad.js\" 2>/dev/null | head -10)",
+      "Bash(powershell -Command \"Select-String -Path 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\node_modules\\\\openscad-wasm\\\\openscad.js' -Pattern 'Liberation|fonts\\\\.conf|ttf' -SimpleMatch | Select-Object -First 10\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts' -ErrorAction SilentlyContinue | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1' | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf' | Select-Object Name\")",
+      "Bash(powershell -Command \"\nNew-Item -ItemType Directory -Force -Path 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts' | Out-Null;\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Bold.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Bold.ttf';\nCopy-Item 'C:\\\\Program Files\\\\OpenSCAD\\\\fonts\\\\Liberation-2.00.1\\\\ttf\\\\LiberationSans-Regular.ttf' 'C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\public\\\\fonts\\\\LiberationSans-Regular.ttf';\nWrite-Host 'Done'\n\")"
+    ]
+  }
+}
