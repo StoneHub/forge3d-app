@@ -50,7 +50,9 @@ export default function Forge3D() {
 
   // ─── Resizable panels ───────────────────────────────────────────────
   const [bottomPanelHeight, setBottomPanelHeight] = useState(180);
-  const [isResizingBottom, setIsResizingBottom] = useState(false);
+  const [editorWidth, setEditorWidth] = useState(480);
+  const resizingRef = useRef(null); // null | 'bottom' | 'horiz'
+  const dragStartRef = useRef({});
 
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
@@ -283,6 +285,28 @@ export default function Forge3D() {
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); removeMenu?.(); };
   }, [openFile, openFilePath, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
+
+  // ─── Panel resize mouse handlers ──────────────────────────────────────
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!resizingRef.current) return;
+      if (resizingRef.current === 'bottom') {
+        const delta = dragStartRef.current.y - e.clientY;
+        setBottomPanelHeight(Math.max(60, Math.min(600, dragStartRef.current.height + delta)));
+      } else if (resizingRef.current === 'horiz') {
+        const delta = e.clientX - dragStartRef.current.x;
+        setEditorWidth(Math.max(200, Math.min(1200, dragStartRef.current.width + delta)));
+      }
+    };
+    const onMouseUp = () => {
+      resizingRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); };
+  }, []);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
@@ -634,7 +658,7 @@ radius = 5;`}</pre>
         <button onClick={() => setSidebarOpen(o => !o)} style={{ width: '20px', minWidth: '20px', background: colors.bgDarker, border: 'none', borderRight: `1px solid ${colors.border}`, color: colors.textFaint, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}>{sidebarOpen ? '◀' : '▶'}</button>
 
         {/* Editor panel */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${colors.border}` }}>
+        <div style={{ width: editorWidth, minWidth: 200, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ height: '30px', minHeight: '30px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted }}>{currentFileName}{isDirty ? ' *' : ''}</span>
             <span style={{ fontSize: '10px', color: canUndo || canRedo ? colors.accent : colors.borderHover, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
@@ -644,8 +668,15 @@ radius = 5;`}</pre>
             <CodeEditor ref={editorRef} code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} theme={theme} onBuild={runCode} />
           </div>
 
+          {/* Bottom panel drag handle */}
+          <div
+            onMouseDown={(e) => { resizingRef.current = 'bottom'; dragStartRef.current = { y: e.clientY, height: bottomPanelHeight }; document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); }}
+            style={{ height: '5px', cursor: 'row-resize', background: 'transparent', borderTop: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}55`; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+          />
           {/* Console / Problems / Terminal panel */}
-          <div style={{ height: '180px', minHeight: '100px', borderTop: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
+          <div style={{ height: bottomPanelHeight, minHeight: 60, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
               {[
                 { id: 'console', label: 'Console', count: result.logs.length },
@@ -709,8 +740,15 @@ radius = 5;`}</pre>
           </div>
         </div>
 
+        {/* Horizontal drag handle */}
+        <div
+          onMouseDown={(e) => { resizingRef.current = 'horiz'; dragStartRef.current = { x: e.clientX, width: editorWidth }; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); }}
+          style={{ width: '5px', cursor: 'col-resize', background: 'transparent', borderLeft: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}55`; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+        />
         {/* 3D viewport */}
-        <div style={{ flex: 1.3, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
+        <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
           <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
             {[
               { icon: Icons.Grid, key: 'grid', label: 'Grid' },

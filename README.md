@@ -26,24 +26,35 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 
 ---
 
-## Quick Start
+## Install (Windows — recommended)
+
+Download the latest installer from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page:
+
+```
+Forge3D Setup 3.0.0.exe
+```
+
+Run it — no admin required. Forge3D installs to `%LOCALAPPDATA%\Programs\Forge3D` and adds a Start Menu shortcut. To uninstall, use **Add or Remove Programs**.
+
+> **Prerequisite:** [OpenSCAD](https://openscad.org/downloads.html) must be installed at the default path (`C:\Program Files\OpenSCAD\openscad.com`).
+
+---
+
+## Build from Source
 
 ```bash
 git clone https://github.com/StoneHub/forge3d-app
 cd forge3d-app
 npm install
 
-# Terminal 1 — renderer (Vite dev server)
+# Dev mode (hot reload)
 npm run dev
 
-# Terminal 2 — Electron shell
-npx electron .
+# Build installer → release/Forge3D Setup x.x.x.exe
+npm run dist
 ```
 
-Or use the combined script:
-```bash
-npm run electron:dev
-```
+> **Build requirements:** Node.js 22+, npm 10+, Python 3.x with `setuptools` (`pip install setuptools`), and Visual Studio Build Tools (for native node-pty rebuild).
 
 ---
 
@@ -112,6 +123,8 @@ forge3d-app/
 - [x] Embedded terminal pane (PowerShell/bash)
 - [x] Recent files menu + workspace folder browser
 - [x] Enhanced Params tab with slider/input UI from `// @param` annotations
+- [x] Resizable panels — drag handles between editor/viewport and editor/console
+- [x] Windows installer (NSIS) via `npm run dist`
 - [x] MIT license, public repo
 - [ ] Print Mode — bed arrangement + PrusaSlicer integration
 - [ ] Slicer settings embedded in `.scad` file as comment block
