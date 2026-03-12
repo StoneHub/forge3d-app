@@ -1,65 +1,74 @@
 # Forge3D — Development Plan
-_Last updated: 2026-03-11 (session 4) — Electron-native v3.0_
+_Last updated: 2026-03-11 — Electron-native v3.0_
 
 ---
 
 ## Project Vision
 > Seamless single-interface workflow: edit .scad → render → arrange on bed → slice → print. No app hopping.
 
-**Current state:** Core loop works. Native OpenSCAD render via IPC, LSP diagnostics, Three.js viewport, full editor. Now building out the power features.
+**Current state:** Core modeling workflow complete with professional UX. Native OpenSCAD render, LSP diagnostics, parameter system, embedded terminal, automatic dimension brackets. Now expanding toward print pipeline and advanced features.
 
 ---
 
 ## ✅ Already Shipped
+
+### Core Features
 - Native OpenSCAD IPC render (`openscad.com` via `execFile`)
-- `openscad-lsp` bundled + Problems tab wired
-- Three.js viewport (orbit, pan, zoom, HDRI, shadows)
+- `openscad-lsp` bundled + Problems tab with real-time diagnostics
+- Three.js viewport (orbit, pan, zoom, HDRI, shadows, grid, axes)
 - CodeMirror-style editor (syntax highlight, auto-close, undo/redo)
 - File open/save (native dialogs), drag-and-drop
 - STL export
 - MIT license, public GitHub repo
 
+### Power Features
+- **Embedded Terminal** — xterm.js + node-pty for PowerShell/bash within app
+- **Automatic Dimension Brackets** — CAD-style measurement overlays showing width/depth/height
+- **Enhanced Params Tab** — Smart `// @param` annotation parser with sliders, inputs, dropdowns, reset buttons
+- **Auto-Parameter Detection** — Automatically detects top-level variables and infers appropriate UI controls from naming patterns (size, count, angle, gap, etc.)
+- **Recent Files** — Track and quick-access last 10 opened files
+- **Workspace Folder Browser** — Tree view of workspace `.scad` files with click-to-open
+
+### UI Polish (v3.0)
+- Removed clutter (Native badge, primitive insert buttons)
+- Improved parameter text readability (white instead of purple)
+- Added reset button (↺) for each parameter to restore original value
+- AUTO badge for auto-detected parameters
+- Dark/light theme support
+
 ---
 
-## Phase 1 — Quality of Life (Next Session)
+## Phase 1 — UX Improvements (Current Priority)
 
-### 1A. Recent Files
-**Files:** `electron/main.mjs`, `electron/preload.cjs`, `src/Forge3D.jsx`
+See [next-features.md](next-features.md) for detailed implementation plans.
 
-- Store last 10 opened file paths in `electron-store` or a JSON file in `app.getPath('userData')`
-- Add `File → Recent Files` submenu in Electron menu (rebuild on open)
-- Expose `forgeAPI.getRecentFiles()` and `forgeAPI.clearRecentFiles()` via preload
-- In app: show recents in File menu AND in a "Recent" section at the top of the sidebar
+### 1A. Resizable Panels ⚡ **HIGH PRIORITY**
+- Horizontal resize: Code editor ↔ Viewport
+- Vertical resize: Editor/Viewport area ↔ Console/Terminal
+- Store sizes in localStorage
+- Libraries: Plain React + mouse events OR `react-resizable-panels`
 
-### 1B. Workspace Folder Browser
-**New tab in sidebar:** `📁 Workspace` tab alongside Examples and Params
+### 1B. App Icon 🎨
+- Design professional icon (Forge/Anvil + 3D cube theme)
+- Create `public/icon.png` (256x256+) and `public/favicon.ico`
+- Update `electron-builder` config
 
-- User sets a workspace folder via native folder picker (`forgeAPI.setWorkspaceFolder()`)
-- IPC: `fs.readdir` the folder recursively for `.scad` files, return a tree
-- Sidebar renders the file tree — click to open
-- Folder path persisted in `userData` JSON
-- Show folder name in tab: `📁 my-parts`
+### 1C. Smart Code Templates 📋
+Replace removed primitive buttons with useful parametric templates:
+- Parametric shapes (rounded box, etc.)
+- Mechanical parts (brackets, clips)
+- Joinery (dovetails, snap-fits, threaded inserts)
+- Utilities (grid array, circular pattern, honeycomb)
+- Store in `src/forge3d/templates.js`
+- UI: "📋 Templates" dropdown with categories
 
-### 1C. Params Tab — Enhanced UX
-**File:** `src/Forge3D.jsx` (params sidebar section)
-
-Current state: reads `result.variables` (only works with legacy interpreter, now dead).  
-New approach: **parse `// @param` annotations directly from the `.scad` source**.
-
-**Annotation format:**
-```openscad
-// @param letter = "M"        // type: string, options: A-Z
-// @param magnet_d = 6.0      // type: number, min: 3, max: 12, step: 0.5
-// @param wall_thickness = 2  // type: number, min: 1, max: 5
-letter = "M";
-magnet_d = 6.0;
-wall_thickness = 2;
-```
-
-- Parse `// @param` comments from code with a small regex parser
-- Render as: sliders for numbers, text inputs for strings, dropdowns for options
-- On change: patch the value in source code and trigger auto-rebuild
-- This replaces the dead variable slider system
+### 1D. File History / Snapshots ⏱
+"Windows Recall" for `.scad` files — never lose work:
+- Auto-snapshot on save, every N minutes, before opening new file
+- Store in `.forge3d/snapshots/` (gitignored)
+- Sidebar tab: "⏱ History" with timeline view
+- Diff viewer and restore functionality
+- Smart cleanup (keep recent, hourly, daily, weekly)
 
 ---
 

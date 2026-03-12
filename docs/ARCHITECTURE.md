@@ -1,70 +1,90 @@
 # Forge3D Technical Architecture
+_Updated for v3.0 — Electron-native with IPC rendering_
 
 ## Module Map
 
 ```
 Forge3D.jsx (state machine)
   │
-  ├── mode: 'design' ──→ CodeEditor + openscad.worker + Viewport (free cam)
+  ├── mode: 'design' ──→ CodeEditor + Electron IPC + Viewport + LSP + Terminal
   │                        │
-  │                        └── openscad.worker.js
-  │                              └── openscad-wasm (WASM module)
-  │                                    ├── FS.writeFile("/input.scad", code)
-  │                                    ├── callMain(["input.scad", "-o", "out.stl"])
-  │                                    └── FS.readFile("/out.stl") → Uint8Array
+  │                        ├── forgeAPI.render(code) → IPC → Main Process
+  │                        │      └── child_process.execFile("openscad.com", ["-o", "out.stl"])
+  │                        │            → returns STL binary via IPC
+  │                        │
+  │                        ├── lsp-client.js → openscad-language-server.exe (stdio)
+  │                        │      → diagnostics posted to Problems tab
+  │                        │
+  │                        └── terminal.jsx → node-pty (PTY shell) → PowerShell/bash
+  │                               → xterm.js UI rendering
   │
   ├── mode: 'print' ───→ PrintSettings + PrintBed + Viewport (bed cam)
-  │                        │
+  │   (planned)            │
   │                        └── slicer.js (Electron only)
   │                              └── child_process.exec(prusa-slicer-console.exe ...)
   │
-  ├── stl-parser.js ────→ Binary STL → THREE.BufferGeometry
+  ├── renderer.js ──────→ Three.js viewport with:
+  │                        ├── Orbit/pan/zoom controls
+  │                        ├── Grid, axes, wireframe overlays
+  │                        └── Dimension brackets (CAD-style measurements)
   │
-  ├── workspace.js ─────→ localStorage persistence
+  ├── param-parser.js ──→ Parse // @param annotations + auto-detect variables
+  │                        → Render sliders/inputs in Params tab
+  │
+  ├── stl-parser.js ────→ Binary + ASCII STL → THREE.BufferGeometry
+  │
+  ├── workspace.js ─────→ localStorage persistence + file I/O via IPC
   │
   └── exporter.js ──────→ THREE.Scene → binary STL download
 ```
 
-## openscad-wasm Worker Protocol
+## Native OpenSCAD Rendering (Electron IPC)
 
-### Message: Main → Worker
-```json
-{
-  "type": "render",
-  "id": 42,
-  "code": "cube([10,10,10]);",
-  "outputFormat": "stl"
-}
+### Render Flow
+```
+Renderer (Forge3D.jsx)
+  → forgeAPI.render(code)
+    → IPC: 'openscad:render'
+      → Main Process (electron/main.mjs)
+        → Write code to temp file: {userData}/temp/input.scad
+        → child_process.execFile('C:/Program Files/OpenSCAD/openscad.com', [
+            '-o', '{userData}/temp/output.stl',
+            '--enable=all',
+            '--quiet',
+            'input.scad'
+          ])
+        → Read STL binary from temp/output.stl
+        → Return { stl: Buffer, stdout, stderr, time }
+      ← IPC response
+    ← forgeAPI promise resolves
+  → Parse STL → Three.js geometry → render viewport
 ```
 
-### Message: Worker → Main (success)
-```json
-{
-  "type": "result",
-  "id": 42,
-  "stl": "<ArrayBuffer>",
-  "stdout": "ECHO: ...",
-  "stderr": "",
-  "renderTime": 1234
-}
+### Benefits of Native Rendering
+- **Full OpenSCAD compatibility** — all features, fonts, libraries work
+- **Fast** — no WASM overhead, direct binary execution
+- **Reliable** — battle-tested OpenSCAD engine
+- **File includes** — can reference external `.scad` files in workspace
+
+### OpenSCAD LSP Integration
+
+**Binary:** `electron/bin/openscad-language-server.exe` (bundled)
+
+**Flow:**
+```
+lsp-client.js (React hook)
+  → Spawn LSP server via forgeAPI.spawnLSP()
+    → Main Process spawns child_process (stdio pipes)
+  → Send LSP messages (initialize, textDocument/didChange, etc.)
+  → Receive diagnostics (errors, warnings)
+  → Display in Problems tab with line numbers
 ```
 
-### Message: Worker → Main (error)
-```json
-{
-  "type": "error",
-  "id": 42,
-  "error": "Parse error at line 5",
-  "stdout": "",
-  "stderr": "ERROR: ..."
-}
-```
-
-### Worker Lifecycle
-- Worker is created ONCE on app mount (WASM load is expensive ~2-5s)
-- Subsequent renders reuse the same worker instance
-- If render exceeds 30s timeout, worker is terminated and recreated
-- Worker posts progress messages for long renders (future)
+**Supported LSP features:**
+- Real-time syntax/semantic diagnostics
+- Error squiggles (planned for editor overlay)
+- Hover info (future)
+- Auto-complete (future)
 
 ## STL Parser
 
@@ -151,6 +171,31 @@ Print bed in Three.js:
   Camera default: elevated top-down looking at -Y
 ```
 
+## Terminal Integration (xterm.js + node-pty)
+
+**Components:**
+- **terminal.jsx** — xterm.js UI component with FitAddon
+- **electron/main.mjs** — IPC handlers for PTY spawn/write/resize/kill
+- **node-pty** — Native addon for pseudo-terminal (PowerShell/bash)
+
+**Flow:**
+```
+Terminal.jsx
+  → forgeAPI.spawnTerminal(cwd)
+    → IPC: 'terminal:spawn'
+      → Main Process: pty.spawn(shell, [], { cwd, cols, rows })
+      → Return terminalId
+  → forgeAPI.onTerminalData((data) => xterm.write(data))
+  → User types → xterm.onData → forgeAPI.writeTerminal(input)
+    → IPC: 'terminal:write' → ptyProcess.write(input)
+```
+
+**Features:**
+- Full ANSI color support
+- Resize handling (syncs terminal cols/rows with xterm UI)
+- Auto-cleanup on window close
+- Fallback message if node-pty fails to build
+
 ## State Management
 
 All state lives in `Forge3D.jsx` via `useState`. No external state library.
@@ -158,16 +203,54 @@ All state lives in `Forge3D.jsx` via `useState`. No external state library.
 ### Design Mode State
 ```javascript
 code: string                    // .scad source code
+lastSavedCode: string           // for param reset functionality
 stlBinary: Uint8Array | null    // last successful render output
 stlGeometry: BufferGeometry     // parsed mesh for viewport
 buildTime: number               // ms
 buildLogs: string[]             // openscad stdout lines
-buildErrors: string[]           // openscad stderr lines
-building: boolean               // worker in progress
+lspDiagnostics: Array<{         // LSP errors/warnings
+  line: number,
+  message: string,
+  severity: 'error' | 'warning'
+}>
+building: boolean               // render in progress
 autoRun: boolean                // auto-build on code change
+currentFileName: string         // e.g., "main.scad"
+recentFiles: string[]           // last 10 opened file paths
+workspaceFolder: string | null  // workspace root directory
 ```
 
-### Print Mode State
+### Viewport State
+```javascript
+viewSettings: {
+  grid: boolean,                // show grid plane
+  axes: boolean,                // show XYZ axes
+  wireframe: boolean,           // edge overlay
+  dimensions: boolean           // CAD-style measurement brackets
+}
+cameraState: {                  // persisted camera position
+  position: [x, y, z],
+  target: [x, y, z]
+}
+```
+
+### Parameters State
+```javascript
+params: Array<{
+  name: string,                 // variable name
+  value: any,                   // current value
+  type: 'number' | 'string' | 'boolean' | 'enum',
+  min?: number,                 // for number type
+  max?: number,
+  step?: number,
+  options?: string[],           // for enum type
+  auto?: boolean,               // true if auto-detected
+  line: number,                 // annotation line
+  assignmentLine: number        // actual assignment line
+}>
+```
+
+### Print Mode State (Planned)
 ```javascript
 bedParts: Array<{
   id: string,
@@ -190,8 +273,8 @@ sliceResult: { gcodePath, time, filament, layers } | null
 
 ### Shared State (persists across mode switch)
 ```javascript
-mode: 'design' | 'print'
+mode: 'design' | 'print'       // currently always 'design'
 theme: 'dark' | 'light'
-currentFileName: string
-viewSettings: { grid, axes, wireframe }
+currentTab: 'examples' | 'params' | 'workspace'
+bottomTab: 'console' | 'problems' | 'terminal'
 ```
