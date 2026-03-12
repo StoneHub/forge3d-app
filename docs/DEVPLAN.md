@@ -65,77 +65,155 @@ wall_thickness = 2;
 
 ## Phase 2 — Print Pipeline
 
-### 2A. Slicer Settings Embedded in .scad
+### 2A. Printer Profiles
+**Stored in:** `{userData}/printers.json` — user-owned, git-friendly if they want.
 
-**The idea:** store per-model slicer preferences right inside the `.scad` file as a structured comment block. Keeps settings with the model forever.
+A "printer" is a named JSON object with bed dimensions, PrusaSlicer profile name, and default material settings:
 
-**Format** (bottom of file, auto-inserted):
+```json
+[
+  {
+    "id": "geeetech-m1-mini",
+    "name": "Geeetech M1 Mini",
+    "active": true,
+    "bed": { "x": 100, "y": 110, "z": 100 },
+    "prusaslicer_profile": "0.2mm QUALITY",
+    "filament": "PLA",
+    "filament_color": "#4fc3f7",
+    "nozzle_diameter": 0.4,
+    "defaults": {
+      "layer_height": 0.2,
+      "infill": 15,
+      "infill_pattern": "gyroid",
+      "supports": false,
+      "brim": 0,
+      "first_layer_temp": 215,
+      "temp": 205,
+      "bed_temp": 60
+    }
+  }
+]
+```
+
+**UI:** A "Printers" panel (accessible from Print Mode or a settings page):
+- List of configured printers with radio-select for active
+- `+ Add Printer` → form with all fields
+- Active printer dimensions drive the print bed visualization
+
+**IPC:**
+- `forgeAPI.getPrinters()` → printer array
+- `forgeAPI.savePrinters(printers)` → write to JSON
+- `forgeAPI.getActivePrinter()` → active one
+
+---
+
+### 2B. Slicer Settings Embedded in .scad
+
+Per-model slicer preferences stored as a structured comment block at the bottom of the file — travels with the model, git-versionable, survives copy-paste.
+
+**Format:**
 ```openscad
 /* @forge3d
+printer: geeetech-m1-mini
 layer_height: 0.2
 infill: 15
 infill_pattern: gyroid
 supports: false
-brim: 3
+brim: 0
 filament: PLA
-material_color: #FF6B6B
-prusaslicer_profile: 0.2mm QUALITY @MK4
+material_color: #4fc3f7
 */
 ```
 
-**Implementation:**
-- `src/forge3d/slicer-settings.js` — parse/serialize the `@forge3d` block
-- `readSlicerSettings(code)` → `{ layer_height, infill, ... }`
-- `writeSlicerSettings(code, settings)` → updated source string (upsert the block)
-- Settings panel renders in Print Mode UI (Phase 2B)
-- Auto-saved into the file whenever user changes a setting
-
-### 2B. Print Mode UI
-**Mode switch button** in toolbar (replaces current no-op area).
-
-```
-[Design Mode]  ←→  [Print Mode]
-```
-
-**Design Mode** = current layout (editor + viewport)
-
-**Print Mode layout:**
-```
-┌─────────────────┬──────────────────────────┐
-│ Slicer Settings │  Print Bed (Three.js)    │
-│                 │                          │
-│  Layer height   │  [model draggable here]  │
-│  Infill %       │                          │
-│  Supports       │  [Bed: 250x210mm MK4]    │
-│  Brim           │                          │
-│                 │  [+ Add Part] [Auto Arr] │
-├─────────────────┴──────────────────────────┤
-│  [Slice with PrusaSlicer]  [Open in PS]    │
-└────────────────────────────────────────────┘
-```
-
-**Print bed:**
-- Flat Three.js plane, dimensions match printer profile (MK4 = 250×210×220mm)
-- Parts are draggable (mouse) and rotatable (R key)  
-- Part silhouettes shown (XY projection of STL bounding box initially, full mesh later)
-- "Auto Arrange" button: pack parts using simple bin-packing
-
-**Slice button (Electron IPC):**
+**Implementation (`src/forge3d/slicer-settings.js`):**
 ```js
-// main.mjs
-ipcMain.handle('slicer:slice', async (_e, { stlPath, settings }) => {
-  await execFileAsync(PRUSASLICER_BIN, [
+readSlicerSettings(code)   // regex parse → object (or printer defaults if no block)
+writeSlicerSettings(code, settings) // upsert the @forge3d block
+```
+
+- On file open: read block → pre-fill Print Mode sliders
+- On slider change: `writeSlicerSettings()` → update code (maintains undo history)
+- On `New` file: inherit active printer defaults, write block if user enters Print Mode
+
+---
+
+### 2C. PrusaSlicer CLI Integration
+
+**Binary discovery (in order):**
+1. `C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe` (default install)
+2. `C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer.exe` (older versions)
+3. User-set path in settings JSON
+
+**IPC handler (`electron/main.mjs`):**
+```js
+ipcMain.handle('slicer:slice', async (_e, { stlPath, settings, printer }) => {
+  const args = [
     '--export-gcode',
     `--layer-height=${settings.layer_height}`,
     `--fill-density=${settings.infill}%`,
-    '--output', outputPath,
+    `--fill-pattern=${settings.infill_pattern}`,
+    settings.supports ? '--support-material' : '--no-support-material',
+    `--brim-width=${settings.brim}`,
+    `--temperature=${settings.temp}`,
+    `--first-layer-temperature=${settings.first_layer_temp}`,
+    `--bed-temperature=${settings.bed_temp}`,
+    `--output=${outputPath}`,
     stlPath,
-  ]);
-  return { gcodeSize, estimatedTime, filamentMm };
+  ];
+  const result = await execFileAsync(PRUSASLICER_BIN, args);
+  return { gcodeSize, outputPath, stdout: result.stdout };
+});
+
+ipcMain.handle('slicer:openInPS', (_e, { stlPath }) => {
+  shell.openPath(stlPath); // opens in PS GUI — user slices manually
 });
 ```
-- Default PS path: `C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe`
-- "Open in PS" button: just `shell.openPath(stlPath)` — PS opens with its full UI
+
+**Slice button flow:**
+1. Forge3D runs native render → gets STL bytes
+2. Write STL to temp file in `{userData}/temp/`
+3. Call `slicer:slice` IPC
+4. Show progress (indeterminate spinner)
+5. On success: show estimated time + filament use; offer "Open G-code folder"
+
+---
+
+### 2D. Print Mode UI
+
+**Mode switch** in toolbar (toggle button):
+```
+[⚙ Design]  [🖨 Print]
+```
+
+**Print Mode layout:**
+```
+┌─────────────────┬──────────────────────────────────────────┐
+│ 🖨 Geeetech M1  │  Print Bed (Three.js top-down view)      │
+│ ─────────────── │                                          │
+│ Layer:  [0.2mm] │    ┌───────────┐                        │
+│ Infill: [15%  ] │    │  model    │  ← draggable           │
+│ Pattern:[gyroid]│    └───────────┘                        │
+│ Supports: [ ]   │                                          │
+│ Brim:   [0mm  ] │    100 × 110mm bed (M1 Mini)            │
+│                 │                                          │
+│ Filament: PLA   │  [Auto Arrange]  [+ Add Part]           │
+│ ─────────────── │                                          │
+│ [Change Printer]│                                          │
+├─────────────────┴──────────────────────────────────────────┤
+│  [🖨 Slice with PrusaSlicer]    [Open in PrusaSlicer GUI]  │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Print bed (Three.js):**
+- Top-down orthographic camera, bed shown as flat plane with grid lines
+- Bed dimensions from active printer profile (M1 Mini = 100×110mm)
+- Gray out-of-bounds area to show what fits
+- Parts shown as XY bounding-box footprints (later: real contour)
+- **Drag** to reposition, **R key** to rotate 90°
+- **Auto Arrange**: simple greedy bin-packing, sorted by area descending
+- Red highlight if part footprint exceeds bed bounds
+
+
 
 ---
 
