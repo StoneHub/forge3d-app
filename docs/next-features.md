@@ -1,0 +1,189 @@
+# Next Features - UX Improvements
+
+## 1. Resizable Panels ⚡ High Priority
+
+### Goal
+Allow users to resize code editor, viewport, and console/terminal panels to their preference.
+
+### Implementation Plan
+- **Horizontal resize**: Code editor ↔ Viewport (drag middle divider)
+- **Vertical resize**: Editor/Viewport area ↔ Console/Terminal (drag top divider of bottom panel)
+- Store sizes in localStorage as part of workspace settings
+
+### Technical Approach
+```javascript
+// Add to Forge3D state:
+const [editorWidth, setEditorWidth] = useState('50%');  // or pixel value
+const [bottomPanelHeight, setBottomPanelHeight] = useState(180);
+
+// Resize handler pattern:
+const handleMouseDown = (e, direction) => {
+  setIsResizing(true);
+  // Track mouse movement and update sizes
+};
+```
+
+### Libraries to Consider
+- Plain React + mouse events (simplest)
+- `react-resizable-panels` (if we want more features)
+
+---
+
+## 2. App Icon 🎨
+
+### Options
+1. **Forge/Anvil + 3D cube** - represents "forging" 3D objects
+2. **F3D monogram** - minimal, modern
+3. **Isometric cube with grid** - emphasizes CAD/precision
+
+### Files Needed
+- `public/icon.png` (256x256+) - for Electron
+- `public/favicon.ico` - for browser/titlebar
+- Update `electron-builder` config in package.json
+
+### Tool
+Use Figma/Inkscape or generate with AI (DALL-E, Midjourney)
+
+---
+
+## 3. File History / Snapshots ("Windows Recall" for .scad files)
+
+### Goal
+Never lose work. Track all changes to workspace files with easy rollback.
+
+### Design Concept: Auto-Snapshot System
+
+#### How It Works
+1. **Auto-snapshot on significant events:**
+   - Every manual save
+   - Every N minutes (if code changed)
+   - Before opening a new file
+   - Before major operations (refactor, etc.)
+
+2. **Snapshot storage:**
+   - `.forge3d/snapshots/` folder in workspace (gitignored)
+   - Each snapshot: `{filename}_{timestamp}.scad`
+   - Metadata: `.forge3d/snapshots/index.json` with timestamps, file sizes
+
+3. **UI:**
+   - New sidebar tab: "⏱ History"
+   - Timeline view showing snapshots
+   - Click to preview diff
+   - Restore button to revert to snapshot
+
+#### Implementation Phases
+
+**Phase 1: Auto-save snapshots**
+```javascript
+// In Forge3D.jsx, on save:
+const saveSnapshot = async () => {
+  const timestamp = Date.now();
+  const snapshotPath = `.forge3d/snapshots/${currentFileName}_${timestamp}.scad`;
+  await window.forgeAPI.writeSnapshot(snapshotPath, code);
+};
+```
+
+**Phase 2: Snapshot browser UI**
+- List snapshots in sidebar
+- Show timestamp, size, preview
+- Diff viewer (highlight changes)
+
+**Phase 3: Smart cleanup**
+- Keep all snapshots < 1 hour old
+- Keep hourly snapshots < 1 day old
+- Keep daily snapshots < 1 week old
+- Keep weekly snapshots indefinitely (or until manual delete)
+
+### Alternative: Git Integration
+- Auto-commit on save
+- UI for browsing git history
+- Leverage existing git tooling
+- Requires git in workspace folder
+
+**Pros:** Industry standard, powerful
+**Cons:** Might be overkill, requires git knowledge
+
+### Recommendation
+Start with **custom snapshot system** (simpler, more integrated). Can add git integration later.
+
+---
+
+## 4. Better Code Templates (Replace Primitive Buttons)
+
+### Concept: Smart Templates Library
+
+Instead of "Insert Cube", have useful templates:
+
+#### Template Categories
+
+**1. Parametric Shapes**
+```scad
+// Parametric Box with Rounded Corners
+width = 50;   // @param
+depth = 30;   // @param
+height = 20;  // @param
+corner_radius = 2;  // @param
+
+minkowski() {
+  cube([width, depth, height], center=true);
+  sphere(r=corner_radius, $fn=16);
+}
+```
+
+**2. Mechanical Parts**
+```scad
+// Mounting Bracket
+// ... complete working example
+```
+
+**3. Joinery**
+```scad
+// Dovetail Joint
+// Snap-Fit Clips
+// Threaded Insert Holes
+```
+
+**4. Utilities**
+```scad
+// Grid Array
+// Circular Pattern
+// Honeycomb Fill
+```
+
+### UI Integration
+- Replace primitive buttons with "📋 Templates" dropdown
+- Shows categorized list
+- Click to insert at cursor (or replace selection)
+- Templates stored in `src/forge3d/templates.js`
+
+### Template Format
+```javascript
+export const TEMPLATES = {
+  "Parametric Box": {
+    category: "Shapes",
+    code: `// Parametric Box\nwidth = 50;\n...`,
+    description: "Box with rounded corners and wall thickness",
+    tags: ["parametric", "container", "beginner"]
+  },
+  // ...
+};
+```
+
+---
+
+## 5. Implementation Priority
+
+1. ✅ **UI Polish** (DONE: removed clutter, improved colors, reset buttons)
+2. 🚀 **Resizable Panels** - HIGH PRIORITY (usability)
+3. 🎨 **App Icon** - MEDIUM (branding, looks professional)
+4. 📋 **Templates System** - MEDIUM (discoverability)
+5. ⏱ **File History** - LOWER (nice-to-have, but impactful)
+
+---
+
+## Notes for Implementation
+
+- Keep it simple - don't over-engineer
+- Focus on 80/20 - solve most common pain points
+- All features should work offline (no cloud dependencies)
+- Store preferences in localStorage + `.forge3d/` folder in workspace
