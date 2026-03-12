@@ -48,6 +48,10 @@ export default function Forge3D() {
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [parsedParams, setParsedParams] = useState([]);
 
+  // ─── Resizable panels ───────────────────────────────────────────────
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(180);
+  const [isResizingBottom, setIsResizingBottom] = useState(false);
+
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const BUILD_TIMEOUT = 60000;
@@ -388,19 +392,6 @@ export default function Forge3D() {
               onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: disabled ? colors.textFaint : colors.textMuted })}
             ><I /><span>{label}</span></button>
           ))}
-          <div style={{ height: '20px', width: '1px', background: colors.border }} />
-          {/* Quick-insert primitives */}
-          {[
-            { icon: Icons.Cube, label: 'Cube', s: "cube([10,10,10], center=true);" },
-            { icon: Icons.Sphere, label: 'Sphere', s: "sphere(r=5, $fn=32);" },
-            { icon: Icons.Cylinder, label: 'Cylinder', s: "cylinder(h=10, r=5, $fn=32);" },
-          ].map(({ icon: I, label, s }) => (
-            <button key={label} onClick={() => applyCodeChange(c => `${c}\n${s}\n`)} title={`Insert ${label}`}
-              style={{ background: 'none', border: '1px solid transparent', color: colors.textMuted, padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-              onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.borderHover, color: colors.text })}
-              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: colors.textMuted })}
-            ><I /><span>{label}</span></button>
-          ))}
         </div>
 
         {/* Right side */}
@@ -417,7 +408,6 @@ export default function Forge3D() {
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textMuted, cursor: 'pointer' }}>
             <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: colors.accent }} />Auto
           </label>
-          <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: `${colors.success}22`, color: colors.success, border: `1px solid ${colors.success}44` }}>⚡ Native</span>
         </div>
       </div>
 
@@ -538,12 +528,27 @@ radius = 5;`}</pre>
                   ) : (
                     parsedParams.map(param => (
                       <div key={param.name} style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.accent, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.text, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {param.name}
                             {param.auto && <span style={{ fontSize: '8px', background: `${colors.success}22`, color: colors.success, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Auto-detected parameter">AUTO</span>}
                           </span>
-                          <span style={{ fontSize: '10px', color: colors.textFaint, fontWeight: 400 }}>{param.type}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 400 }}>{param.type}</span>
+                            <button
+                              onClick={() => {
+                                // Reset to original value from code
+                                const originalParams = parseParams(lastSavedCode);
+                                const original = originalParams.find(p => p.name === param.name);
+                                if (original) {
+                                  const newCode = applyParamChange(code, param.name, original.value);
+                                  applyCodeChange(newCode);
+                                }
+                              }}
+                              title="Reset to original value"
+                              style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: '3px', color: colors.textMuted, cursor: 'pointer', fontSize: '10px', padding: '2px 5px', lineHeight: 1 }}
+                            >↺</button>
+                          </div>
                         </div>
 
                         {/* Number → Slider */}
