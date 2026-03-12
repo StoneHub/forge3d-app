@@ -1,279 +1,236 @@
-# Forge3D — Development Plan for Next Agent
-_Last updated: 2026-03-11 (session 3)_
+# Forge3D — Development Plan
+_Last updated: 2026-03-11 (session 4) — Electron-native v3.0_
 
 ---
 
-## Project Vision (User's Words)
-> "Seamless single-interface workflow: edit .scad → render STL → arrange on print bed → slice → print. I hate hopping between tools."
+## Project Vision
+> Seamless single-interface workflow: edit .scad → render → arrange on bed → slice → print. No app hopping.
 
-The user makes 3D-printed fridge magnet letters using OpenSCAD. Their files work perfectly in desktop OpenSCAD. Forge3D should render them identically in the browser, then hand off to PrusaSlicer without leaving the app.
-
----
-
-## Current Status
-
-### ✅ DONE
-| Feature | File(s) | Notes |
-|---------|---------|-------|
-| React + Vite + Electron scaffold | `src/Forge3D.jsx`, `electron/main.mjs` | Stable |
-| Three.js 3D viewport | `src/forge3d/renderer.js` | Orbit, pan, zoom, shadows, HDRI |
-| CodeMirror-style editor | `src/forge3d/editor.jsx` | Syntax highlight, auto-close, undo/redo |
-| openscad-wasm worker | `src/forge3d/openscad.worker.js` | **Primary render path** |
-| STL parser (binary + ASCII) | `src/forge3d/stl-parser.js` | Auto-detects format |
-| Legacy interpreter (fallback) | `src/forge3d/interpreter.js` | Tokenizer kept for syntax highlight |
-| File open/save (browser + Electron) | `src/forge3d/workspace.js` | Drag-and-drop also works |
-| Error display with line jump | `src/Forge3D.jsx` | [object Object] bug fixed |
-| Ask AI (clipboard dump) | `src/Forge3D.jsx` | Copies debug prompt to clipboard |
-| Sample file: magnetic_letter_only.scad | `Samples/` | Uses Liberation Sans:style=Bold |
-
-### ⚠️ CONFIRMED BROKEN — Fix this first
-| Feature | Root Cause | Fix |
-|---------|-----------|-----|
-| `text()` / font support in WASM | **The CDN URL for Liberation Sans returns 404.** `fetch('https://cdn.jsdelivr.net/gh/liberationfonts/...')` fails silently, no fonts are written to WASM FS, `text()` produces empty geometry. | See Font Fix section below. |
-
-### ✅ CONFIRMED WORKING
-- WASM render pipeline — simple shapes (cube, sphere, cylinder) render correctly in browser
-- STL parser — binary and ASCII both work
-- Three.js display — orbit, pan, shadows, correct coordinate system
-
-### ❌ NOT STARTED
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| OpenSCAD LSP in Electron | **HIGH** | See LSP Implementation Plan below |
-| Print Mode UI | MEDIUM | See `docs/WORKFLOW.md` |
-| PrusaSlicer CLI integration | MEDIUM | See `docs/WORKFLOW.md` |
-| Print bed arrangement | LOW | Three.js scene with drag/rotate |
+**Current state:** Core loop works. Native OpenSCAD render via IPC, LSP diagnostics, Three.js viewport, full editor. Now building out the power features.
 
 ---
 
-## 🔥 Font Fix — Do This First
-
-### Root cause (confirmed)
-The CDN URL `https://cdn.jsdelivr.net/gh/liberationfonts/liberation-fonts@2.1.5/...` returns **404**. Font loading silently fails. OpenSCAD's `text()` produces no geometry. All letter files render blank.
-
-### Fix option A — Bundle fonts in `/public/fonts/` (recommended)
-1. Research agent: find working download URLs for Liberation Sans Bold + Regular TTF (try GitHub releases, Google Fonts, or the `npm` package `liberation-fonts-ttf`)
-2. Download to `public/fonts/LiberationSans-Bold.ttf` and `public/fonts/LiberationSans-Regular.ttf`
-3. Update `src/forge3d/openscad.worker.js` `loadFonts()` to fetch from local URL:
-   ```js
-   // Replace CDN urls with:
-   { name: 'LiberationSans-Bold.ttf',    url: '/fonts/LiberationSans-Bold.ttf' },
-   { name: 'LiberationSans-Regular.ttf', url: '/fonts/LiberationSans-Regular.ttf' },
-   ```
-   In a Web Worker `fetch('/fonts/...')` resolves to `http://localhost:5173/fonts/...` which Vite serves from `public/`. ✓
-4. Test: load `Samples/magnetic_letter_only.scad`, click Build — should render letter M with magnet pockets.
-
-### Fix option B — Use desktop OpenSCAD binary via Electron IPC (Electron-only, simpler)
-The user has OpenSCAD installed at `C:\Program Files\OpenSCAD\openscad.com`. In Electron mode, skip WASM entirely for the render:
-1. In `electron/main.mjs`, add `ipcMain.handle('openscad:render', async (_e, { code, outputPath }) => { ... })` that writes code to temp file, runs `openscad.com -o output.stl input.scad`, returns STL bytes.
-2. In `src/Forge3D.jsx`, when `window.forgeAPI?.renderOpenSCAD` is available, use it instead of WASM worker.
-3. Result: 100% OpenSCAD compatibility including all system fonts, no WASM font headaches.
-
-**Recommendation**: Do Option A for the browser WASM path (needed for non-Electron), and Option B for Electron (better quality). Both can coexist — Electron uses native, browser uses WASM.
+## ✅ Already Shipped
+- Native OpenSCAD IPC render (`openscad.com` via `execFile`)
+- `openscad-lsp` bundled + Problems tab wired
+- Three.js viewport (orbit, pan, zoom, HDRI, shadows)
+- CodeMirror-style editor (syntax highlight, auto-close, undo/redo)
+- File open/save (native dialogs), drag-and-drop
+- STL export
+- MIT license, public GitHub repo
 
 ---
 
-## Immediate Debug Checklist (WASM rendering)
+## Phase 1 — Quality of Life (Next Session)
 
-Before building new features, confirm the WASM pipeline is actually working:
+### 1A. Recent Files
+**Files:** `electron/main.mjs`, `electron/preload.cjs`, `src/Forge3D.jsx`
 
-1. Run `npm run dev` in `C:\Users\monro\Codex\forge3d-app`
-2. Open browser at `http://localhost:5173` (or whatever port Vite picks)
-3. Open DevTools → Console tab
-4. Load `Samples/magnetic_letter_only.scad` (drag-drop or Open button)
-5. Click **Build** (or wait for Auto-run)
-6. Watch for errors in Console. Common scenarios:
+- Store last 10 opened file paths in `electron-store` or a JSON file in `app.getPath('userData')`
+- Add `File → Recent Files` submenu in Electron menu (rebuild on open)
+- Expose `forgeAPI.getRecentFiles()` and `forgeAPI.clearRecentFiles()` via preload
+- In app: show recents in File menu AND in a "Recent" section at the top of the sidebar
 
-| Console error | Cause | Fix |
-|---------------|-------|-----|
-| `Failed to fetch` on worker import | Vite can't serve openscad-wasm module | Check vite config; try `optimizeDeps: { exclude: ['openscad-wasm'] }` |
-| `WebAssembly.instantiate` error | WASM compile failed | Check if browser supports WASM (should be fine on modern Chrome) |
-| `FS.readFile: /output.stl not found` | OpenSCAD render failed silently | Check stderr for actual OpenSCAD error |
-| Blank viewport, console clean | STL parsed but 0 triangles | Font issue — text() produced no geometry |
-| `STL parse error` in Problems tab | Parser failed on output | Check what `stlText` looks like; add `console.log(stlText.slice(0, 200))` to worker |
+### 1B. Workspace Folder Browser
+**New tab in sidebar:** `📁 Workspace` tab alongside Examples and Params
 
-**Quick test**: Replace the letter file with a simple no-font shape first to isolate whether the issue is font-related or pipeline-related:
+- User sets a workspace folder via native folder picker (`forgeAPI.setWorkspaceFolder()`)
+- IPC: `fs.readdir` the folder recursively for `.scad` files, return a tree
+- Sidebar renders the file tree — click to open
+- Folder path persisted in `userData` JSON
+- Show folder name in tab: `📁 my-parts`
+
+### 1C. Params Tab — Enhanced UX
+**File:** `src/Forge3D.jsx` (params sidebar section)
+
+Current state: reads `result.variables` (only works with legacy interpreter, now dead).  
+New approach: **parse `// @param` annotations directly from the `.scad` source**.
+
+**Annotation format:**
 ```openscad
-cube([20, 20, 20]);
+// @param letter = "M"        // type: string, options: A-Z
+// @param magnet_d = 6.0      // type: number, min: 3, max: 12, step: 0.5
+// @param wall_thickness = 2  // type: number, min: 1, max: 5
+letter = "M";
+magnet_d = 6.0;
+wall_thickness = 2;
 ```
-If the cube renders, the pipeline works and the issue is fonts only.
+
+- Parse `// @param` comments from code with a small regex parser
+- Render as: sliders for numbers, text inputs for strings, dropdowns for options
+- On change: patch the value in source code and trigger auto-rebuild
+- This replaces the dead variable slider system
 
 ---
 
-## Next Feature: OpenSCAD LSP Integration
+## Phase 2 — Print Pipeline
 
-### Goal
-Inline diagnostics (red squiggles), hover docs, and autocomplete inside Forge3D's code editor, powered by the real OpenSCAD language server.
+### 2A. Slicer Settings Embedded in .scad
 
-### Architecture
+**The idea:** store per-model slicer preferences right inside the `.scad` file as a structured comment block. Keeps settings with the model forever.
+
+**Format** (bottom of file, auto-inserted):
+```openscad
+/* @forge3d
+layer_height: 0.2
+infill: 15
+infill_pattern: gyroid
+supports: false
+brim: 3
+filament: PLA
+material_color: #FF6B6B
+prusaslicer_profile: 0.2mm QUALITY @MK4
+*/
+```
+
+**Implementation:**
+- `src/forge3d/slicer-settings.js` — parse/serialize the `@forge3d` block
+- `readSlicerSettings(code)` → `{ layer_height, infill, ... }`
+- `writeSlicerSettings(code, settings)` → updated source string (upsert the block)
+- Settings panel renders in Print Mode UI (Phase 2B)
+- Auto-saved into the file whenever user changes a setting
+
+### 2B. Print Mode UI
+**Mode switch button** in toolbar (replaces current no-op area).
 
 ```
-Renderer process (browser)        Main process (Electron Node.js)
-  editor.jsx                         electron/main.mjs
-    └─ LSP messages over IPC  ───▶   spawnLSP()
-                                        └─ child_process.spawn('openscad-language-server')
-                                              stdio: [pipe, pipe, pipe]
-                                        └─ bridge: stdin/stdout ↔ ipcMain
-                                   ipcMain.on('lsp-send') → write to LSP stdin
-                                   LSP stdout → win.webContents.send('lsp-recv')
+[Design Mode]  ←→  [Print Mode]
 ```
 
-### Files to create/modify
+**Design Mode** = current layout (editor + viewport)
 
-| File | Change |
-|------|--------|
-| `electron/main.mjs` | Add `spawnLSP()` function, add `lsp-send`/`lsp-recv` IPC handlers |
-| `electron/preload.cjs` | Expose `lspSend(msg)` and `onLspReceive(callback)` via contextBridge |
-| `src/forge3d/lsp-client.js` | LSP JSON-RPC message framing (`Content-Length: N\r\n\r\n{...}`) |
-| `src/forge3d/editor.jsx` | Add `useLSP` hook — send `textDocument/didOpen`, `didChange`; receive `publishDiagnostics` |
-| `src/Forge3D.jsx` | Pass LSP diagnostics into the errors/warnings panel |
-
-### Step-by-step implementation
-
-#### Step 1 — Install the LSP binary
-The `antyos.openscad` VS Code extension ships `openscad-language-server.exe`. It can also be built from:
-- https://github.com/Leathong/openscad-language-server (Rust, `cargo build --release`)
-- Or downloaded from the VS Code extension's `bin/` folder
-
-**Easiest path on Windows**: Install `antyos.openscad` in VS Code, then find the binary at:
+**Print Mode layout:**
 ```
-%USERPROFILE%\.vscode\extensions\antyos.openscad-*\bin\openscad-language-server.exe
+┌─────────────────┬──────────────────────────┐
+│ Slicer Settings │  Print Bed (Three.js)    │
+│                 │                          │
+│  Layer height   │  [model draggable here]  │
+│  Infill %       │                          │
+│  Supports       │  [Bed: 250x210mm MK4]    │
+│  Brim           │                          │
+│                 │  [+ Add Part] [Auto Arr] │
+├─────────────────┴──────────────────────────┤
+│  [Slice with PrusaSlicer]  [Open in PS]    │
+└────────────────────────────────────────────┘
 ```
-Copy it to `electron/bin/openscad-language-server.exe` and bundle it with the Electron app.
 
-#### Step 2 — Electron main process
-Add to `electron/main.mjs`:
+**Print bed:**
+- Flat Three.js plane, dimensions match printer profile (MK4 = 250×210×220mm)
+- Parts are draggable (mouse) and rotatable (R key)  
+- Part silhouettes shown (XY projection of STL bounding box initially, full mesh later)
+- "Auto Arrange" button: pack parts using simple bin-packing
+
+**Slice button (Electron IPC):**
 ```js
-import { spawn } from 'child_process'
-
-let lspProcess = null
-
-function spawnLSP(win) {
-  const lspBin = isDev
-    ? path.join(__dirname, 'bin', 'openscad-language-server.exe')
-    : path.join(process.resourcesPath, 'bin', 'openscad-language-server.exe')
-
-  lspProcess = spawn(lspBin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
-
-  let buf = ''
-  lspProcess.stdout.on('data', (chunk) => {
-    buf += chunk.toString()
-    // Parse LSP framing: Content-Length: N\r\n\r\n{...}
-    while (true) {
-      const headerEnd = buf.indexOf('\r\n\r\n')
-      if (headerEnd === -1) break
-      const header = buf.slice(0, headerEnd)
-      const lenMatch = header.match(/Content-Length:\s*(\d+)/i)
-      if (!lenMatch) { buf = buf.slice(headerEnd + 4); continue }
-      const len = parseInt(lenMatch[1])
-      if (buf.length < headerEnd + 4 + len) break
-      const body = buf.slice(headerEnd + 4, headerEnd + 4 + len)
-      buf = buf.slice(headerEnd + 4 + len)
-      try { win.webContents.send('lsp-recv', JSON.parse(body)) } catch (_) {}
-    }
-  })
-
-  ipcMain.on('lsp-send', (_event, msg) => {
-    const body = JSON.stringify(msg)
-    lspProcess.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
-  })
-}
+// main.mjs
+ipcMain.handle('slicer:slice', async (_e, { stlPath, settings }) => {
+  await execFileAsync(PRUSASLICER_BIN, [
+    '--export-gcode',
+    `--layer-height=${settings.layer_height}`,
+    `--fill-density=${settings.infill}%`,
+    '--output', outputPath,
+    stlPath,
+  ]);
+  return { gcodeSize, estimatedTime, filamentMm };
+});
 ```
-Call `spawnLSP(win)` at the end of `createWindow()`.
-
-#### Step 3 — Preload bridge
-Add to `electron/preload.cjs`:
-```js
-lspSend: (msg) => ipcRenderer.send('lsp-send', msg),
-onLspReceive: (cb) => {
-  const handler = (_event, msg) => cb(msg)
-  ipcRenderer.on('lsp-recv', handler)
-  return () => ipcRenderer.removeListener('lsp-recv', handler)
-},
-```
-
-#### Step 4 — LSP client hook
-Create `src/forge3d/lsp-client.js`:
-- Sends `initialize` on mount
-- Sends `textDocument/didOpen` when file opens
-- Sends `textDocument/didChange` on every keystroke (throttled 300ms)
-- Receives `textDocument/publishDiagnostics` and returns `{ errors, warnings }` arrays
-
-#### Step 5 — Wire into editor
-In `editor.jsx`, call `useLSP(code, currentFilePath)` and surface diagnostics as inline squiggles on the line number gutter. Pass them up to `Forge3D.jsx` via a callback so they also appear in the Problems tab.
-
-### Notes for LSP implementation
-- LSP uses 1-based line/character indexing
-- The editor's line jump already works — LSP diagnostics include line numbers
-- Only enable LSP when running in Electron (`window.forgeAPI` exists); browser mode skips it
-- The `openscad-language-server` binary needs OpenSCAD to be installed for full functionality — check `C:\Program Files\OpenSCAD\openscad.com` exists
+- Default PS path: `C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe`
+- "Open in PS" button: just `shell.openPath(stlPath)` — PS opens with its full UI
 
 ---
 
-## Phase 2: Print Mode (after LSP is working)
+## Phase 3 — Editor Upgrades
 
-Full spec in `docs/WORKFLOW.md`. Short summary:
+### 3A. LSP Inline Squiggles
+The LSP is running, sending diagnostics. Wire them into the editor as visual underlines.
 
+**Current editor:** custom `<textarea>` + `<pre>` overlay approach.  
+**Approach:** in the `<pre>` highlight layer, for lines with LSP errors, wrap the relevant span in a `<mark>` with red wavy underline CSS:
+```css
+.lsp-error { text-decoration: underline wavy #e57373; text-underline-offset: 2px; }
 ```
-[Design Mode]                     [Print Mode]
-┌──────────┬──────────┐           ┌──────────┬──────────┐
-│ Editor   │ 3D View  │  ─────▶   │ Settings │ Print Bed│
-│ (code)   │ (orbit)  │   mode    │ (panel)  │ (arrange)│
-└──────────┴──────────┘   switch  └──────────┴──────────┘
-```
+- Store `lspDiagnostics` line numbers → render in `HighlightedCode` overlay
+- Pass `diagnostics` prop into `CodeEditor`, map line → mark in the rendered spans
 
-- Mode switch button in toolbar (existing WASM badge area)
-- Print bed: flat Three.js plane, parts are draggable/rotatable
-- Settings panel: layer height, infill, support options (fed to PrusaSlicer)
-- Slice button: Electron only, shells out to `prusa-slicer-console.exe --export-gcode`
+### 3B. Find / Replace
+`Ctrl+F` opens a floating find bar at top of editor:
+- Input field + next/prev arrows + match count
+- `Ctrl+H` adds a replace field
+- Highlight all matches in the overlay layer (yellow `<mark>`)
+
+### 3C. Go-to-Line / Command Palette
+`Ctrl+G` → line number input → jumps editor  
+`Ctrl+P` → command palette (fuzzy search commands + example files)
+
+### 3D. Line Folding
+Collapse `{ ... }` blocks by clicking a ▶ in the gutter.  
+Minimal: just hide the content lines, show `▶ ...` placeholder.
 
 ---
 
-## Architecture Decisions (do not revisit)
+## Phase 4 — AI Code Generation
 
-1. **Custom interpreter is DEAD** — do not improve `interpreter.js` beyond tokenizer
-2. **openscad-wasm is the render engine** — `src/forge3d/openscad.worker.js`
-3. **No external UI libraries** — all styling inline in JSX
-4. **Web Workers for heavy computation** — WASM runs in worker, never on main thread
-5. **Electron for desktop features** (LSP, PrusaSlicer, native file dialogs)
-6. **Browser mode still works** for basic editing + rendering (no LSP, no slicer)
+### 4A. Natural Language → OpenSCAD
+
+**The workflow:**
+1. User types in a "Sketch" input box: _"a flat letter M, 50mm tall, 3mm thick, with two 6mm cylindrical holes for magnets on the back"_
+2. Forge3D constructs a prompt with OpenSCAD context and sends to Claude/GPT API
+3. Response is inserted into the editor (with undo step)
+4. Build fires automatically
+
+**Implementation options (user picks):**
+- **A: Local API key** — user provides their own Claude/OpenAI key, stored in `userData/config.json`
+- **B: Copy prompt to clipboard** — extends existing "Ask AI" button pattern, zero infrastructure
+- **C: Bundled Ollama** — run a local model (requires user to have Ollama installed)
+
+**Prompt template:**
+```
+You are an OpenSCAD expert. Generate valid OpenSCAD code for:
+
+"{user_description}"
+
+Rules:
+- Output ONLY valid OpenSCAD code, no explanation
+- Use Liberation Sans for any text()
+- Include all necessary parameters as variables at the top
+- Add // @param annotations for each variable
+```
+
+### 4B. Pseudocode Mode
+A toggle in the editor: `// Sketch Mode`  
+Lines starting with `//!` are treated as natural language intent:
+
+```openscad
+//! a rounded rectangle base, 80x40mm, 3mm tall
+//! subtract a cylinder from each corner, 5mm diameter
+//! add a lip around the edge, 1mm wide
+```
+
+Click "Generate" → sends the `//!` lines as a prompt → replaces with OpenSCAD code.
 
 ---
 
-## Key File Map
+## Key Files Reference
 
 ```
 src/
-  Forge3D.jsx                 # All UI state, mode switching, build orchestration
+  Forge3D.jsx                 # Main UI + state
   forge3d/
-    openscad.worker.js        # ⭐ WASM render worker (primary render path)
-    stl-parser.js             # Binary + ASCII STL → Three.js BufferGeometry data
-    renderer.js               # Three.js scene builder (useThreeRenderer hook)
-    editor.jsx                # Code editor with syntax highlight + LSP squiggles (TODO)
-    interpreter.js            # LEGACY — tokenizer only (syntax highlight), not for rendering
-    lsp-client.js             # TODO — LSP JSON-RPC client hook
-    workspace.js              # localStorage persistence + file I/O
-    exporter.js               # Scene → binary STL export
+    renderer.js               # Three.js (add print bed plane here for Phase 2)
+    editor.jsx                # Editor (add squiggles, find/replace in Phase 3)
+    lsp-client.js             # LSP hook (already wired)
+    workspace.js              # Add workspace folder IPC here
+    slicer-settings.js        # NEW Phase 2 — parse/write @forge3d block
 electron/
-  main.mjs                    # Electron main: window, menus, file dialogs, LSP spawn (TODO)
-  preload.cjs                 # IPC bridge: forgeAPI.* exposed to renderer
-  bin/
-    openscad-language-server.exe  # TODO — copy from VS Code extension
-docs/
-  DEVPLAN.md                  # ← this file
-  WORKFLOW.md                 # UX spec for Design ↔ Print Mode
-  ARCHITECTURE.md             # Technical architecture deep-dive
-Samples/
-  magnetic_letter_only.scad   # User's primary test file — fridge magnet letters
+  main.mjs                    # Add: recent files, workspace IPC, slicer:slice
+  preload.cjs                 # Add: getRecentFiles, setWorkspaceFolder, slice
 ```
 
 ---
 
-## User Context
-
-- **Name**: monro (Windows 11)
-- **Goal**: Print fridge magnet letters with embedded magnet pockets for family/home use
-- **Pain point**: Desktop OpenSCAD is clunky, no integrated print workflow
-- **Style**: Values speed and results over process. Dislikes half-measures. Direct communication.
-- **Other agents**: "OPENCLAW" — another AI assistant the user works with
-- **Fonts**: Uses `"Liberation Sans:style=Bold"` (WASM-compatible). Previously used Comic Sans MS which is not available in WASM sandbox.
+## Architecture Decisions
+1. **No WASM** — Electron-native only from v3.0+
+2. **Slicer settings live in the .scad file** — portable, version-controllable
+3. **@param annotations** drive the Params tab — no runtime reflection
+4. **AI via user's own API key first** — no server infrastructure needed
+5. **Print bed in Three.js** — same renderer, new scene mode

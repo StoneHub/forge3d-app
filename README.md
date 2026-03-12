@@ -1,79 +1,61 @@
-# Forge3D — Parametric 3D Modeling IDE
+# Forge3D — OpenSCAD Modeling IDE
 
-A modern parametric 3D modeling environment built around OpenSCAD.
-Write code → see instant 3D previews → export STL → print.
+A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then send directly to your slicer.
 
-![Version](https://img.shields.io/badge/version-2.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
 ![Forge3D running as Electron app with native OpenSCAD rendering](docs/screenshots/forge3d-electron-demo.png)
 
-> *Forge3D in Electron mode — chess pawn rendered in 3.3s via native OpenSCAD binary. ⚡ Native badge visible in toolbar.*
+> *Chess pawn rendered in 3.3s via native OpenSCAD binary. ⚡ Native badge — full OpenSCAD compatibility including all fonts and file includes.*
 
 ---
 
-## Features
+## What it is
 
-| Feature | Browser | Electron |
-|---------|---------|---------|
-| OpenSCAD WASM renderer | ✅ | ✅ (fallback) |
-| **Native OpenSCAD binary render** | ❌ | ✅ **⚡ Full compatibility** |
-| `text()` / font support | ⚠️ Limited | ✅ All system fonts |
-| Code editor with syntax highlight | ✅ | ✅ |
-| **OpenSCAD LSP diagnostics** | ❌ | ✅ Problems tab |
-| File open/save | ✅ | ✅ Native dialogs |
-| STL export | ✅ | ✅ |
-| Drag-and-drop `.scad` files | ✅ | ✅ |
-| Dark/light theme | ✅ | ✅ |
+Forge3D wraps the OpenSCAD you already have installed into a modern, integrated IDE experience. No WASM emulation, no compatibility gaps — it runs your actual `openscad.com` binary and shows the result in a Three.js viewport with orbit controls.
+
+**The goal:** write `.scad` → render → arrange on print bed → slice → print, without leaving the app.
+
+---
+
+## Requirements
+
+- **Windows** (x64)
+- **[OpenSCAD](https://openscad.org/downloads.html)** installed at `C:\Program Files\OpenSCAD\openscad.com`
+- **Node.js 22+** and **npm 10+**
 
 ---
 
 ## Quick Start
 
-### Browser (WASM)
-
 ```bash
+git clone https://github.com/StoneHub/forge3d-app
 cd forge3d-app
 npm install
-npm run dev
-# → http://localhost:5173
-```
 
-### Electron (Recommended — full OpenSCAD compatibility)
-
-```bash
-# Terminal 1 — Vite dev server
+# Terminal 1 — renderer (Vite dev server)
 npm run dev
 
-# Terminal 2 — Electron
+# Terminal 2 — Electron shell
 npx electron .
 ```
 
-**Requirements for Electron mode:**
-- [OpenSCAD](https://openscad.org/downloads.html) installed at `C:\Program Files\OpenSCAD\openscad.com`
-- The bundled `openscad-lsp.exe` binary is already included at `electron/bin/`
+Or use the combined script:
+```bash
+npm run electron:dev
+```
 
 ---
 
-## How Rendering Works
+## Features
 
-```
-Browser mode:                     Electron mode:
-  WASM sandbox                      Native binary
-  (openscad-wasm npm pkg)           (openscad.com)
-  ↓                                 ↓
-  Limited font support          100% OpenSCAD compat
-  Shapes ✅  text() ⚠️          Shapes ✅  text() ✅
-```
-
-In Electron, the app automatically detects the native binary and shows the **⚡ Native** badge. No configuration needed.
-
----
-
-## OpenSCAD LSP (Electron-only)
-
-When running in Electron, the app spawns an `openscad-language-server` process in the background. As you type, it sends your code to the LSP and surfaces diagnostics in the **Problems** tab — syntax errors, unknown variables, etc.
-
-The LSP binary (`openscad-lsp v2.0.1`) is bundled at `electron/bin/openscad-language-server.exe`. It starts automatically and fails silently if not found.
+- **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
+- **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
+- **OpenSCAD LSP** — bundled `openscad-lsp` binary, diagnostics appear in Problems tab as you type
+- **Syntax-highlighted editor** — bracket matching, auto-close, auto-indent, tab-to-spaces
+- **Three.js viewport** — orbit (LMB), pan (RMB), zoom (scroll), grid, axes, edge overlay
+- **STL export** — one-click export of the rendered geometry
+- **Dark / light theme**
 
 ---
 
@@ -86,8 +68,9 @@ The LSP binary (`openscad-lsp v2.0.1`) is bundled at `electron/bin/openscad-lang
 | `Ctrl+O` | Open |
 | `Ctrl+N` | New workspace |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `LMB drag` | Orbit |
+| `RMB drag` | Pan |
 | Scroll | Zoom |
-| Left-drag | Orbit |
 
 ---
 
@@ -96,60 +79,43 @@ The LSP binary (`openscad-lsp v2.0.1`) is bundled at `electron/bin/openscad-lang
 ```
 forge3d-app/
 ├── electron/
-│   ├── main.mjs                    # Electron main: IPC, native render, LSP spawn
-│   ├── preload.cjs                 # Context bridge: forgeAPI.* exposed to renderer
+│   ├── main.mjs                    # IPC: native render, file dialogs, LSP
+│   ├── preload.cjs                 # Context bridge
 │   └── bin/
-│       └── openscad-language-server.exe  # Bundled LSP binary (v2.0.1)
+│       └── openscad-language-server.exe
 ├── src/
-│   ├── Forge3D.jsx                 # Main UI, state, build orchestration
+│   ├── Forge3D.jsx                 # Main UI
 │   └── forge3d/
-│       ├── openscad.worker.js      # WASM render worker
-│       ├── lsp-client.js           # LSP JSON-RPC hook (Electron-only)
 │       ├── renderer.js             # Three.js viewport
 │       ├── editor.jsx              # Code editor
-│       ├── stl-parser.js           # Binary + ASCII STL → BufferGeometry
-│       └── workspace.js            # File I/O + localStorage persistence
-├── public/
-│   └── fonts/
-│       ├── LiberationSans-Bold.ttf
-│       └── LiberationSans-Regular.ttf
-├── Samples/
-│   └── magnetic_letter_only.scad   # Fridge magnet letter tiles (.scad)
+│       ├── lsp-client.js           # LSP hook
+│       ├── stl-parser.js           # Binary + ASCII STL
+│       ├── interpreter.js          # Tokenizer (syntax highlight only)
+│       └── workspace.js            # localStorage persistence
+├── public/fonts/                   # Liberation Sans TTFs
+├── Samples/                        # Example .scad files
 └── docs/
     ├── DEVPLAN.md                  # Active development plan
-    ├── WORKFLOW.md                 # UX spec for Design ↔ Print mode
-    └── ARCHITECTURE.md             # Technical architecture
+    └── WORKFLOW.md                 # UX spec
 ```
-
----
-
-## Available Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `npm run dev` | Vite dev server (localhost:5173) |
-| `npm run dev:host` | Vite dev on 0.0.0.0 (remote dev) |
-| `npm run build` | Production web bundle |
-| `npm run electron:build` | Electron distributable |
 
 ---
 
 ## Roadmap
 
-- [x] OpenSCAD WASM renderer
-- [x] Native OpenSCAD binary render (Electron)
+- [x] Native OpenSCAD binary render (Electron IPC)
 - [x] OpenSCAD LSP diagnostics (Problems tab)
-- [x] Liberation Sans font support
-- [x] STL export
-- [x] File save/load with native dialogs
-- [x] Drag-and-drop `.scad` support
-- [x] Dark/light theme
-- [ ] Print Mode UI (bed arrangement + PrusaSlicer)
-- [ ] PrusaSlicer CLI integration
-- [ ] Print bed drag/rotate with multi-part arrangement
+- [x] STL export, file open/save with native dialogs
+- [x] MIT license, public repo
+- [ ] Recent files menu + workspace folder browser
+- [ ] Print Mode — bed arrangement + PrusaSlicer integration
+- [ ] Slicer settings embedded in `.scad` file as comment block
+- [ ] Enhanced Params tab with slider/input UI from `// @param` annotations
+- [ ] AI code generation (plain English → OpenSCAD)
+- [ ] Editor upgrades: LSP squiggles, find/replace, multi-cursor
 
 ---
 
 ## License
 
-MIT — use it however you want.
+MIT © 2026 monro
