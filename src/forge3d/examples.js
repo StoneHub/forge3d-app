@@ -34,6 +34,109 @@ translate([0, 0, base_h / 2])
 
 echo("Model built: base + 4 pillars + 4 domes + spire");`,
 
+  "OpenSCAD Basics: Patterns": `// OpenSCAD Basics: reusable code patterns
+// Useful for building larger files with cleaner structure.
+
+// @param pitch 8 30 14 1
+// @param count 3 10 6 1
+// @param shell 1 4 2 0.5
+
+pitch = 14;
+count = 6;
+shell = 2;
+base_h = 4;
+
+// Good pattern 1: small helper function
+function slot_x(i) = (i - (count - 1) / 2) * pitch;
+
+// Good pattern 2: module with named parameters
+module standoff(h = 8, r = 3, hole = 1.5) {
+  difference() {
+    cylinder(h = h, r = r, $fn = 48);
+    translate([0, 0, -0.1])
+      cylinder(h = h + 0.2, r = hole, $fn = 32);
+  }
+}
+
+// Good pattern 3: isolate shape intent with union/difference
+module rail() {
+  difference() {
+    union() {
+      cube([count * pitch + 10, 18, base_h], center = true);
+      translate([0, 0, base_h / 2])
+        cube([count * pitch + 10, 8, base_h], center = true);
+    }
+    for (i = [0:count - 1])
+      translate([slot_x(i), 0, 0])
+        cylinder(h = base_h + 2, r = shell, center = true, $fn = 48);
+  }
+}
+
+color("#9fa8da") rail();
+
+for (i = [0:count - 1])
+  translate([slot_x(i), 0, base_h / 2])
+    color("#80cbc4")
+      standoff(h = 12, r = 2.6, hole = 1.2);
+
+echo("Patterns example complete. count=", count);`,
+
+  "Magnetic Letters Pro": `// Magnetic Letters Pro (example)
+// Better defaults for clean letters + safer magnet pockets.
+
+letter = "M";
+font_name = "Bahnschrift:style=Bold";
+letter_size = 88;
+letter_thickness = 8;
+shape_mode = "glyph"; // glyph (no backplate) or tile
+tile_margin = 4;
+
+magnet_d = 6.2;
+magnet_depth = 2.3;
+edge_clearance = 0.8;
+max_magnets = 5;
+magnet_mode = "auto_grid"; // auto_grid | spine | manual
+manual_positions = [[-18, 16], [16, -16], [0, 0]];
+grid_pitch = 13;
+grid_extent = 42;
+
+$fn = $preview ? 28 : 96;
+
+module glyph_2d() {
+  text(letter, size = letter_size, font = font_name,
+       halign = "center", valign = "center");
+}
+
+module printable_shape_2d() {
+  if (shape_mode == "tile") offset(delta = tile_margin) glyph_2d();
+  else glyph_2d();
+}
+
+module safe_mask_2d() {
+  offset(r = -(magnet_d / 2 + edge_clearance)) printable_shape_2d();
+}
+
+function grid_candidates(extent, pitch) =
+  [for (x = [-extent:pitch:extent]) for (y = [-extent:pitch:extent]) [x, y]];
+
+module pocket_candidates() {
+  pts = magnet_mode == "manual" ? manual_positions : grid_candidates(grid_extent, grid_pitch);
+  for (i = [0:min(max_magnets, len(pts)) - 1]) {
+    p = pts[i];
+    translate([p[0], p[1], 0]) cylinder(h = magnet_depth, d = magnet_d);
+  }
+}
+
+difference() {
+  linear_extrude(height = letter_thickness) printable_shape_2d();
+  intersection() {
+    linear_extrude(height = magnet_depth) safe_mask_2d();
+    pocket_candidates();
+  }
+}
+
+echo("Magnetic letter generated:", letter);`,
+
   "Gears": `// Parametric Gear
 teeth = 16;
 tooth_r = 20;
@@ -266,4 +369,23 @@ color("#4e342e")
 echo("Castle with 4 towers");`,
 };
 
-export { EXAMPLES };
+const EXAMPLE_DETAILS = {
+  "Welcome": { category: "Basics", summary: "Starter scene with transforms, loops, and primitive shapes." },
+  "OpenSCAD Basics: Patterns": { category: "Basics", summary: "Reusable helper functions/modules and boolean modeling patterns." },
+  "Magnetic Letters Pro": { category: "Print-ready", summary: "Custom text letters with safer magnet pocket clipping and font controls." },
+  "Gears": { category: "Mechanical", summary: "Radial patterning with loops and rotational placement." },
+  "Chess Pawn": { category: "Artistic", summary: "Layered solids with profile-style shaping." },
+  "Snowflake": { category: "Artistic", summary: "Symmetry and repeated branch motifs." },
+  "Tower": { category: "Basics", summary: "Stacked transforms and progressive scaling." },
+  "Molecule": { category: "Basics", summary: "Positioning with trigonometry and mixed primitive usage." },
+  "Castle": { category: "Architectural", summary: "Composed walls/towers from reusable dimensional vars." },
+};
+
+const EXAMPLE_LIBRARY = Object.entries(EXAMPLES).map(([name, code]) => ({
+  name,
+  code,
+  category: EXAMPLE_DETAILS[name]?.category || "Other",
+  summary: EXAMPLE_DETAILS[name]?.summary || "",
+}));
+
+export { EXAMPLES, EXAMPLE_LIBRARY };
