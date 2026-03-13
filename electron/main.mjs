@@ -48,11 +48,22 @@ function addRecentFile(filePath) {
 
 // ── LSP process ────────────────────────────────────────────────────────────
 let lspProcess = null
+let lspIpcRegistered = false
 
-function spawnLSP(win) {
-  const lspBin = isDev
+function getLspBinaryPath() {
+  if (process.platform !== 'win32') return null
+  return isDev
     ? path.join(__dirname, 'bin', 'openscad-language-server.exe')
     : path.join(process.resourcesPath, 'bin', 'openscad-language-server.exe')
+}
+
+function spawnLSP(win) {
+  const lspBin = getLspBinaryPath()
+
+  if (!lspBin) {
+    console.warn(`[LSP] Disabled on unsupported platform: ${process.platform}/${process.arch}`)
+    return
+  }
 
   if (!fsSync.existsSync(lspBin)) {
     console.warn('[LSP] Binary not found:', lspBin)
@@ -81,17 +92,24 @@ function spawnLSP(win) {
     })
 
     lspProcess.stderr.on('data', (d) => console.warn('[LSP stderr]', d.toString()))
+    lspProcess.on('error', (err) => {
+      console.warn('[LSP] spawn error:', err.message)
+      lspProcess = null
+    })
     lspProcess.on('exit', (code) => { console.log('[LSP] exited with code', code); lspProcess = null })
 
-    ipcMain.on('lsp-send', (_event, msg) => {
-      if (!lspProcess?.stdin?.writable) return
-      const body = JSON.stringify(msg)
-      lspProcess.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
-    })
+    if (!lspIpcRegistered) {
+      ipcMain.on('lsp-send', (_event, msg) => {
+        if (!lspProcess?.stdin?.writable) return
+        const body = JSON.stringify(msg)
+        lspProcess.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+      })
+      lspIpcRegistered = true
+    }
 
     console.log('[LSP] started PID', lspProcess.pid)
   } catch (err) {
-    console.error('[LSP] failed to spawn:', err.message)
+    console.warn('[LSP] failed to spawn:', err.message)
   }
 }
 
