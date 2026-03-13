@@ -32,7 +32,29 @@
       "Bash(npm run electron:dev:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(magick --version 2>/dev/null || echo \"not found\")",
+      "Bash(node -e \"require\\('sharp'\\)\" 2>/dev/null && echo \"sharp available\" || echo \"no sharp\"; node -e \"require\\('jimp'\\)\" 2>/dev/null && echo \"jimp available\" || echo \"no jimp\")",
+      "Bash(winget install:*)",
+      "Bash(magick \"C:/Users/monro/Downloads/vectorized_Gemini_Generated_Image_v6acc4v6acc4v6ac.svg\" -resize 256x256 \"C:/Users/monro/Codex/forge3d-app/public/icon.ico\")",
+      "Bash(where magick:*)",
+      "Read(//c//**)",
+      "Read(//c/Program Files/ImageMagick-7.1.2-Q16-HDRI//**)",
+      "Bash(\"/c/Program Files/ImageMagick-7.1.2-Q16-HDRI/magick.exe\" \"C:/Users/monro/Downloads/vectorized_Gemini_Generated_Image_v6acc4v6acc4v6ac.svg\" -resize 256x256 -define icon:auto-resize=\"256,128,64,48,32,16\" \"C:/Users/monro/Codex/forge3d-app/public/icon.ico\")",
+      "Bash(pip install:*)",
+      "Bash(explorer \"C:\\\\Users\\\\monro\\\\Codex\\\\forge3d-app\\\\release\")",
+      "Bash(wsl firebase:*)",
+      "Bash(wsl gh:*)",
+      "Bash(gh api:*)",
+      "Bash(curl -sI https://monroes.info | head -20)",
+      "Bash(curl -s https://monroes.info | head -80)",
+      "Bash(curl -s https://monroes.info | grep -A5 'project\\\\|forge\\\\|wiki\\\\|lane\\\\|github' -i | head -80)",
+      "Bash(ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no monroe@fcfdev \"echo connected && whoami && hostname\" 2>&1)",
+      "Bash(ssh monroe@fcfdev \"openclaw sessions list 2>&1 | head -40\")",
+      "Bash(ssh monroe@fcfdev \"openclaw sessions 2>&1 | head -50\")",
+      "Bash(ssh monroe@fcfdev \"openclaw sessions --json 2>&1 | python3 -c \\\\\"import json,sys; sessions=json.load\\(sys.stdin\\); [print\\(s['key'], s.get\\('id',''\\)\\) for s in sessions if 'teleg' in s.get\\('key',''\\) and '338216' in s.get\\('key',''\\)]\\\\\" 2>&1 || openclaw sessions --json 2>&1 | head -5\")",
+      "Bash(ssh monroe@fcfdev \"openclaw sessions --json 2>&1 | python3 -c \\\\\"import json,sys; data=json.load\\(sys.stdin\\); [print\\(json.dumps\\(s, indent=2\\)\\) for s in data['sessions'] if 'teleg' in s.get\\('key',''\\) and '338216' in s.get\\('key',''\\)]\\\\\"\" 2>&1)",
+      "Bash(ssh monroe@fcfdev \"openclaw agent --session-id b53e455c-da48-45b1-af9c-d8d8ff5231d9 --message \\\\\"Hey — update from Claude Code on Monroe's Windows machine. Here's the full briefing from today's session \\(2026-03-12\\):\n\n**Forge3D \\(StoneHub/forge3d-app\\):**\n- Added resizable drag handles: editor↔viewport \\(horizontal\\) and editor↔console \\(vertical\\)\n- Built Windows installer: npm run dist → release/Forge3D Setup 3.0.0.exe \\(NSIS, installs to Start Menu\\)\n- Created app icon: public/icon.ico \\(converted from SVG via ImageMagick\\)\n- Fixed Python 3.13/distutils issue: pip install setuptools\n- Latest commit: cd6ec5f on main ✅ pushed\n\n**Infrastructure discovered:**\n- Firebase project: possible-haven-471616-f0 \\(flyingchangesfarm438@gmail.com\\)\n- monroes.info portfolio → StoneHub/StoneHub repo → Firebase target monroe-main\n- WikiWebMap → StoneHub/WikiWebMap repo → Firebase target wiki-map\n- LaneSurvivor → DEPRECATED \\(Monroe wants removed\\)\n\n**Portfolio plan agreed on:**\n- monroes.tech = portfolio hub\n- wiki.monroes.tech → WikiWebMap \\(CNAME in Bluehost + Firebase custom domain\\)\n- forge3d.monroes.tech → Forge3D landing page\n- monroes.info → keep or redirect to monroes.tech\n\n**StoneHub/StoneHub portfolio fixes needed \\(priority — job search\\):**\n- LinkedIn placeholder → https://www.linkedin.com/in/monroe-stone-0a7920137/\n- Project cards: replace stale ones with Forge3D + WikiWebMap\n- Resume download: change from Monroe_Stone_Resume.md to a PDF\n\n**Monroe's project focus:**\nForge3D, WikiWebMap, PickMyRoute \\(Android\\), Quest3 experiments, M5Stack pager devices \\(has hardware, problem TBD\\)\n\n**Recommended next action \\(your call A first\\):**\nClone StoneHub/StoneHub on fcfdev → fix portfolio → push → auto-deploys to monroes.info\\\\\" --deliver 2>&1\")"
     ]
   }
 }
