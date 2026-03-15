@@ -73,8 +73,9 @@ function createDimensionBracket(start, end, offset, label, color = 0x4fc3f7) {
   return group;
 }
 
-function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0, theme = 'dark', stlGeometry = null) {
+function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0, fitViewSignal = 0, theme = 'dark', stlGeometry = null) {
   const frameRef = useRef(null);
+  const signalRef = useRef({ reset: resetViewSignal, fit: fitViewSignal });
   const mouseRef = useRef({
     down: false, button: -1, x: 0, y: 0,
     theta: 0.8, phi: 0.6, dist: 50,
@@ -93,9 +94,9 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
 
     const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
     const m = mouseRef.current;
-    if (resetViewSignal > 0) {
-      Object.assign(m, { theta: 0.8, phi: 0.6, dist: 50, down: false, button: -1, panX: 0, panY: 0, panZ: 0 });
-    }
+    const shouldResetView = signalRef.current.reset !== resetViewSignal;
+    const shouldFitView = signalRef.current.fit !== fitViewSignal;
+    signalRef.current = { reset: resetViewSignal, fit: fitViewSignal };
 
     const updateCam = () => {
       const cx = m.panX + m.dist * Math.sin(m.theta) * Math.cos(m.phi);
@@ -104,6 +105,29 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       camera.position.set(cx, cy, cz);
       camera.lookAt(m.panX, m.panY, m.panZ);
     };
+
+    const frameBoundingBox = (box) => {
+      if (!box || box.isEmpty()) return;
+      const center = box.getCenter(new THREE.Vector3());
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      const radius = Math.max(sphere.radius, 1);
+      const fov = THREE.MathUtils.degToRad(camera.fov);
+      const distance = (radius / Math.sin(fov / 2)) * 1.15;
+      Object.assign(m, {
+        theta: 0.8,
+        phi: 0.6,
+        dist: distance,
+        down: false,
+        button: -1,
+        panX: center.x,
+        panY: center.y,
+        panZ: center.z,
+      });
+    };
+
+    if (shouldResetView) {
+      Object.assign(m, { theta: 0.8, phi: 0.6, dist: 50, down: false, button: -1, panX: 0, panY: 0, panZ: 0 });
+    }
     updateCam();
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -290,9 +314,15 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       }
     }
 
+    sceneBBox = computeBoundingBox();
+
+    if ((shouldFitView || shouldResetView) && sceneBBox) {
+      frameBoundingBox(sceneBBox);
+      updateCam();
+    }
+
     // ── Add dimension brackets ──
     if (viewSettings.dimensions) {
-      sceneBBox = computeBoundingBox();
       if (sceneBBox) {
         const min = sceneBBox.min;
         const max = sceneBBox.max;
@@ -401,7 +431,7 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
     };
-  }, [objects, viewSettings, resetViewSignal, theme, stlGeometry]);
+  }, [objects, viewSettings, resetViewSignal, fitViewSignal, theme, stlGeometry]);
 
   return scene;
 }

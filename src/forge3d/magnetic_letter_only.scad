@@ -13,7 +13,9 @@ letter = "M";
 font_name = "Bahnschrift:style=Bold";
 letter_size = 88;         // Letter height in mm (88 ~= fits 100x100 bed)
 letter_thickness = 8;     // Main print thickness
-emboss_chamfer = 0.8;     // Top edge softening (0 to disable)
+// Keep this off for glyph exports: hull-based chamfering can bridge open
+// spaces in letters like M/W and create an unwanted backplate.
+emboss_chamfer = 0;       // Optional top edge softening (tile mode only)
 
 // Optional reinforcing tile (disabled by default to avoid unwanted backplate)
 shape_mode = "glyph";    // "glyph" | "tile"
@@ -60,18 +62,20 @@ module safe_magnet_mask_2d() {
 }
 
 module letter_body() {
-  if (emboss_chamfer > 0) {
-    linear_extrude(height = letter_thickness - emboss_chamfer)
+  body_chamfer = shape_mode == "tile" ? emboss_chamfer : 0;
+
+  if (body_chamfer > 0) {
+    linear_extrude(height = letter_thickness - body_chamfer)
       printable_shape_2d();
 
-    // Simple stepped chamfer near top for crisper looking edges.
+    // Simple stepped chamfer near top for connected plaque/tile shapes.
     for (i = [0:4]) {
       t0 = i / 5;
       t1 = (i + 1) / 5;
-      h0 = letter_thickness - emboss_chamfer + emboss_chamfer * t0;
-      h1 = letter_thickness - emboss_chamfer + emboss_chamfer * t1;
-      in0 = emboss_chamfer * 0.45 * t0;
-      in1 = emboss_chamfer * 0.45 * t1;
+      h0 = letter_thickness - body_chamfer + body_chamfer * t0;
+      h1 = letter_thickness - body_chamfer + body_chamfer * t1;
+      in0 = body_chamfer * 0.45 * t0;
+      in1 = body_chamfer * 0.45 * t1;
       hull() {
         translate([0, 0, h0]) linear_extrude(0.01) offset(r = -in0) printable_shape_2d();
         translate([0, 0, h1]) linear_extrude(0.01) offset(r = -in1) printable_shape_2d();

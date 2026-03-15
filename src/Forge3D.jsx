@@ -35,6 +35,7 @@ export default function Forge3D() {
   const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.code);
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
   const [resetViewSignal, setResetViewSignal] = useState(0);
+  const [fitViewSignal, setFitViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
   const appRef = useRef(null);
   const contentRef = useRef(null);
@@ -77,6 +78,7 @@ export default function Forge3D() {
   const [editorWidth, setEditorWidth] = useState(initialPanelLayout.editorWidth ?? 480);
   const resizingRef = useRef(null); // null | 'sidebar' | 'bottom' | 'editor'
   const dragStartRef = useRef({});
+  const shouldAutoFitViewRef = useRef(true);
 
   const DEFAULT_SIDEBAR_WIDTH = 240;
   const DEFAULT_EDITOR_WIDTH = 480;
@@ -159,6 +161,10 @@ export default function Forge3D() {
     setActiveTab('console');
   }, []);
 
+  const queueAutoFitView = useCallback(() => {
+    shouldAutoFitViewRef.current = true;
+  }, []);
+
   const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
@@ -235,17 +241,19 @@ export default function Forge3D() {
   // ─── File operations ──────────────────────────────────────────────────
   const resetWorkspace = useCallback(() => {
     const next = getDefaultWorkspace();
+    queueAutoFitView();
     replaceCodeWithoutHistory(next.code);
     setLastSavedCode(next.code);
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
     setStatusMessage('Started a new workspace');
-  }, [replaceCodeWithoutHistory]);
+  }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
   const openFile = useCallback(async () => {
     try {
       const payload = await forgeAPI.openFile();
       if (!payload) return;
+      queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
@@ -256,7 +264,7 @@ export default function Forge3D() {
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, [forgeAPI, replaceCodeWithoutHistory]);
+  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory]);
 
   const openFilePath = useCallback(async (filePath) => {
     try {
@@ -265,6 +273,7 @@ export default function Forge3D() {
         setStatusMessage(`Failed to open: ${payload?.error || 'unknown error'}`);
         return;
       }
+      queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
@@ -274,7 +283,7 @@ export default function Forge3D() {
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, [forgeAPI, replaceCodeWithoutHistory]);
+  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory]);
 
   const saveFile = useCallback(async () => {
     try {
@@ -299,6 +308,12 @@ export default function Forge3D() {
   }, [code, autoRun, runCode]);
 
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
+
+  useEffect(() => {
+    if (!stlGeometry || !shouldAutoFitViewRef.current) return;
+    shouldAutoFitViewRef.current = false;
+    setFitViewSignal((value) => value + 1);
+  }, [stlGeometry]);
 
   // ─── Persist workspace ────────────────────────────────────────────────
   useEffect(() => {
@@ -345,6 +360,11 @@ export default function Forge3D() {
       if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoCode(); else undoCode();
+        return;
+      }
+      if (mod && !event.altKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        editorRef.current?.openFind?.();
         return;
       }
       if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
@@ -437,7 +457,7 @@ export default function Forge3D() {
   }, [MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen, sidebarWidth]);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
-  const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
+  const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, fitViewSignal, theme, stlGeometry);
 
   // ─── LSP diagnostics (Problems tab) ───────────────────────────────────
   useLSP(code, currentFilePath, setLspDiagnostics);
@@ -460,6 +480,7 @@ export default function Forge3D() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const content = ev.target.result;
+      queueAutoFitView();
       replaceCodeWithoutHistory(content);
       setLastSavedCode(content);
       setCurrentFileName(file.name);
@@ -467,7 +488,7 @@ export default function Forge3D() {
       setStatusMessage(`Opened: ${file.name}`);
     };
     reader.readAsText(file);
-  }, [replaceCodeWithoutHistory]);
+  }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
   const handleExportSTL = useCallback(async () => {
     if (!scene) return;
@@ -623,7 +644,7 @@ export default function Forge3D() {
                     <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '10px', color: colors.textFaint, padding: '4px 2px 0', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{category}</div>
                       {items.map(({ name, code: exampleCode, summary }) => (
-                        <button key={name} onClick={() => { replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
+                        <button key={name} onClick={() => { queueAutoFitView(); replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
                           title={summary}
                           style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'all 0.15s' }}
                           onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
