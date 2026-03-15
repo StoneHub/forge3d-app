@@ -20,12 +20,13 @@ function createHistoryState(initialCode) {
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
+  const initialPanelLayout = initialWorkspace.panelLayout || {};
   const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
   const code = history.present;
   const [result, setResult] = useState({ objects: [], logs: [], errors: [], warnings: [], variables: {} });
   const [activeTab, setActiveTab] = useState('console');
   const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(initialPanelLayout.sidebarOpen ?? true);
   const [sidebarTab, setSidebarTab] = useState('examples');
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [buildTime, setBuildTime] = useState(0);
@@ -35,6 +36,8 @@ export default function Forge3D() {
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
   const [resetViewSignal, setResetViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
+  const appRef = useRef(null);
+  const contentRef = useRef(null);
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
   const editorRef = useRef(null);
@@ -69,13 +72,24 @@ export default function Forge3D() {
   }, [filteredExamples]);
 
   // ─── Resizable panels ───────────────────────────────────────────────
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(180);
-  const [editorWidth, setEditorWidth] = useState(480);
-  const resizingRef = useRef(null); // null | 'bottom' | 'horiz'
+  const [sidebarWidth, setSidebarWidth] = useState(initialPanelLayout.sidebarWidth ?? 240);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(initialPanelLayout.bottomPanelHeight ?? 180);
+  const [editorWidth, setEditorWidth] = useState(initialPanelLayout.editorWidth ?? 480);
+  const resizingRef = useRef(null); // null | 'sidebar' | 'bottom' | 'editor'
   const dragStartRef = useRef({});
+
+  const DEFAULT_SIDEBAR_WIDTH = 240;
+  const DEFAULT_EDITOR_WIDTH = 480;
+  const DEFAULT_BOTTOM_PANEL_HEIGHT = 180;
+  const MIN_SIDEBAR_WIDTH = 180;
+  const MAX_SIDEBAR_WIDTH = 420;
+  const MIN_EDITOR_WIDTH = 280;
+  const MIN_VIEWPORT_WIDTH = 320;
+  const MIN_BOTTOM_PANEL_HEIGHT = 100;
 
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
+  const buildTimeoutRef = useRef(null);
   const BUILD_TIMEOUT = 60000;
 
   const colors = theme === 'dark' ? {
@@ -145,23 +159,36 @@ export default function Forge3D() {
     setActiveTab('console');
   }, []);
 
+  const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (buildTimeoutRef.current === timeoutHandle) {
+      buildTimeoutRef.current = null;
+    }
+  }, []);
+
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async () => {
     const id = ++buildIdRef.current;
     buildStartRef.current = performance.now();
     setBuilding(true);
 
-    const timer = setTimeout(() => {
+    clearBuildTimeout();
+    const timeoutHandle = setTimeout(() => {
+      if (buildIdRef.current !== id) return;
+      buildTimeoutRef.current = null;
       setBuilding(false);
       setBuildTime(BUILD_TIMEOUT);
       setResult({ objects: [], logs: [], errors: [`Render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
       setActiveTab('errors');
     }, BUILD_TIMEOUT);
+    buildTimeoutRef.current = timeoutHandle;
 
     try {
       const response = await forgeAPI.renderOpenSCAD(code);
+      clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
-      clearTimeout(timer);
       setBuilding(false);
       const elapsed = Math.round(performance.now() - buildStartRef.current);
       setBuildTime(elapsed);
@@ -175,13 +202,35 @@ export default function Forge3D() {
         loadStlBytes(new Uint8Array(response.stl), elapsed);
       }
     } catch (err) {
-      clearTimeout(timer);
+      clearBuildTimeout(timeoutHandle);
+      if (buildIdRef.current !== id) return; // stale build
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
       setResult({ objects: [], logs: [], errors: [`Render error: ${err.message}`], warnings: [], variables: {} });
       setActiveTab('errors');
     }
-  }, [code, forgeAPI, loadStlBytes]);
+  }, [BUILD_TIMEOUT, clearBuildTimeout, code, forgeAPI, loadStlBytes]);
+
+  const cancelBuild = useCallback(() => {
+    buildIdRef.current += 1;
+    clearBuildTimeout();
+    setBuilding(false);
+    setStatusMessage('Build cancelled');
+  }, [clearBuildTimeout]);
+
+  const startResize = useCallback((panel, event) => {
+    resizingRef.current = panel;
+    dragStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      sidebarWidth,
+      editorWidth,
+      bottomPanelHeight,
+    };
+    document.body.style.cursor = panel === 'bottom' ? 'row-resize' : 'col-resize';
+    document.body.style.userSelect = 'none';
+    event.preventDefault();
+  }, [bottomPanelHeight, editorWidth, sidebarWidth]);
 
   // ─── File operations ──────────────────────────────────────────────────
   const resetWorkspace = useCallback(() => {
@@ -249,10 +298,24 @@ export default function Forge3D() {
     return () => clearTimeout(timerRef.current);
   }, [code, autoRun, runCode]);
 
+  useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
+
   // ─── Persist workspace ────────────────────────────────────────────────
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, viewSettings, autoRun, currentFileName, theme }));
-  }, [code, viewSettings, autoRun, currentFileName, theme]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      code,
+      viewSettings,
+      autoRun,
+      currentFileName,
+      theme,
+      panelLayout: {
+        sidebarOpen,
+        sidebarWidth,
+        editorWidth,
+        bottomPanelHeight,
+      },
+    }));
+  }, [autoRun, bottomPanelHeight, code, currentFileName, editorWidth, sidebarOpen, sidebarWidth, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
@@ -308,14 +371,34 @@ export default function Forge3D() {
 
   // ─── Panel resize mouse handlers ──────────────────────────────────────
   useEffect(() => {
+    const getContentWidth = () => contentRef.current?.clientWidth || window.innerWidth;
+    const getAppHeight = () => appRef.current?.clientHeight || window.innerHeight;
+
     const onMouseMove = (e) => {
       if (!resizingRef.current) return;
+
+      const contentWidth = getContentWidth();
+      const appHeight = getAppHeight();
+      const sidebarFootprint = sidebarOpen ? dragStartRef.current.sidebarWidth + 6 + 20 : 20;
+
       if (resizingRef.current === 'bottom') {
         const delta = dragStartRef.current.y - e.clientY;
-        setBottomPanelHeight(Math.max(60, Math.min(600, dragStartRef.current.height + delta)));
-      } else if (resizingRef.current === 'horiz') {
+        const maxBottomHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(520, appHeight - 220));
+        setBottomPanelHeight(Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maxBottomHeight, dragStartRef.current.bottomPanelHeight + delta)));
+      } else if (resizingRef.current === 'editor') {
         const delta = e.clientX - dragStartRef.current.x;
-        setEditorWidth(Math.max(200, Math.min(1200, dragStartRef.current.width + delta)));
+        const maxEditorWidth = Math.max(
+          MIN_EDITOR_WIDTH,
+          contentWidth - sidebarFootprint - 6 - MIN_VIEWPORT_WIDTH,
+        );
+        setEditorWidth(Math.max(MIN_EDITOR_WIDTH, Math.min(maxEditorWidth, dragStartRef.current.editorWidth + delta)));
+      } else if (resizingRef.current === 'sidebar') {
+        const delta = e.clientX - dragStartRef.current.x;
+        const maxSidebarWidth = Math.max(
+          MIN_SIDEBAR_WIDTH,
+          Math.min(MAX_SIDEBAR_WIDTH, contentWidth - 20 - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
+        );
+        setSidebarWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth, dragStartRef.current.sidebarWidth + delta)));
       }
     };
     const onMouseUp = () => {
@@ -326,7 +409,32 @@ export default function Forge3D() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); };
-  }, []);
+  }, [MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen]);
+
+  useEffect(() => {
+    const clampLayout = () => {
+      const contentWidth = contentRef.current?.clientWidth || window.innerWidth;
+      const appHeight = appRef.current?.clientHeight || window.innerHeight;
+      const openSidebarFootprint = sidebarOpen ? sidebarWidth + 6 + 20 : 20;
+      const maxEditorWidth = Math.max(
+        MIN_EDITOR_WIDTH,
+        contentWidth - openSidebarFootprint - 6 - MIN_VIEWPORT_WIDTH,
+      );
+      const maxSidebarWidth = Math.max(
+        MIN_SIDEBAR_WIDTH,
+        Math.min(MAX_SIDEBAR_WIDTH, contentWidth - 20 - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
+      );
+      const maxBottomHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(520, appHeight - 220));
+
+      setEditorWidth((current) => Math.max(MIN_EDITOR_WIDTH, Math.min(maxEditorWidth, current)));
+      setSidebarWidth((current) => Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth, current)));
+      setBottomPanelHeight((current) => Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maxBottomHeight, current)));
+    };
+
+    clampLayout();
+    window.addEventListener('resize', clampLayout);
+    return () => window.removeEventListener('resize', clampLayout);
+  }, [MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen, sidebarWidth]);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, theme, stlGeometry);
@@ -401,6 +509,7 @@ export default function Forge3D() {
   // ─── RENDER ──────────────────────────────────────────────────────────
   return (
     <div
+      ref={appRef}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -451,7 +560,7 @@ export default function Forge3D() {
           </button>
           <button onClick={() => setResetViewSignal(v => v + 1)} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.text, padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>Reset View</button>
           {building ? (
-            <button onClick={() => { setBuilding(false); setStatusMessage('Build cancelled'); }} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}>⏹ Cancel</button>
+            <button onClick={cancelBuild} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}>⏹ Cancel</button>
           ) : (
             <button onClick={runCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}><Icons.Play /> Build</button>
           )}
@@ -462,10 +571,10 @@ export default function Forge3D() {
       </div>
 
       {/* ── Body ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div ref={contentRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Sidebar */}
         {sidebarOpen && (
-          <div style={{ width: '240px', minWidth: '240px', background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${colors.border}` }}>
               {[{ id: 'examples', label: '📂 Examples' }, { id: 'workspace', label: '📁 Workspace' }, { id: 'params', label: '⚙ Params' }].map(({ id, label }) => (
                 <button key={id} onClick={() => {
@@ -699,14 +808,32 @@ radius = 5;`}</pre>
           </div>
         )}
 
-        <button onClick={() => setSidebarOpen(o => !o)} style={{ width: '20px', minWidth: '20px', background: colors.bgDarker, border: 'none', borderRight: `1px solid ${colors.border}`, color: colors.textFaint, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}>{sidebarOpen ? '◀' : '▶'}</button>
+        {sidebarOpen && (
+          <div
+            onMouseDown={(e) => startResize('sidebar', e)}
+            onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+            title="Resize sidebar"
+            style={{ width: '6px', cursor: 'col-resize', background: 'transparent', borderRight: `1px solid ${colors.border}`, flexShrink: 0, position: 'relative' }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}33`; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <div style={{ position: 'absolute', top: '50%', left: '1px', right: '1px', height: '34px', transform: 'translateY(-50%)', borderRadius: '999px', background: `${colors.borderHover}66` }} />
+          </div>
+        )}
+
+        <button
+          onClick={() => setSidebarOpen(o => !o)}
+          title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          style={{ width: '20px', minWidth: '20px', background: colors.bgDarker, border: 'none', borderRight: `1px solid ${colors.border}`, color: colors.textFaint, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}
+        >{sidebarOpen ? '◀' : '▶'}</button>
 
         {/* Editor panel */}
-        <div style={{ width: editorWidth, minWidth: 200, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ height: '30px', minHeight: '30px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted }}>{currentFileName}{isDirty ? ' *' : ''}</span>
             <span style={{ fontSize: '10px', color: canUndo || canRedo ? colors.accent : colors.borderHover, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
             <span style={{ fontSize: '10px', color: colors.borderHover, marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
+            <span style={{ fontSize: '10px', color: colors.textFaint }}>{Math.round(editorWidth)}px</span>
           </div>
           <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden' }}>
             <CodeEditor ref={editorRef} code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} theme={theme} onBuild={runCode} />
@@ -714,13 +841,17 @@ radius = 5;`}</pre>
 
           {/* Bottom panel drag handle */}
           <div
-            onMouseDown={(e) => { resizingRef.current = 'bottom'; dragStartRef.current = { y: e.clientY, height: bottomPanelHeight }; document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); }}
-            style={{ height: '5px', cursor: 'row-resize', background: 'transparent', borderTop: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s' }}
-            onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}55`; }}
+            onMouseDown={(e) => startResize('bottom', e)}
+            onDoubleClick={() => setBottomPanelHeight(DEFAULT_BOTTOM_PANEL_HEIGHT)}
+            title="Resize bottom panel"
+            style={{ height: '8px', cursor: 'row-resize', background: 'transparent', borderTop: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s', position: 'relative' }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}33`; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-          />
+          >
+            <div style={{ position: 'absolute', left: '50%', top: '1px', width: '56px', height: '4px', transform: 'translateX(-50%)', borderRadius: '999px', background: `${colors.borderHover}88` }} />
+          </div>
           {/* Console / Problems / Terminal panel */}
-          <div style={{ height: bottomPanelHeight, minHeight: 60, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
+          <div style={{ height: bottomPanelHeight, minHeight: MIN_BOTTOM_PANEL_HEIGHT, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
             <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
               {[
                 { id: 'console', label: 'Console', count: result.logs.length },
@@ -786,13 +917,17 @@ radius = 5;`}</pre>
 
         {/* Horizontal drag handle */}
         <div
-          onMouseDown={(e) => { resizingRef.current = 'horiz'; dragStartRef.current = { x: e.clientX, width: editorWidth }; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); }}
-          style={{ width: '5px', cursor: 'col-resize', background: 'transparent', borderLeft: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}55`; }}
+          onMouseDown={(e) => startResize('editor', e)}
+          onDoubleClick={() => setEditorWidth(DEFAULT_EDITOR_WIDTH)}
+          title="Resize editor"
+          style={{ width: '6px', cursor: 'col-resize', background: 'transparent', borderLeft: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s', position: 'relative' }}
+          onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}33`; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-        />
+        >
+          <div style={{ position: 'absolute', top: '50%', left: '1px', right: '1px', height: '40px', transform: 'translateY(-50%)', borderRadius: '999px', background: `${colors.borderHover}66` }} />
+        </div>
         {/* 3D viewport */}
-        <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
+        <div style={{ flex: 1, minWidth: MIN_VIEWPORT_WIDTH, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
           <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
             {[
               { icon: Icons.Grid, key: 'grid', label: 'Grid' },

@@ -42,11 +42,11 @@ _Last updated: 2026-03-11 — Electron-native v3.0_
 
 See [next-features.md](next-features.md) for detailed implementation plans.
 
-### 1A. Resizable Panels ⚡ **HIGH PRIORITY**
+### 1A. Resizable Panels ⚡ **SHIPPED**
 - Horizontal resize: Code editor ↔ Viewport
 - Vertical resize: Editor/Viewport area ↔ Console/Terminal
+- Sidebar resize + collapse
 - Store sizes in localStorage
-- Libraries: Plain React + mouse events OR `react-resizable-panels`
 
 ### 1B. App Icon 🎨
 - Design professional icon (Forge/Anvil + 3D cube theme)

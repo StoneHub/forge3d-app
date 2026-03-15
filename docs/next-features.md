@@ -1,6 +1,6 @@
 # Next Features - UX Improvements
 
-## 1. Resizable Panels ⚡ High Priority
+## 1. Resizable Panels ⚡ Done
 
 ### Goal
 Allow users to resize code editor, viewport, and console/terminal panels to their preference.
@@ -12,15 +12,11 @@ Allow users to resize code editor, viewport, and console/terminal panels to thei
 
 ### Technical Approach
 ```javascript
-// Add to Forge3D state:
-const [editorWidth, setEditorWidth] = useState('50%');  // or pixel value
-const [bottomPanelHeight, setBottomPanelHeight] = useState(180);
-
-// Resize handler pattern:
-const handleMouseDown = (e, direction) => {
-  setIsResizing(true);
-  // Track mouse movement and update sizes
-};
+// Shipped:
+// - Sidebar width is resizable
+// - Editor ↔ viewport divider is resizable
+// - Bottom console/terminal height is resizable
+// - Layout is persisted in localStorage via panelLayout
 ```
 
 ### Libraries to Consider
@@ -174,7 +170,7 @@ export const TEMPLATES = {
 ## 5. Implementation Priority
 
 1. ✅ **UI Polish** (DONE: removed clutter, improved colors, reset buttons)
-2. 🚀 **Resizable Panels** - HIGH PRIORITY (usability)
+2. ✅ **Resizable Panels** (DONE: sidebar, editor, and console layout persistence)
 3. 🎨 **App Icon** - MEDIUM (branding, looks professional)
 4. 📋 **Templates System** - MEDIUM (discoverability)
 5. ⏱ **File History** - LOWER (nice-to-have, but impactful)

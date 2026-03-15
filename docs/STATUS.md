@@ -29,6 +29,7 @@ _Last updated: 2026-03-11_
 - [x] Added reset button (↺) for each parameter
 - [x] AUTO badge for auto-detected parameters
 - [x] Grid/axes/wireframe/dimension toggles in viewport controls
+- [x] Resizable layout panels with persisted sizes (sidebar, editor, console/terminal)
 
 ---
 
@@ -50,23 +51,17 @@ _Last updated: 2026-03-11_
 See [next-features.md](next-features.md) for detailed implementation plans.
 
 ### High Priority
-1. **Resizable panels** ⚡
-   - Horizontal: Code editor ↔ Viewport
-   - Vertical: Main area ↔ Console/Terminal
-   - Store sizes in localStorage
-
-### Medium Priority
-2. **App icon** 🎨
+1. **App icon** 🎨
    - Design: Forge/Anvil + 3D cube
    - Files needed: `public/icon.png`, `public/favicon.ico`
 
-3. **Smart code templates** 📋
+2. **Smart code templates** 📋
    - Replace removed primitive buttons
    - Categories: Parametric shapes, mechanical parts, joinery, utilities
    - Store in `src/forge3d/templates.js`
 
 ### Lower Priority
-4. **File history/snapshots** ⏱
+3. **File history/snapshots** ⏱
    - Auto-snapshot on save, every N minutes
    - Timeline view with diff viewer
    - Never lose work
