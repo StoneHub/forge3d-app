@@ -1,4 +1,4 @@
-import { useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useRef, useMemo, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { KEYWORDS, BUILTINS, TOKEN_COLORS } from './interpreter.js';
 
 // ─── SYNTAX HIGHLIGHTER ─────────────────────────────────────────────
@@ -48,6 +48,47 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
   const lineRef = useRef(null);
+  const findInputRef = useRef(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findMatches, setFindMatches] = useState([]);
+  const [activeFindIndex, setActiveFindIndex] = useState(0);
+
+  const scrollSelectionIntoView = useCallback((start, end, focusEditor = false) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+
+    if (focusEditor) ta.focus();
+    ta.setSelectionRange(start, end);
+
+    const lineNumber = code.slice(0, start).split('\n').length;
+    const scrollTop = Math.max(0, (lineNumber - 4) * 20);
+    if (highlightRef.current) highlightRef.current.scrollTop = scrollTop;
+    if (lineRef.current) lineRef.current.scrollTop = scrollTop;
+    ta.scrollTop = scrollTop;
+  }, [code]);
+
+  const openFind = useCallback(() => {
+    const ta = textareaRef.current;
+    const selected = ta && ta.selectionStart !== ta.selectionEnd
+      ? ta.value.slice(ta.selectionStart, ta.selectionEnd)
+      : '';
+
+    setFindOpen(true);
+    if (selected && !selected.includes('\n')) {
+      setFindQuery(selected);
+    }
+
+    setTimeout(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
 
   // Expose imperative jumpToLine for error click navigation
   useImperativeHandle(ref, () => ({
@@ -68,10 +109,50 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
       if (lineRef.current) lineRef.current.scrollTop = scrollTop;
       ta.scrollTop = scrollTop;
     },
+    openFind,
   }));
 
   const lines = code.split('\n');
   const isDark = theme !== 'light';
+
+  useEffect(() => {
+    if (!findOpen || !findQuery) {
+      setFindMatches([]);
+      setActiveFindIndex(0);
+      return;
+    }
+
+    const haystack = code.toLowerCase();
+    const needle = findQuery.toLowerCase();
+    const matches = [];
+    let cursor = 0;
+
+    while (cursor <= haystack.length) {
+      const start = haystack.indexOf(needle, cursor);
+      if (start === -1) break;
+      matches.push({ start, end: start + needle.length });
+      cursor = start + Math.max(needle.length, 1);
+    }
+
+    setFindMatches(matches);
+    setActiveFindIndex((current) => (matches.length === 0 ? 0 : Math.min(current, matches.length - 1)));
+  }, [code, findOpen, findQuery]);
+
+  useEffect(() => {
+    if (!findOpen || findMatches.length === 0) return;
+    const currentMatch = findMatches[Math.min(activeFindIndex, findMatches.length - 1)];
+    scrollSelectionIntoView(currentMatch.start, currentMatch.end, false);
+  }, [activeFindIndex, findMatches, findOpen, scrollSelectionIntoView]);
+
+  const goToFindMatch = useCallback((direction) => {
+    if (findMatches.length === 0) return;
+    setActiveFindIndex((current) => {
+      const next = (current + direction + findMatches.length) % findMatches.length;
+      const match = findMatches[next];
+      requestAnimationFrame(() => scrollSelectionIntoView(match.start, match.end, false));
+      return next;
+    });
+  }, [findMatches, scrollSelectionIntoView]);
 
   const handleScroll = (e) => {
     if (highlightRef.current) { highlightRef.current.scrollTop = e.target.scrollTop; highlightRef.current.scrollLeft = e.target.scrollLeft; }
@@ -86,6 +167,11 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
       e.preventDefault();
       if (e.shiftKey) onRedo?.();
       else onUndo?.();
+      return;
+    }
+    if (mod && !e.altKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      openFind();
       return;
     }
     if (mod && !e.altKey && e.key.toLowerCase() === 'y') {
@@ -180,6 +266,91 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
 
   return (
     <div style={{ display: 'flex', height: '100%', position: 'relative', fontFamily: font, fontSize: '13px', lineHeight: '20px' }}>
+      {findOpen && (
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          right: '12px',
+          zIndex: 5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '6px 8px',
+          borderRadius: '8px',
+          border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
+          background: isDark ? '#1a1b2ef2' : '#fffffff2',
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        }}>
+          <input
+            ref={findInputRef}
+            value={findQuery}
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                goToFindMatch(e.shiftKey ? -1 : 1);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder='Find in file'
+            style={{
+              width: '180px',
+              background: isDark ? '#11121c' : '#ffffff',
+              color: isDark ? '#e5e7eb' : '#222222',
+              border: `1px solid ${isDark ? '#2a2b3d' : '#cccccc'}`,
+              borderRadius: '6px',
+              padding: '6px 8px',
+              outline: 'none',
+              fontFamily: 'inherit',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ minWidth: '44px', textAlign: 'center', color: isDark ? '#9ca3af' : '#666666', fontSize: '11px' }}>
+            {findQuery ? (findMatches.length ? `${activeFindIndex + 1}/${findMatches.length}` : '0/0') : '--'}
+          </span>
+          <button
+            onClick={() => goToFindMatch(-1)}
+            disabled={findMatches.length === 0}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
+              color: findMatches.length === 0 ? (isDark ? '#5c5d7a' : '#aaaaaa') : (isDark ? '#e5e7eb' : '#222222'),
+              borderRadius: '6px',
+              padding: '4px 7px',
+              cursor: findMatches.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+            }}
+          >↑</button>
+          <button
+            onClick={() => goToFindMatch(1)}
+            disabled={findMatches.length === 0}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
+              color: findMatches.length === 0 ? (isDark ? '#5c5d7a' : '#aaaaaa') : (isDark ? '#e5e7eb' : '#222222'),
+              borderRadius: '6px',
+              padding: '4px 7px',
+              cursor: findMatches.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '12px',
+            }}
+          >↓</button>
+          <button
+            onClick={closeFind}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: isDark ? '#9ca3af' : '#666666',
+              padding: '2px 4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              lineHeight: 1,
+            }}
+          >×</button>
+        </div>
+      )}
       <div ref={lineRef} style={{ width: '48px', minWidth: '48px', background: lineNumBg, color: lineNumColor, textAlign: 'right', padding: '12px 8px 12px 0', overflow: 'hidden', userSelect: 'none', borderRight: `1px solid ${lineNumBorder}` }}>
         {lines.map((_, i) => <div key={i} style={{ height: '20px' }}>{i + 1}</div>)}
       </div>

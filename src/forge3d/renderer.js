@@ -2,6 +2,32 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
+function createViewportBackgroundTexture(theme) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+
+  if (theme === 'dark') {
+    gradient.addColorStop(0, '#314156');
+    gradient.addColorStop(0.55, '#1a2230');
+    gradient.addColorStop(1, '#0c1018');
+  } else {
+    gradient.addColorStop(0, '#f8fbff');
+    gradient.addColorStop(0.58, '#e6edf5');
+    gradient.addColorStop(1, '#d2dbe7');
+  }
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 // ── Dimension Brackets Helper ───────────────────────────────────────────────
 function createDimensionBracket(start, end, offset, label, color = 0x4fc3f7) {
   const group = new THREE.Group();
@@ -86,13 +112,16 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const resizeTarget = canvas.parentElement || canvas;
 
     const newScene = new THREE.Scene();
-    const bgColor = theme === 'dark' ? '#1a1b26' : '#e8eaed';
-    newScene.background = new THREE.Color(bgColor);
+    const backgroundTexture = createViewportBackgroundTexture(theme);
+    newScene.background = backgroundTexture;
     setScene(newScene);
 
-    const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
+    const initialWidth = Math.max(resizeTarget.clientWidth || canvas.clientWidth || 1, 1);
+    const initialHeight = Math.max(resizeTarget.clientHeight || canvas.clientHeight || 1, 1);
+    const camera = new THREE.PerspectiveCamera(45, initialWidth / initialHeight, 0.1, 2000);
     const m = mouseRef.current;
     const shouldResetView = signalRef.current.reset !== resetViewSignal;
     const shouldFitView = signalRef.current.fit !== fitViewSignal;
@@ -131,12 +160,12 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
     updateCam();
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+    renderer.setSize(initialWidth, initialHeight, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = theme === 'dark' ? 0.82 : 0.9;
 
     // HDRI environment via RoomEnvironment (no external texture needed)
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
@@ -146,7 +175,14 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
     pmremGenerator.dispose();
 
     // Key light with shadows
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const hemiLight = new THREE.HemisphereLight(
+      theme === 'dark' ? 0xcfe6ff : 0xfafcff,
+      theme === 'dark' ? 0x243242 : 0xc6d2de,
+      theme === 'dark' ? 0.78 : 0.62,
+    );
+    newScene.add(hemiLight);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, theme === 'dark' ? 0.42 : 0.36);
     keyLight.position.set(30, 50, 30);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(2048, 2048);
@@ -156,8 +192,11 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
     keyLight.shadow.camera.right = keyLight.shadow.camera.top = 80;
     newScene.add(keyLight);
 
-    // Soft fill
-    newScene.add(new THREE.AmbientLight(0xffffff, 0.3));
+    const fillLight = new THREE.DirectionalLight(theme === 'dark' ? 0x9fc5ff : 0xffffff, theme === 'dark' ? 0.18 : 0.14);
+    fillLight.position.set(-35, 18, -24);
+    newScene.add(fillLight);
+
+    newScene.add(new THREE.AmbientLight(0xffffff, theme === 'dark' ? 0.08 : 0.06));
 
     if (viewSettings.grid) {
       const gridColor = theme === 'dark' ? 0x333355 : 0xccccdd;
@@ -181,15 +220,11 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
 
     // ── STL geometry from the native OpenSCAD render ──
     if (stlGeometry) {
-      const stlMaterial = new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color('#4fc3f7'),
-        metalness: 0.05,
-        roughness: 0.3,
-        clearcoat: 0.5,
-        clearcoatRoughness: 0.15,
-        transparent: true,
-        opacity: 0.94,
-        envMapIntensity: 1.2,
+      const stlMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#75b8d4'),
+        metalness: 0.0,
+        roughness: 0.78,
+        envMapIntensity: 0.18,
       });
       const stlMesh = new THREE.Mesh(stlGeometry, stlMaterial);
       // OpenSCAD Y↔Z swap: rotate -90° around X to convert Z-up to Y-up
@@ -211,15 +246,11 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
     for (const obj of objects) {
       let geometry;
       const matColor = new THREE.Color(obj.color);
-      const material = new THREE.MeshPhysicalMaterial({
+      const material = new THREE.MeshStandardMaterial({
         color: matColor,
-        metalness: 0.05,
-        roughness: 0.3,
-        clearcoat: 0.5,
-        clearcoatRoughness: 0.15,
-        transparent: true,
-        opacity: 0.94,
-        envMapIntensity: 1.2,
+        metalness: 0.0,
+        roughness: 0.78,
+        envMapIntensity: 0.18,
       });
 
       switch (obj.type) {
@@ -414,22 +445,30 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
     canvas.addEventListener('contextmenu', e => e.preventDefault());
 
     const onResize = () => {
-      if (!canvas.parentElement) return;
-      const w = canvas.parentElement.clientWidth, h = canvas.parentElement.clientHeight;
-      camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+      const width = Math.max(resizeTarget.clientWidth || canvas.clientWidth || 1, 1);
+      const height = Math.max(resizeTarget.clientHeight || canvas.clientHeight || 1, 1);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
     };
     window.addEventListener('resize', onResize);
+    const resizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => onResize())
+      : null;
+    resizeObserver?.observe(resizeTarget);
     setTimeout(onResize, 50);
 
     return () => {
       cancelAnimationFrame(frameRef.current);
       renderer.dispose();
+      backgroundTexture.dispose();
       envTexture.dispose();
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('mouseup', onUp);
       canvas.removeEventListener('mousemove', onMove);
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
+      resizeObserver?.disconnect();
     };
   }, [objects, viewSettings, resetViewSignal, fitViewSignal, theme, stlGeometry]);
 

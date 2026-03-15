@@ -9,8 +9,15 @@ import { exportSceneToSTL } from "./forge3d/exporter.js";
 import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
 import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
-import TerminalPane from "./forge3d/terminal.jsx";
 import { requireForgeAPI } from "./forge3d/forge-api.js";
+import ForgeToolbar from "./forge3d/toolbar.jsx";
+import StatusBar from "./forge3d/status-bar.jsx";
+import ExamplesSidebar from "./forge3d/examples-sidebar.jsx";
+import WorkspaceSidebar from "./forge3d/workspace-sidebar.jsx";
+import ParamsSidebar from "./forge3d/params-sidebar.jsx";
+import BottomPane from "./forge3d/bottom-pane.jsx";
+import ViewportPane from "./forge3d/viewport-pane.jsx";
+import { getThemeColors } from "./forge3d/theme.js";
 
 // ─── HISTORY ────────────────────────────────────────────────────────
 function createHistoryState(initialCode) {
@@ -94,19 +101,7 @@ export default function Forge3D() {
   const buildTimeoutRef = useRef(null);
   const BUILD_TIMEOUT = 60000;
 
-  const colors = theme === 'dark' ? {
-    bg: '#13141f', bgPanel: '#1e1f30', bgDark: '#16172a', bgDarker: '#1a1b2e',
-    text: '#c8c9db', textMuted: '#8a8baa', textFaint: '#5c5d7a',
-    border: '#2a2b3d', borderHover: '#3a3b55', accent: '#4fc3f7', accentHover: '#4dd0e1',
-    error: '#e57373', warn: '#ffb74d', success: '#81c784',
-    logoGlow: 'linear-gradient(135deg,#4fc3f7,#7c4dff)', btnHover: '#2a2b40'
-  } : {
-    bg: '#f0f2f5', bgPanel: '#ffffff', bgDark: '#f7f9fa', bgDarker: '#fafbfc',
-    text: '#333333', textMuted: '#666666', textFaint: '#999999',
-    border: '#e0e0e0', borderHover: '#d0d0d0', accent: '#1565c0', accentHover: '#1976d2',
-    error: '#c62828', warn: '#f57c00', success: '#2e7d32',
-    logoGlow: 'linear-gradient(135deg,#1565c0,#4527a0)', btnHover: '#f0f0f0'
-  };
+  const colors = getThemeColors(theme);
 
   // ─── History ────────────────────────────────────────────────────────
   const applyCodeChange = useCallback((nextCodeOrUpdater) => {
@@ -508,6 +503,47 @@ export default function Forge3D() {
     setActiveTab('console');
   }, []);
 
+  const handleSidebarTabChange = useCallback((nextTab) => {
+    setSidebarTab(nextTab);
+    if (nextTab === 'workspace' && workspaceFolder) {
+      forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
+    }
+  }, [forgeAPI, workspaceFolder]);
+
+  const handleChooseWorkspaceFolder = useCallback(async () => {
+    const folder = await forgeAPI.setWorkspaceFolder();
+    if (!folder) return;
+    setWorkspaceFolder(folder);
+    const files = await forgeAPI.listWorkspaceFiles();
+    setWorkspaceFiles(files || []);
+  }, [forgeAPI]);
+
+  const handleLoadExample = useCallback((name, exampleCode) => {
+    queueAutoFitView();
+    replaceCodeWithoutHistory(exampleCode);
+    setLastSavedCode(exampleCode);
+    setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`);
+    setCurrentFilePath(null);
+    setStatusMessage(`Loaded example: ${name}`);
+  }, [queueAutoFitView, replaceCodeWithoutHistory]);
+
+  const handleParamChange = useCallback((name, value) => {
+    const nextCode = applyParamChange(code, name, value);
+    applyCodeChange(nextCode);
+  }, [applyCodeChange, code]);
+
+  const handleResetParam = useCallback((name) => {
+    const originalParams = parseParams(lastSavedCode);
+    const original = originalParams.find((param) => param.name === name);
+    if (!original) return;
+    const nextCode = applyParamChange(code, name, original.value);
+    applyCodeChange(nextCode);
+  }, [applyCodeChange, code, lastSavedCode]);
+
+  const handleClearRecentFiles = useCallback(() => {
+    forgeAPI.clearRecentFiles().then(() => setRecentFiles([]));
+  }, [forgeAPI]);
+
   const askAI = useCallback(() => {
     const errorText = allErrors.map(e => `- ${e}`).join('\n');
     const warnText = allWarnings.map(w => `- ${w}`).join('\n');
@@ -517,15 +553,6 @@ export default function Forge3D() {
       () => setStatusMessage('Failed to copy to clipboard')
     );
   }, [code, allErrors, allWarnings, currentFileName]);
-
-  const BtnStyle = (active) => ({
-    background: active ? `${colors.accent}33` : `${colors.bgDarker}cc`,
-    border: `1px solid ${active ? colors.accent : colors.border}`,
-    color: active ? colors.accent : colors.textMuted,
-    padding: '5px 8px', borderRadius: '5px', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
-    backdropFilter: 'blur(8px)',
-  });
 
   // ─── RENDER ──────────────────────────────────────────────────────────
   return (
@@ -546,50 +573,25 @@ export default function Forge3D() {
       )}
 
       {/* ── Toolbar ── */}
-      <div style={{ height: '42px', minHeight: '42px', background: theme === 'dark' ? 'linear-gradient(180deg,#1e1f30,#181924)' : colors.bgPanel, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '8px', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: '22px', height: '22px', background: colors.logoGlow, borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><Icons.Cube /></div>
-            <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px' }}>
-              <span style={{ color: colors.accent }}>FORGE</span><span style={{ color: theme === 'dark' ? '#7c4dff' : '#4527a0' }}>3D</span>
-            </span>
-            <span style={{ fontSize: '10px', color: colors.textFaint, marginLeft: '4px' }}>v3.0</span>
-          </div>
-          <div style={{ height: '20px', width: '1px', background: colors.border }} />
-          {/* File ops */}
-          {[
-            { icon: Icons.File, label: 'New', action: resetWorkspace },
-            { icon: Icons.File, label: 'Open', action: openFile },
-            { icon: Icons.File, label: 'Save', action: saveFile },
-            { icon: Icons.Grid, label: 'Export STL', action: handleExportSTL },
-            { icon: Icons.Undo, label: 'Undo', action: undoCode, disabled: !canUndo, title: 'Ctrl/Cmd+Z' },
-            { icon: Icons.Redo, label: 'Redo', action: redoCode, disabled: !canRedo, title: 'Ctrl/Cmd+Shift+Z' },
-          ].map(({ icon: I, label, action, disabled, title }) => (
-            <button key={label} onClick={action} title={title || label} disabled={disabled}
-              style={{ background: 'none', border: '1px solid transparent', color: disabled ? colors.textFaint : colors.textMuted, padding: '4px 8px', borderRadius: '4px', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', opacity: disabled ? 0.55 : 1 }}
-              onMouseEnter={e => { if (!disabled) Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.borderHover, color: colors.text }); }}
-              onMouseLeave={e => Object.assign(e.currentTarget.style, { background: 'none', borderColor: 'transparent', color: disabled ? colors.textFaint : colors.textMuted })}
-            ><I /><span>{label}</span></button>
-          ))}
-        </div>
-
-        {/* Right side */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '12px' }}>
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-          <button onClick={() => setResetViewSignal(v => v + 1)} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.text, padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>Reset View</button>
-          {building ? (
-            <button onClick={cancelBuild} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}>⏹ Cancel</button>
-          ) : (
-            <button onClick={runCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600 }}><Icons.Play /> Build</button>
-          )}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: colors.textMuted, cursor: 'pointer' }}>
-            <input type='checkbox' checked={autoRun} onChange={e => setAutoRun(e.target.checked)} style={{ accentColor: colors.accent }} />Auto
-          </label>
-        </div>
-      </div>
+      <ForgeToolbar
+        autoRun={autoRun}
+        building={building}
+        canRedo={canRedo}
+        canUndo={canUndo}
+        colors={colors}
+        onAutoRunChange={setAutoRun}
+        onCancelBuild={cancelBuild}
+        onExportStl={handleExportSTL}
+        onNewFile={resetWorkspace}
+        onOpenFile={openFile}
+        onRedo={redoCode}
+        onResetView={() => setResetViewSignal(v => v + 1)}
+        onRunCode={runCode}
+        onSaveFile={saveFile}
+        onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        onUndo={undoCode}
+        theme={theme}
+      />
 
       {/* ── Body ── */}
       <div ref={contentRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -598,232 +600,41 @@ export default function Forge3D() {
           <div style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${colors.border}` }}>
               {[{ id: 'examples', label: '📂 Examples' }, { id: 'workspace', label: '📁 Workspace' }, { id: 'params', label: '⚙ Params' }].map(({ id, label }) => (
-                <button key={id} onClick={() => {
-                  setSidebarTab(id);
-                  if (id === 'workspace' && workspaceFolder) {
-                    forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
-                  }
-                }}
+                <button key={id} onClick={() => handleSidebarTabChange(id)}
                   style={{ flex: 1, padding: '6px 2px', background: sidebarTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: sidebarTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: sidebarTab === id ? colors.accent : colors.textMuted, cursor: 'pointer', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}
                 >{label}</button>
               ))}
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
-              {/* ── Examples Tab ── */}
               {sidebarTab === 'examples' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {/* Recent Files Section */}
-                  {recentFiles.length > 0 && (
-                    <>
-                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '4px 2px 2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>🕐 Recent</span>
-                        <button onClick={() => { forgeAPI.clearRecentFiles().then(() => setRecentFiles([])); }} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '9px', padding: '2px 4px' }} title="Clear recent files">✕</button>
-                      </div>
-                      {recentFiles.slice(0, 5).map(fp => {
-                        const fname = fp.split(/[\\/]/).pop();
-                        return (
-                          <button key={fp} onClick={() => openFilePath(fp)} title={fp}
-                            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
-                            onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
-                            onMouseLeave={e => Object.assign(e.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
-                          >🕐 {fname}</button>
-                        );
-                      })}
-                      <div style={{ height: '1px', background: colors.border, margin: '4px 0' }} />
-                    </>
-                  )}
-                  {/* Examples Section */}
-                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '4px 2px 2px', letterSpacing: '0.5px' }}>Built-in Examples</div>
-                  <input
-                    value={exampleSearch}
-                    onChange={(e) => setExampleSearch(e.target.value)}
-                    placeholder='Search examples...'
-                    style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '7px 8px', borderRadius: '6px', fontSize: '11px', outline: 'none' }}
-                  />
-                  {Object.entries(groupedExamples).map(([category, items]) => (
-                    <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ fontSize: '10px', color: colors.textFaint, padding: '4px 2px 0', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{category}</div>
-                      {items.map(({ name, code: exampleCode, summary }) => (
-                        <button key={name} onClick={() => { queueAutoFitView(); replaceCodeWithoutHistory(exampleCode); setLastSavedCode(exampleCode); setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`); setCurrentFilePath(null); setStatusMessage(`Loaded example: ${name}`); }}
-                          title={summary}
-                          style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'all 0.15s' }}
-                          onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
-                          onMouseLeave={e => Object.assign(e.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icons.File />{name}</span>
-                          <span style={{ color: colors.textMuted, fontSize: '10px', paddingLeft: '20px' }}>{summary}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                  {filteredExamples.length === 0 && (
-                    <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>No examples match your search.</div>
-                  )}
-                </div>
+                <ExamplesSidebar
+                  colors={colors}
+                  exampleSearch={exampleSearch}
+                  filteredExamples={filteredExamples}
+                  groupedExamples={groupedExamples}
+                  onClearRecentFiles={handleClearRecentFiles}
+                  onExampleSearchChange={setExampleSearch}
+                  onLoadExample={handleLoadExample}
+                  onOpenRecentFile={openFilePath}
+                  recentFiles={recentFiles}
+                />
               )}
-
-              {/* ── Workspace Tab ── */}
               {sidebarTab === 'workspace' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {workspaceFolder ? (
-                    <>
-                      <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span title={workspaceFolder}>📁 {workspaceFolder.split(/[\\/]/).pop()}</span>
-                        <button onClick={async () => {
-                          const folder = await forgeAPI.setWorkspaceFolder();
-                          if (folder) {
-                            setWorkspaceFolder(folder);
-                            const files = await forgeAPI.listWorkspaceFiles();
-                            setWorkspaceFiles(files || []);
-                          }
-                        }} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Change folder">📂</button>
-                      </div>
-                      {workspaceFiles.length === 0 ? (
-                        <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>No .scad files found</div>
-                      ) : (
-                        workspaceFiles.map(f => (
-                          <button key={f.fullPath} onClick={() => openFilePath(f.fullPath)} title={f.relativePath}
-                            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
-                            onMouseEnter={e => Object.assign(e.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
-                            onMouseLeave={e => Object.assign(e.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
-                          ><Icons.File /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.relativePath}</span></button>
-                        ))
-                      )}
-                    </>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '16px 8px' }}>
-                      <div style={{ color: colors.textFaint, fontSize: '11px', marginBottom: '10px' }}>Set a workspace folder to browse .scad files</div>
-                      <button onClick={async () => {
-                        const folder = await forgeAPI.setWorkspaceFolder();
-                        if (folder) {
-                          setWorkspaceFolder(folder);
-                          const files = await forgeAPI.listWorkspaceFiles();
-                          setWorkspaceFiles(files || []);
-                        }
-                      }}
-                        style={{ background: `${colors.accent}22`, border: `1px solid ${colors.accent}`, color: colors.accent, padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
-                      >📁 Set Workspace Folder</button>
-                    </div>
-                  )}
-                </div>
+                <WorkspaceSidebar
+                  colors={colors}
+                  onChooseWorkspaceFolder={handleChooseWorkspaceFolder}
+                  onOpenWorkspaceFile={openFilePath}
+                  workspaceFiles={workspaceFiles}
+                  workspaceFolder={workspaceFolder}
+                />
               )}
-
-              {/* ── Params Tab ── */}
               {sidebarTab === 'params' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {parsedParams.length === 0 ? (
-                    <div style={{ color: colors.textFaint, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>
-                      <div style={{ marginBottom: '8px' }}>No parameters detected.</div>
-                      <div style={{ fontSize: '10px', color: colors.textFaint, lineHeight: '1.45', marginBottom: '8px' }}>Parameters are auto-detected from top-level variables, or you can use <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>// @param</code> annotations for more control:</div>
-                      <pre style={{ textAlign: 'left', fontSize: '9px', marginTop: '8px', padding: '6px', background: colors.bgDarker, borderRadius: '4px', border: `1px solid ${colors.border}`, lineHeight: '1.4', overflow: 'auto' }}>{`// Auto-detected:
-size = 10;
-height = 20;
-
-// Or annotate for full control:
-// @param radius = 5  // min: 1, max: 50, step: 0.5
-radius = 5;`}</pre>
-                    </div>
-                  ) : (
-                    parsedParams.map(param => (
-                      <div key={param.name} style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: colors.text, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {param.name}
-                            {param.auto && <span style={{ fontSize: '8px', background: `${colors.success}22`, color: colors.success, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Auto-detected parameter">AUTO</span>}
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 400 }}>{param.type}</span>
-                            <button
-                              onClick={() => {
-                                // Reset to original value from code
-                                const originalParams = parseParams(lastSavedCode);
-                                const original = originalParams.find(p => p.name === param.name);
-                                if (original) {
-                                  const newCode = applyParamChange(code, param.name, original.value);
-                                  applyCodeChange(newCode);
-                                }
-                              }}
-                              title="Reset to original value"
-                              style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: '3px', color: colors.textMuted, cursor: 'pointer', fontSize: '10px', padding: '2px 5px', lineHeight: 1 }}
-                            >↺</button>
-                          </div>
-                        </div>
-
-                        {/* Number → Slider */}
-                        {param.type === 'number' && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <input type="range"
-                              min={param.min ?? 0}
-                              max={param.max ?? (param.value * 3 || 100)}
-                              step={param.step ?? (param.value < 1 ? 0.01 : param.value < 10 ? 0.1 : 1)}
-                              value={param.value}
-                              onChange={e => {
-                                const newCode = applyParamChange(code, param.name, parseFloat(e.target.value));
-                                applyCodeChange(newCode);
-                              }}
-                              style={{ flex: 1, accentColor: colors.accent, height: '4px' }}
-                            />
-                            <input type="number"
-                              value={param.value}
-                              min={param.min}
-                              max={param.max}
-                              step={param.step ?? 0.1}
-                              onChange={e => {
-                                const val = parseFloat(e.target.value);
-                                if (!isNaN(val)) {
-                                  const newCode = applyParamChange(code, param.name, val);
-                                  applyCodeChange(newCode);
-                                }
-                              }}
-                              style={{ width: '52px', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '2px 4px', fontSize: '11px', textAlign: 'center' }}
-                            />
-                          </div>
-                        )}
-
-                        {/* String → Text input */}
-                        {param.type === 'string' && (
-                          <input type="text"
-                            value={param.value}
-                            onChange={e => {
-                              const newCode = applyParamChange(code, param.name, e.target.value);
-                              applyCodeChange(newCode);
-                            }}
-                            style={{ width: '100%', boxSizing: 'border-box', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
-                          />
-                        )}
-
-                        {/* Enum → Dropdown */}
-                        {param.type === 'enum' && param.options && (
-                          <select
-                            value={param.value}
-                            onChange={e => {
-                              const newCode = applyParamChange(code, param.name, e.target.value);
-                              applyCodeChange(newCode);
-                            }}
-                            style={{ width: '100%', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
-                          >
-                            {param.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </select>
-                        )}
-
-                        {/* Boolean → Checkbox */}
-                        {param.type === 'boolean' && (
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.text, cursor: 'pointer' }}>
-                            <input type="checkbox"
-                              checked={param.value}
-                              onChange={e => {
-                                const newCode = applyParamChange(code, param.name, e.target.checked);
-                                applyCodeChange(newCode);
-                              }}
-                              style={{ accentColor: colors.accent }}
-                            />
-                            {param.value ? 'true' : 'false'}
-                          </label>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
+                <ParamsSidebar
+                  colors={colors}
+                  onParamChange={handleParamChange}
+                  onResetParam={handleResetParam}
+                  parsedParams={parsedParams}
+                />
               )}
             </div>
           </div>
@@ -871,68 +682,19 @@ radius = 5;`}</pre>
           >
             <div style={{ position: 'absolute', left: '50%', top: '1px', width: '56px', height: '4px', transform: 'translateX(-50%)', borderRadius: '999px', background: `${colors.borderHover}88` }} />
           </div>
-          {/* Console / Problems / Terminal panel */}
-          <div style={{ height: bottomPanelHeight, minHeight: MIN_BOTTOM_PANEL_HEIGHT, display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
-            <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
-              {[
-                { id: 'console', label: 'Console', count: result.logs.length },
-                { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length },
-                { id: 'terminal', label: '>_ Terminal', count: 0 }
-              ].map(({ id, label, count }) => (
-                <button key={id} onClick={() => setActiveTab(id)}
-                  style={{ background: activeTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: activeTab === id ? colors.text : colors.textMuted, cursor: 'pointer', padding: '5px 10px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}
-                >{label}{count > 0 && <span style={{ background: id === 'errors' && allErrors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && allErrors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>{count}</span>}</button>
-              ))}
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: colors.textFaint }}>
-                {(allErrors.length > 0 || allWarnings.length > 0) && (
-                  <button onClick={askAI} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', padding: '3px 9px', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span>✦</span> Ask AI
-                  </button>
-                )}
-                <Icons.Zap /><span>{buildTime}ms</span>
-              </div>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: activeTab === 'terminal' ? '0' : '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
-              {activeTab === 'console' && (<>{result.logs.length === 0 && <div style={{ color: colors.textFaint, marginBottom: '6px' }}>{statusMessage}</div>}{result.logs.length === 0 && <div style={{ color: colors.borderHover }}>// Console output appears here...</div>}{result.logs.map((log, i) => (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}><span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span></div>))}</>)}
-              {activeTab === 'errors' && (
-                <>
-                  {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
-                  {allErrors.map((rawErr, i) => {
-                    const msg = typeof rawErr === 'string' ? rawErr : (rawErr?.message ?? JSON.stringify(rawErr));
-                    const lineMatch = msg.match(/line (\d+)/);
-                    const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
-                    return (
-                      <div key={`e${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
-                        <span style={{ color: colors.error, flexShrink: 0, marginTop: '1px' }}><Icons.Err /></span>
-                        <span style={{ color: colors.error, flex: 1 }}>{msg.replace(/ \(line \d+\)/, '')}</span>
-                        {lineNum && (
-                          <button onClick={() => jumpToLine(lineNum)} style={{ background: `${colors.error}22`, border: `1px solid ${colors.error}44`, borderRadius: '4px', color: colors.error, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                            line {lineNum} ↗
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {allWarnings.map((rawWarn, i) => {
-                    const msg = typeof rawWarn === 'string' ? rawWarn : (rawWarn?.message ?? JSON.stringify(rawWarn));
-                    const lineMatch = msg.match(/line (\d+)/);
-                    const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : null;
-                    return (
-                      <div key={`w${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
-                        <span style={{ color: colors.warn, flexShrink: 0, marginTop: '1px' }}><Icons.Warn /></span>
-                        <span style={{ color: colors.warn, flex: 1 }}>{msg.replace(/ \(line \d+\)/, '')}</span>
-                        {lineNum && (
-                          <button onClick={() => jumpToLine(lineNum)} style={{ background: `${colors.warn}22`, border: `1px solid ${colors.warn}44`, borderRadius: '4px', color: colors.warn, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                            line {lineNum} ↗
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-              {activeTab === 'terminal' && <TerminalPane colors={colors} />}
-            </div>
+          <div style={{ height: bottomPanelHeight, minHeight: MIN_BOTTOM_PANEL_HEIGHT }}>
+            <BottomPane
+              activeTab={activeTab}
+              allErrors={allErrors}
+              allWarnings={allWarnings}
+              askAI={askAI}
+              buildTime={buildTime}
+              colors={colors}
+              jumpToLine={jumpToLine}
+              onActiveTabChange={setActiveTab}
+              result={result}
+              statusMessage={statusMessage}
+            />
           </div>
         </div>
 
@@ -948,33 +710,26 @@ radius = 5;`}</pre>
           <div style={{ position: 'absolute', top: '50%', left: '1px', right: '1px', height: '40px', transform: 'translateY(-50%)', borderRadius: '999px', background: `${colors.borderHover}66` }} />
         </div>
         {/* 3D viewport */}
-        <div style={{ flex: 1, minWidth: MIN_VIEWPORT_WIDTH, display: 'flex', flexDirection: 'column', position: 'relative', background: theme === 'dark' ? '#1a1b26' : '#e6e8eb' }}>
-          <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
-            {[
-              { icon: Icons.Grid, key: 'grid', label: 'Grid' },
-              { icon: Icons.Layers, key: 'axes', label: 'Axes' },
-              { icon: Icons.Eye, key: 'wireframe', label: 'Edges' },
-              { icon: Icons.Ruler, key: 'dimensions', label: 'Dimensions' }
-            ].map(({ icon: I, key, label }) => (
-              <button key={key} title={label} onClick={() => setViewSettings(s => ({ ...s, [key]: !s[key] }))} style={BtnStyle(viewSettings[key])}><I /></button>
-            ))}
-          </div>
-
-          <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: `${colors.bg}cc`, borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: colors.textFaint, backdropFilter: 'blur(8px)', border: `1px solid ${colors.border}`, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span>
-          </div>
-
-          <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
-        </div>
+        <ViewportPane
+          canvasRef={canvasRef}
+          colors={colors}
+          minViewportWidth={MIN_VIEWPORT_WIDTH}
+          setViewSettings={setViewSettings}
+          theme={theme}
+          viewSettings={viewSettings}
+        />
       </div>
 
       {/* ── Status bar ── */}
-      <div style={{ height: '24px', minHeight: '24px', background: allErrors.length > 0 ? colors.error : colors.accent, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: theme === 'dark' ? '#111' : '#fff', fontWeight: 500, transition: 'background 0.3s' }}>
-        <span>{allErrors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${allErrors.length} error(s)`}</span>
-        <span>{code.split("\n").length} lines</span>
-        <span>{currentFilePath ? currentFilePath : currentFileName}</span>
-        <span style={{ marginLeft: 'auto' }}>Forge3D — OpenSCAD Modeling</span>
-      </div>
+      <StatusBar
+        allErrors={allErrors}
+        code={code}
+        colors={colors}
+        currentFileName={currentFileName}
+        currentFilePath={currentFilePath}
+        isDirty={isDirty}
+        theme={theme}
+      />
     </div>
   );
 }

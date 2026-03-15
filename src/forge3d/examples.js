@@ -88,6 +88,7 @@ letter = "M";
 font_name = "Bahnschrift:style=Bold";
 letter_size = 88;
 letter_thickness = 8;
+emboss_chamfer = 0; // keep off for glyph-only exports
 shape_mode = "glyph"; // glyph (no backplate) or tile
 tile_margin = 4;
 
@@ -116,6 +117,30 @@ module safe_mask_2d() {
   offset(r = -(magnet_d / 2 + edge_clearance)) printable_shape_2d();
 }
 
+module letter_body() {
+  body_chamfer = shape_mode == "tile" ? emboss_chamfer : 0;
+
+  if (body_chamfer > 0) {
+    linear_extrude(height = letter_thickness - body_chamfer)
+      printable_shape_2d();
+
+    for (i = [0:4]) {
+      t0 = i / 5;
+      t1 = (i + 1) / 5;
+      h0 = letter_thickness - body_chamfer + body_chamfer * t0;
+      h1 = letter_thickness - body_chamfer + body_chamfer * t1;
+      in0 = body_chamfer * 0.45 * t0;
+      in1 = body_chamfer * 0.45 * t1;
+      hull() {
+        translate([0, 0, h0]) linear_extrude(0.01) offset(r = -in0) printable_shape_2d();
+        translate([0, 0, h1]) linear_extrude(0.01) offset(r = -in1) printable_shape_2d();
+      }
+    }
+  } else {
+    linear_extrude(height = letter_thickness) printable_shape_2d();
+  }
+}
+
 function grid_candidates(extent, pitch) =
   [for (x = [-extent:pitch:extent]) for (y = [-extent:pitch:extent]) [x, y]];
 
@@ -128,7 +153,7 @@ module pocket_candidates() {
 }
 
 difference() {
-  linear_extrude(height = letter_thickness) printable_shape_2d();
+  letter_body();
   intersection() {
     linear_extrude(height = magnet_depth) safe_mask_2d();
     pocket_candidates();

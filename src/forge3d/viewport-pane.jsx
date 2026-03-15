@@ -1,0 +1,41 @@
+import Icons from './icons.jsx';
+
+export default function ViewportPane({ canvasRef, colors, minViewportWidth, setViewSettings, theme, viewSettings }) {
+  const viewportBackground = theme === 'dark'
+    ? 'linear-gradient(180deg,#314156 0%, #1a2230 55%, #0c1018 100%)'
+    : 'linear-gradient(180deg,#f8fbff 0%, #e6edf5 58%, #d2dbe7 100%)';
+  const buttonStyle = (active) => ({
+    background: active ? `${colors.accent}33` : `${colors.bgDarker}cc`,
+    border: `1px solid ${active ? colors.accent : colors.border}`,
+    color: active ? colors.accent : colors.textMuted,
+    padding: '5px 8px',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    backdropFilter: 'blur(8px)',
+  });
+
+  return (
+    <div style={{ flex: 1, minWidth: minViewportWidth, display: 'flex', flexDirection: 'column', position: 'relative', background: viewportBackground }}>
+      <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
+        {[
+          { icon: Icons.Grid, key: 'grid', label: 'Grid' },
+          { icon: Icons.Layers, key: 'axes', label: 'Axes' },
+          { icon: Icons.Eye, key: 'wireframe', label: 'Edges' },
+          { icon: Icons.Ruler, key: 'dimensions', label: 'Dimensions' }
+        ].map(({ icon: Icon, key, label }) => (
+          <button key={key} title={label} onClick={() => setViewSettings(settings => ({ ...settings, [key]: !settings[key] }))} style={buttonStyle(viewSettings[key])}><Icon /></button>
+        ))}
+      </div>
+
+      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: `${colors.bg}cc`, borderRadius: '6px', padding: '6px 10px', fontSize: '10px', color: colors.textFaint, backdropFilter: 'blur(8px)', border: `1px solid ${colors.border}`, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span>
+      </div>
+
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+    </div>
+  );
+}
