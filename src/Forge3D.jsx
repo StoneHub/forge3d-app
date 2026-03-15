@@ -540,6 +540,13 @@ export default function Forge3D() {
     applyCodeChange(nextCode);
   }, [applyCodeChange, code, lastSavedCode]);
 
+  const handleJumpToParam = useCallback((param) => {
+    const targetLine = param?.assignmentLine || param?.line;
+    if (!targetLine) return;
+    editorRef.current?.jumpToLine(targetLine);
+    setStatusMessage(`Jumped to ${param.name}`);
+  }, []);
+
   const handleClearRecentFiles = useCallback(() => {
     forgeAPI.clearRecentFiles().then(() => setRecentFiles([]));
   }, [forgeAPI]);
@@ -631,6 +638,7 @@ export default function Forge3D() {
               {sidebarTab === 'params' && (
                 <ParamsSidebar
                   colors={colors}
+                  onJumpToParam={handleJumpToParam}
                   onParamChange={handleParamChange}
                   onResetParam={handleResetParam}
                   parsedParams={parsedParams}

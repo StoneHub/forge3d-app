@@ -1,4 +1,8 @@
-export default function ParamsSidebar({ colors, onParamChange, onResetParam, parsedParams }) {
+function stopEvent(event) {
+  event.stopPropagation();
+}
+
+export default function ParamsSidebar({ colors, onJumpToParam, onParamChange, onResetParam, parsedParams }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
       {parsedParams.length === 0 ? (
@@ -15,16 +19,38 @@ radius = 5;`}</pre>
         </div>
       ) : (
         parsedParams.map((param) => (
-          <div key={param.name} style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px' }}>
+          <div
+            key={param.name}
+            role="button"
+            tabIndex={0}
+            title={`Jump to ${param.name} in code`}
+            onClick={() => onJumpToParam?.(param)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onJumpToParam?.(param);
+              }
+            }}
+            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px', cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s' }}
+            onMouseEnter={(event) => Object.assign(event.currentTarget.style, { borderColor: colors.accent, background: colors.btnHover })}
+            onMouseLeave={(event) => Object.assign(event.currentTarget.style, { borderColor: colors.border, background: colors.bgPanel })}
+          >
             <div style={{ fontSize: '11px', fontWeight: 600, color: colors.text, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 {param.name}
                 {param.auto && <span style={{ fontSize: '8px', background: `${colors.success}22`, color: colors.success, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Auto-detected parameter">AUTO</span>}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '10px', color: colors.accent, background: `${colors.accent}22`, borderRadius: '999px', padding: '1px 6px', fontWeight: 600 }}>
+                  line {param.assignmentLine || param.line}
+                </span>
                 <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 400 }}>{param.type}</span>
                 <button
-                  onClick={() => onResetParam(param.name)}
+                  onClick={(event) => {
+                    stopEvent(event);
+                    onResetParam(param.name);
+                  }}
+                  onMouseDown={stopEvent}
                   title="Reset to original value"
                   style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: '3px', color: colors.textMuted, cursor: 'pointer', fontSize: '10px', padding: '2px 5px', lineHeight: 1 }}
                 >↺</button>
@@ -32,7 +58,7 @@ radius = 5;`}</pre>
             </div>
 
             {param.type === 'number' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={stopEvent} onMouseDown={stopEvent}>
                 <input type="range"
                   min={param.min ?? 0}
                   max={param.max ?? (param.value * 3 || 100)}
@@ -61,6 +87,8 @@ radius = 5;`}</pre>
               <input type="text"
                 value={param.value}
                 onChange={(event) => onParamChange(param.name, event.target.value)}
+                onClick={stopEvent}
+                onMouseDown={stopEvent}
                 style={{ width: '100%', boxSizing: 'border-box', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
               />
             )}
@@ -69,6 +97,8 @@ radius = 5;`}</pre>
               <select
                 value={param.value}
                 onChange={(event) => onParamChange(param.name, event.target.value)}
+                onClick={stopEvent}
+                onMouseDown={stopEvent}
                 style={{ width: '100%', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
               >
                 {param.options.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -76,7 +106,7 @@ radius = 5;`}</pre>
             )}
 
             {param.type === 'boolean' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.text, cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.text, cursor: 'pointer' }} onClick={stopEvent} onMouseDown={stopEvent}>
                 <input type="checkbox"
                   checked={param.value}
                   onChange={(event) => onParamChange(param.name, event.target.checked)}

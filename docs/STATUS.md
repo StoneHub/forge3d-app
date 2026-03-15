@@ -1,6 +1,6 @@
 # Forge3D — Current Status
 
-_Last updated: 2026-03-11_
+_Last updated: 2026-03-14_
 
 ## ✅ Completed Features
 
@@ -27,6 +27,7 @@ _Last updated: 2026-03-11_
 - [x] Removed "Native" badge clutter
 - [x] Improved parameter text readability (white color)
 - [x] Added reset button (↺) for each parameter
+- [x] Params panel can jump back to parameter assignments in the editor
 - [x] AUTO badge for auto-detected parameters
 - [x] Grid/axes/wireframe/dimension toggles in viewport controls
 - [x] Resizable layout panels with persisted sizes (sidebar, editor, console/terminal)
@@ -65,6 +66,11 @@ See [next-features.md](next-features.md) for detailed implementation plans.
    - Auto-snapshot on save, every N minutes
    - Timeline view with diff viewer
    - Never lose work
+
+4. **Code ↔ geometry explorer** 🔎
+   - Jump from viewport/build tree/params back to source
+   - Highlight model regions tied to code blocks
+   - Debug model construction step-by-step
 
 ---
 
@@ -125,8 +131,8 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 
 ## 🎯 Project Goals
 
-**Short-term:** Finish UX improvements (resizable panels, icon, templates)
+**Short-term:** Finish UX improvements (icon, templates, stronger assembly-ready workflow)
 
-**Medium-term:** Print pipeline integration (bed arrangement, PrusaSlicer CLI)
+**Medium-term:** Add a dedicated assembly layer for multi-part move/rotate/scale and union/subtract/intersect, then connect it to print-bed arrangement and PrusaSlicer CLI
 
 **Long-term:** AI code generation (natural language → OpenSCAD)

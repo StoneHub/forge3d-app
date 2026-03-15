@@ -74,7 +74,27 @@ Replace removed primitive buttons with useful parametric templates:
 
 ## Phase 2 — Print Pipeline
 
-### 2A. Printer Profiles
+### 2A. Assembly Layer / Multi-Part Boolean Workflow
+
+Forge3D should grow beyond a single-model editor into a lightweight assembly workspace inspired by Microsoft 3D Builder.
+
+**Goal:** Load multiple rendered parts into one scene, position them visually, and combine them with simple boolean operations without overloading the main `.scad` editor.
+
+**Why this matters:**
+- Makes kitbashing and print prep much faster
+- Unlocks common workflows like cutting holes, making negative molds, and joining parts
+- Creates a natural bridge between modeling and print-bed arrangement
+
+**Recommended implementation order:**
+1. Multi-part scene layer separate from the code editor
+2. Per-part transform controls: move, rotate, scale
+3. Per-part boolean actions: union, subtract, intersect
+4. Export combined result as a single printable asset
+5. Evolve that same scene into a print-bed/assembly stage
+
+**Important constraint:** keep this as a dedicated scene/assembly layer, not as more complexity inside the single-file OpenSCAD editing flow.
+
+### 2B. Printer Profiles
 **Stored in:** `{userData}/printers.json` — user-owned, git-friendly if they want.
 
 A "printer" is a named JSON object with bed dimensions, PrusaSlicer profile name, and default material settings:
@@ -116,7 +136,7 @@ A "printer" is a named JSON object with bed dimensions, PrusaSlicer profile name
 
 ---
 
-### 2B. Slicer Settings Embedded in .scad
+### 2C. Slicer Settings Embedded in .scad
 
 Per-model slicer preferences stored as a structured comment block at the bottom of the file — travels with the model, git-versionable, survives copy-paste.
 
@@ -146,7 +166,7 @@ writeSlicerSettings(code, settings) // upsert the @forge3d block
 
 ---
 
-### 2C. PrusaSlicer CLI Integration
+### 2D. PrusaSlicer CLI Integration
 
 **Binary discovery (in order):**
 1. `C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe` (default install)
@@ -187,7 +207,7 @@ ipcMain.handle('slicer:openInPS', (_e, { stlPath }) => {
 
 ---
 
-### 2D. Print Mode UI
+### 2E. Print Mode UI
 
 **Mode switch** in toolbar (toggle button):
 ```
@@ -252,6 +272,29 @@ The LSP is running, sending diagnostics. Wire them into the editor as visual und
 ### 3D. Line Folding
 Collapse `{ ... }` blocks by clicking a ▶ in the gutter.  
 Minimal: just hide the content lines, show `▶ ...` placeholder.
+
+### 3E. Code ↔ Geometry Explorer
+Make the editor and viewport feel connected, similar to how the Params panel already connects code values to UI controls.
+
+**Goal:** Help users understand which parts of the code create which parts of the model.
+
+**Recommended implementation order:**
+1. **Param-to-code and param-to-viewport links**
+   - Clicking a param jumps to its assignment in the editor
+   - Hovering a param highlights the affected region in the model when possible
+2. **Object picking → source jump**
+   - Clicking a rendered sub-part highlights the originating line/module in code
+   - Show a small inspector with source line, transform, dimensions, and material/color
+3. **Build tree / scene tree**
+   - Show a hierarchical list of generated parts or operations
+   - Selecting a tree node isolates/highlights that geometry in the viewport
+4. **Step-through construction mode**
+   - Let users scrub through unions, differences, hulls, and extrusions in order
+   - Great for debugging why a model looks wrong
+5. **Module-level visibility toggles**
+   - Eye icons to hide/show subassemblies or code blocks without editing source
+
+**Practical note:** because Forge3D renders through native OpenSCAD, the most realistic first version is a lightweight scene/build tree plus editor jump/highlight links, not perfect AST-level mapping for every triangle.
 
 ---
 

@@ -173,7 +173,16 @@ export const TEMPLATES = {
 2. ✅ **Resizable Panels** (DONE: sidebar, editor, and console layout persistence)
 3. 🎨 **App Icon** - MEDIUM (branding, looks professional)
 4. 📋 **Templates System** - MEDIUM (discoverability)
-5. ⏱ **File History** - LOWER (nice-to-have, but impactful)
+5. 🧩 **Assembly Layer** - MEDIUM/HIGH
+   - Load multiple parts into one scene
+   - Move/rotate/scale each part visually
+   - Support union/subtract/intersect per part
+   - Use this as the foundation for a future print-bed stage
+6. 🔎 **Code ↔ Geometry Explorer** - MEDIUM/HIGH
+   - Jump from params or picked geometry back to source lines
+   - Highlight/isolate sub-parts in the viewport from a build tree
+   - Add a step-through construction mode for debugging unions/differences
+7. ⏱ **File History** - LOWER (nice-to-have, but impactful)
 
 ---
 
