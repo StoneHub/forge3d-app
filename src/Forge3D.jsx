@@ -723,6 +723,7 @@ export default function Forge3D() {
       {/* ── Status bar ── */}
       <StatusBar
         allErrors={allErrors}
+        building={building}
         code={code}
         colors={colors}
         currentFileName={currentFileName}

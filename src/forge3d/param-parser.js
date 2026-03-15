@@ -151,7 +151,7 @@ function autoDetectVariables(code, existingParams) {
   }
 
   // Match: variable = value;
-  const assignRegex = /^(\w+)\s*=\s*(.+?)\s*;/;
+  const assignRegex = /^(\w+)\s*=\s*(.+?)\s*;(?:\s*\/\/\s*(.*))?$/;
 
   for (let i = 0; i < cutoffLine; i++) {
     const trimmed = lines[i].trim();
@@ -164,6 +164,7 @@ function autoDetectVariables(code, existingParams) {
 
     const name = match[1];
     const rawValue = match[2].trim();
+    const inlineComment = match[3]?.trim() || '';
 
     // Skip if already defined via @param
     if (existingNames.has(name)) continue;
@@ -188,12 +189,15 @@ function autoDetectVariables(code, existingParams) {
     }
 
     // Smart defaults based on naming patterns
-    const meta = inferMetadataFromName(name, value, type);
+    const meta = {
+      ...inferMetadataFromName(name, value, type),
+      ...inferInlineMetadata(type, inlineComment),
+    };
 
     autoParams.push({
       name,
       value,
-      type,
+      type: meta.options ? 'enum' : type,
       line: i + 1,
       assignmentLine: i + 1,
       auto: true, // Mark as auto-detected
@@ -256,6 +260,19 @@ function inferMetadataFromName(name, value, type) {
   }
 
   return meta;
+}
+
+function inferInlineMetadata(type, inlineComment) {
+  if (type !== 'string' || !inlineComment.includes('|')) return {};
+
+  const options = inlineComment
+    .split('|')
+    .map((option) => option.trim())
+    .map((option) => option.replace(/\s*\(.*\)\s*$/, ''))
+    .map((option) => option.replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+
+  return options.length >= 2 ? { options } : {};
 }
 
 /**
