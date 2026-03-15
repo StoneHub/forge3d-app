@@ -18,10 +18,11 @@ _Last updated: 2026-03-15_
 - [x] **Embedded terminal** — xterm.js + node-pty for PowerShell/bash
 - [x] **Automatic dimension brackets** — CAD-style measurement overlays (width/depth/height)
 - [x] **Enhanced parameter system** — Parse `// @param` annotations with smart UI controls
-- [x] **Auto-parameter detection** — Infer UI controls from variable naming patterns
+- [x] **Auto-parameter detection** — Infer UI controls from top-level variables anywhere in the file
 - [x] **Recent files tracking** — Quick access to last 10 opened files
 - [x] **Workspace folder browser** — Tree view of `.scad` files in workspace
 - [x] **Smart template library** — Toolbar dropdown for inserting categorized OpenSCAD snippets
+- [x] **Template insertion modes** — `Append` (safe default), `Cursor`, and `Replace` workflows
 - [x] **App icon wiring** — Browser favicon, window icon, and packaged PNG/ICO assets
 
 ### UI/UX Polish
@@ -30,6 +31,7 @@ _Last updated: 2026-03-15_
 - [x] Improved parameter text readability (white color)
 - [x] Added reset button (↺) for each parameter
 - [x] Params panel can jump back to parameter assignments in the editor
+- [x] Params panel shows appended template source sections
 - [x] AUTO badge for auto-detected parameters
 - [x] Grid/axes/wireframe/dimension toggles in viewport controls
 - [x] Resizable layout panels with persisted sizes (sidebar, editor, console/terminal)
@@ -53,13 +55,19 @@ _Last updated: 2026-03-15_
 
 See [next-features.md](next-features.md) for detailed implementation plans.
 
+### Current Goal
+1. **Assembly / reference parts layer** 🧩
+   - Load a second `.scad` file or template beside the current model without mutating the working code
+   - Show multiple parts on the same build plate / scene so joins, gaps, overlaps, and fit are visible
+   - Build toward move/rotate/scale, boolean operations, and print-bed layout
+
 ### Lower Priority
-1. **File history/snapshots** ⏱
+2. **File history/snapshots** ⏱
    - Auto-snapshot on save, every N minutes
    - Timeline view with diff viewer
    - Never lose work
 
-2. **Code ↔ geometry explorer** 🔎
+3. **Code ↔ geometry explorer** 🔎
    - Jump from viewport/build tree/params back to source
    - Highlight model regions tied to code blocks
    - Debug model construction step-by-step
@@ -124,7 +132,7 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 
 ## 🎯 Project Goals
 
-**Short-term:** Build assembly-ready workflow improvements on top of the shipped icon and template updates
+**Short-term:** Ship a reference-parts / assembly workflow so extra templates and files can be compared on the same scene without unsafe code insertion
 
 **Medium-term:** Add a dedicated assembly layer for multi-part move/rotate/scale and union/subtract/intersect, then connect it to print-bed arrangement and PrusaSlicer CLI
 

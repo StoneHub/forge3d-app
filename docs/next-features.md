@@ -149,8 +149,16 @@ minkowski() {
 ### UI Integration
 - Replace primitive buttons with "📋 Templates" dropdown
 - Shows categorized list
-- Click to insert at cursor (or replace selection)
+- Insert modes:
+  - `Append` (default) adds a marked block to the end of the file
+  - `Cursor` is the advanced/manual insertion mode
+  - `Replace` loads the template into the current editor buffer
 - Templates stored in `src/forge3d/templates.js`
+
+### Follow-up Adjustment (Shipped)
+- Auto-parameter detection now scans top-level assignments anywhere in the file
+- Appended template blocks keep existing params visible instead of hiding them behind the first inserted `module`
+- Params from appended blocks show their template source in the Params tab
 
 ### Template Format
 ```javascript
@@ -173,8 +181,9 @@ export const TEMPLATES = {
 2. ✅ **Resizable Panels** (DONE: sidebar, editor, and console layout persistence)
 3. ✅ **App Icon** - DONE
 4. ✅ **Templates System** - DONE
-5. 🧩 **Assembly Layer** - MEDIUM/HIGH
-   - Load multiple parts into one scene
+5. 🧩 **Assembly Layer / Reference Parts** - CURRENT GOAL
+   - Load a second template or `.scad` file beside the active file without mutating the working code
+   - Show multiple parts in one scene/build plate so joins, gaps, overlaps, and fit are obvious
    - Move/rotate/scale each part visually
    - Support union/subtract/intersect per part
    - Use this as the foundation for a future print-bed stage

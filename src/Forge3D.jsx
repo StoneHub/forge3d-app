@@ -24,6 +24,12 @@ function createHistoryState(initialCode) {
   return { past: [], present: initialCode, future: [] };
 }
 
+function buildTemplateAppendBlock(template) {
+  return `// --- Forge3D Template: ${template.name} ---
+${template.code.trim()}
+// --- End Forge3D Template: ${template.name} ---`;
+}
+
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
@@ -44,6 +50,7 @@ export default function Forge3D() {
   const [resetViewSignal, setResetViewSignal] = useState(0);
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
+  const [templateInsertMode, setTemplateInsertMode] = useState(initialWorkspace.templateInsertMode || 'append');
   const appRef = useRef(null);
   const contentRef = useRef(null);
   const canvasRef = useRef(null);
@@ -318,6 +325,7 @@ export default function Forge3D() {
       autoRun,
       currentFileName,
       theme,
+      templateInsertMode,
       panelLayout: {
         sidebarOpen,
         sidebarWidth,
@@ -325,7 +333,7 @@ export default function Forge3D() {
         bottomPanelHeight,
       },
     }));
-  }, [autoRun, bottomPanelHeight, code, currentFileName, editorWidth, sidebarOpen, sidebarWidth, theme, viewSettings]);
+  }, [autoRun, bottomPanelHeight, code, currentFileName, editorWidth, sidebarOpen, sidebarWidth, templateInsertMode, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
@@ -527,28 +535,43 @@ export default function Forge3D() {
     setStatusMessage(`Loaded example: ${name}`);
   }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
-  const handleInsertTemplate = useCallback((template) => {
+  const handleInsertTemplate = useCallback((template, mode = templateInsertMode) => {
     if (!template?.code) return;
 
-    const inserted = editorRef.current?.insertText?.(template.code, { selectInserted: true });
-    if (!inserted) {
-      const nextCode = code.trim() ? `${code}\n\n${template.code}` : template.code;
-      applyCodeChange(nextCode);
+    if (mode === 'replace') {
+      applyCodeChange(template.code);
+      setStatusMessage(`Loaded template: ${template.name}`);
+      return;
     }
 
-    setStatusMessage(`Inserted template: ${template.name}`);
-  }, [applyCodeChange, code]);
+    if (mode === 'cursor') {
+      const inserted = editorRef.current?.insertText?.(template.code, { selectInserted: true });
+      if (inserted) {
+        setStatusMessage(`Inserted template at cursor: ${template.name}`);
+        return;
+      }
+    }
 
-  const handleParamChange = useCallback((name, value) => {
-    const nextCode = applyParamChange(code, name, value);
+    const block = buildTemplateAppendBlock(template);
+    const nextCode = code.trim()
+      ? `${code.replace(/\s+$/, '')}\n\n${block}\n`
+      : `${block}\n`;
+    applyCodeChange(nextCode);
+    setStatusMessage(`Appended template block: ${template.name}`);
+  }, [applyCodeChange, code, templateInsertMode]);
+
+  const handleParamChange = useCallback((param, value) => {
+    const nextCode = applyParamChange(code, param, value);
     applyCodeChange(nextCode);
   }, [applyCodeChange, code]);
 
-  const handleResetParam = useCallback((name) => {
+  const handleResetParam = useCallback((param) => {
     const originalParams = parseParams(lastSavedCode);
-    const original = originalParams.find((param) => param.name === name);
-    if (!original) return;
-    const nextCode = applyParamChange(code, name, original.value);
+    const original = originalParams.find((candidate) => candidate.id === param.id)
+      || originalParams.find((candidate) => candidate.name === param.name && candidate.section === param.section);
+    const resetValue = original?.value ?? param.defaultValue;
+    if (resetValue === undefined) return;
+    const nextCode = applyParamChange(code, param, resetValue);
     applyCodeChange(nextCode);
   }, [applyCodeChange, code, lastSavedCode]);
 
@@ -608,8 +631,10 @@ export default function Forge3D() {
         onRunCode={runCode}
         onSaveFile={saveFile}
         onInsertTemplate={handleInsertTemplate}
+        onTemplateInsertModeChange={setTemplateInsertMode}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         onUndo={undoCode}
+        templateInsertMode={templateInsertMode}
         theme={theme}
       />
 

@@ -75,6 +75,7 @@ export function getDefaultWorkspace() {
     viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true },
     autoRun: true,
     currentFileName: DEFAULT_FILE_NAME,
+    templateInsertMode: 'append',
     panelLayout: DEFAULT_PANEL_LAYOUT,
   };
 }

@@ -1,12 +1,12 @@
 # Forge3D — Development Plan
-_Last updated: 2026-03-11 — Electron-native v3.0_
+_Last updated: 2026-03-15 — Electron-native v3.0_
 
 ---
 
 ## Project Vision
 > Seamless single-interface workflow: edit .scad → render → arrange on bed → slice → print. No app hopping.
 
-**Current state:** Core modeling workflow complete with professional UX. Native OpenSCAD render, LSP diagnostics, parameter system, embedded terminal, automatic dimension brackets. Now expanding toward print pipeline and advanced features.
+**Current state:** Core modeling workflow complete with professional UX. Native OpenSCAD render, LSP diagnostics, resilient parameter system, embedded terminal, automatic dimension brackets, and a safer template workflow are shipped. The next goal is a true multi-part scene/reference workflow so users can compare and fit models together without editing everything into one file.
 
 ---
 
@@ -25,9 +25,10 @@ _Last updated: 2026-03-11 — Electron-native v3.0_
 - **Embedded Terminal** — xterm.js + node-pty for PowerShell/bash within app
 - **Automatic Dimension Brackets** — CAD-style measurement overlays showing width/depth/height
 - **Enhanced Params Tab** — Smart `// @param` annotation parser with sliders, inputs, dropdowns, reset buttons
-- **Auto-Parameter Detection** — Automatically detects top-level variables and infers appropriate UI controls from naming patterns (size, count, angle, gap, etc.)
+- **Auto-Parameter Detection** — Automatically detects top-level variables anywhere in the file and infers appropriate UI controls from naming patterns (size, count, angle, gap, etc.)
 - **Recent Files** — Track and quick-access last 10 opened files
 - **Workspace Folder Browser** — Tree view of workspace `.scad` files with click-to-open
+- **Safe Template Insertion** — Templates can append as isolated blocks, insert at cursor, or replace the current buffer
 
 ### UI Polish (v3.0)
 - Removed clutter (Native badge, primitive insert buttons)
@@ -60,7 +61,8 @@ Replace removed primitive buttons with useful parametric templates:
 - Joinery (dovetails, snap-fits, threaded inserts)
 - Utilities (grid array, circular pattern, honeycomb)
 - Store in `src/forge3d/templates.js`
-- UI: "📋 Templates" dropdown with categories
+- UI: "📋 Templates" dropdown with categories plus `Append`, `Cursor`, and `Replace` insertion modes
+- Default behavior: append a marked template block at the end of the file so existing parameters stay visible
 
 ### 1D. File History / Snapshots ⏱
 "Windows Recall" for `.scad` files — never lose work:
@@ -80,13 +82,15 @@ Forge3D should grow beyond a single-model editor into a lightweight assembly wor
 
 **Goal:** Load multiple rendered parts into one scene, position them visually, and combine them with simple boolean operations without overloading the main `.scad` editor.
 
+**Immediate Phase 2A goal:** add a "reference parts" workflow first. Users should be able to load a second template or `.scad` file beside the current model on the same scene/build plate without mutating the working file just to compare fit, spacing, gaps, or intersections.
+
 **Why this matters:**
 - Makes kitbashing and print prep much faster
 - Unlocks common workflows like cutting holes, making negative molds, and joining parts
 - Creates a natural bridge between modeling and print-bed arrangement
 
 **Recommended implementation order:**
-1. Multi-part scene layer separate from the code editor
+1. Reference parts / multi-part scene layer separate from the code editor
 2. Per-part transform controls: move, rotate, scale
 3. Per-part boolean actions: union, subtract, intersect
 4. Export combined result as a single printable asset

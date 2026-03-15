@@ -45,7 +45,7 @@ function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, on
   );
 }
 
-function TemplatesMenu({ colors, onInsertTemplate }) {
+function TemplatesMenu({ colors, onInsertTemplate, onTemplateInsertModeChange, templateInsertMode }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
   const groupedTemplates = useMemo(() => {
@@ -111,7 +111,33 @@ function TemplatesMenu({ colors, onInsertTemplate }) {
           <div style={{ padding: '2px 4px 10px', borderBottom: `1px solid ${colors.border}` }}>
             <div style={{ fontSize: '12px', fontWeight: 700, color: colors.text }}>Smart Templates</div>
             <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '3px' }}>
-              Inserts at the cursor, or replaces your current selection.
+              Pick how templates should land in the current model.
+            </div>
+            <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+              {[
+                { id: 'append', label: 'Append', title: 'Recommended. Adds a clearly marked block to the end of the file.' },
+                { id: 'cursor', label: 'Cursor', title: 'Advanced. Inserts at the current selection or cursor position.' },
+                { id: 'replace', label: 'Replace', title: 'Replaces the current editor contents with the template.' },
+              ].map((mode) => (
+                <button
+                  key={mode.id}
+                  onClick={() => onTemplateInsertModeChange?.(mode.id)}
+                  title={mode.title}
+                  style={{
+                    background: templateInsertMode === mode.id ? `${colors.accent}22` : colors.bgDarker,
+                    border: `1px solid ${templateInsertMode === mode.id ? colors.accent : colors.border}`,
+                    borderRadius: '999px',
+                    color: templateInsertMode === mode.id ? colors.accent : colors.textMuted,
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    letterSpacing: '0.2px',
+                    padding: '5px 9px',
+                  }}
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -125,7 +151,7 @@ function TemplatesMenu({ colors, onInsertTemplate }) {
                   <button
                     key={template.id}
                     onClick={() => {
-                      onInsertTemplate?.(template);
+                      onInsertTemplate?.(template, templateInsertMode);
                       setOpen(false);
                     }}
                     title={template.tags.join(', ')}
@@ -186,8 +212,10 @@ export default function ForgeToolbar({
   onRunCode,
   onSaveFile,
   onInsertTemplate,
+  onTemplateInsertModeChange,
   onThemeToggle,
   onUndo,
+  templateInsertMode,
   theme,
 }) {
   return (
@@ -204,7 +232,12 @@ export default function ForgeToolbar({
         <ToolbarButton colors={colors} icon={Icons.File} label="New" onClick={onNewFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Open" onClick={onOpenFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Save" onClick={onSaveFile} />
-        <TemplatesMenu colors={colors} onInsertTemplate={onInsertTemplate} />
+        <TemplatesMenu
+          colors={colors}
+          onInsertTemplate={onInsertTemplate}
+          onTemplateInsertModeChange={onTemplateInsertModeChange}
+          templateInsertMode={templateInsertMode}
+        />
         <ToolbarButton colors={colors} icon={Icons.Grid} label="Export STL" onClick={onExportStl} />
         <ToolbarButton colors={colors} disabled={!canUndo} icon={Icons.Undo} label="Undo" onClick={onUndo} title="Ctrl/Cmd+Z" />
         <ToolbarButton colors={colors} disabled={!canRedo} icon={Icons.Redo} label="Redo" onClick={onRedo} title="Ctrl/Cmd+Shift+Z" />

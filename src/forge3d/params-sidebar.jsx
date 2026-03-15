@@ -8,7 +8,7 @@ export default function ParamsSidebar({ colors, onJumpToParam, onParamChange, on
       {parsedParams.length === 0 ? (
         <div style={{ color: colors.textFaint, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>
           <div style={{ marginBottom: '8px' }}>No parameters detected.</div>
-          <div style={{ fontSize: '10px', color: colors.textFaint, lineHeight: '1.45', marginBottom: '8px' }}>Parameters are auto-detected from top-level variables, or you can use <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>// @param</code> annotations for more control:</div>
+          <div style={{ fontSize: '10px', color: colors.textFaint, lineHeight: '1.45', marginBottom: '8px' }}>Parameters are auto-detected from top-level variables anywhere in the file, or you can use <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>// @param</code> annotations for more control:</div>
           <pre style={{ textAlign: 'left', fontSize: '9px', marginTop: '8px', padding: '6px', background: colors.bgDarker, borderRadius: '4px', border: `1px solid ${colors.border}`, lineHeight: '1.4', overflow: 'auto' }}>{`// Auto-detected:
 size = 10;
 height = 20;
@@ -20,10 +20,10 @@ radius = 5;`}</pre>
       ) : (
         parsedParams.map((param) => (
           <div
-            key={param.name}
+            key={param.id || `${param.name}:${param.assignmentLine}`}
             role="button"
             tabIndex={0}
-            title={`Jump to ${param.name} in code`}
+            title={`Jump to ${param.label || param.name} in code`}
             onClick={() => onJumpToParam?.(param)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -37,8 +37,9 @@ radius = 5;`}</pre>
           >
             <div style={{ fontSize: '11px', fontWeight: 600, color: colors.text, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                {param.name}
+                {param.label || param.name}
                 {param.auto && <span style={{ fontSize: '8px', background: `${colors.success}22`, color: colors.success, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Auto-detected parameter">AUTO</span>}
+                {param.section && <span style={{ fontSize: '8px', background: `${colors.accent}22`, color: colors.accent, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Parameter source section">{param.section}</span>}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '10px', color: colors.accent, background: `${colors.accent}22`, borderRadius: '999px', padding: '1px 6px', fontWeight: 600 }}>
@@ -48,7 +49,7 @@ radius = 5;`}</pre>
                 <button
                   onClick={(event) => {
                     stopEvent(event);
-                    onResetParam(param.name);
+                    onResetParam(param);
                   }}
                   onMouseDown={stopEvent}
                   title="Reset to original value"
@@ -64,7 +65,7 @@ radius = 5;`}</pre>
                   max={param.max ?? (param.value * 3 || 100)}
                   step={param.step ?? (param.value < 1 ? 0.01 : param.value < 10 ? 0.1 : 1)}
                   value={param.value}
-                  onChange={(event) => onParamChange(param.name, parseFloat(event.target.value))}
+                  onChange={(event) => onParamChange(param, parseFloat(event.target.value))}
                   style={{ flex: 1, accentColor: colors.accent, height: '4px' }}
                 />
                 <input type="number"
@@ -75,7 +76,7 @@ radius = 5;`}</pre>
                   onChange={(event) => {
                     const value = parseFloat(event.target.value);
                     if (!Number.isNaN(value)) {
-                      onParamChange(param.name, value);
+                      onParamChange(param, value);
                     }
                   }}
                   style={{ width: '52px', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '2px 4px', fontSize: '11px', textAlign: 'center' }}
@@ -86,7 +87,7 @@ radius = 5;`}</pre>
             {param.type === 'string' && (
               <input type="text"
                 value={param.value}
-                onChange={(event) => onParamChange(param.name, event.target.value)}
+                onChange={(event) => onParamChange(param, event.target.value)}
                 onClick={stopEvent}
                 onMouseDown={stopEvent}
                 style={{ width: '100%', boxSizing: 'border-box', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
@@ -96,7 +97,7 @@ radius = 5;`}</pre>
             {param.type === 'enum' && param.options && (
               <select
                 value={param.value}
-                onChange={(event) => onParamChange(param.name, event.target.value)}
+                onChange={(event) => onParamChange(param, event.target.value)}
                 onClick={stopEvent}
                 onMouseDown={stopEvent}
                 style={{ width: '100%', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px' }}
@@ -109,7 +110,7 @@ radius = 5;`}</pre>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.text, cursor: 'pointer' }} onClick={stopEvent} onMouseDown={stopEvent}>
                 <input type="checkbox"
                   checked={param.value}
-                  onChange={(event) => onParamChange(param.name, event.target.checked)}
+                  onChange={(event) => onParamChange(param, event.target.checked)}
                   style={{ accentColor: colors.accent }}
                 />
                 {param.value ? 'true' : 'false'}

@@ -5,6 +5,118 @@
 // ALSO auto-detects top-level variable assignments and treats them as parameters
 // with smart defaults based on naming patterns.
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function createParamId(name, assignmentLine) {
+  return `${name}:${assignmentLine}`;
+}
+
+function parseLiteralValue(rawValue) {
+  const trimmed = rawValue.trim();
+
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return { value: trimmed.slice(1, -1), type: 'string' };
+  }
+
+  if (trimmed === 'true' || trimmed === 'false') {
+    return { value: trimmed === 'true', type: 'boolean' };
+  }
+
+  if (!Number.isNaN(parseFloat(trimmed))) {
+    return { value: parseFloat(trimmed), type: 'number' };
+  }
+
+  return { value: trimmed, type: 'string' };
+}
+
+function buildLineContexts(code) {
+  const lines = code.split('\n');
+  const depthAtLineStart = [];
+  const sectionByLine = [];
+
+  let braceDepth = 0;
+  let inBlockComment = false;
+  let inString = false;
+  let stringQuote = '';
+  let escapeNext = false;
+  let currentSection = null;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const trimmed = line.trim();
+
+    depthAtLineStart[lineIndex] = braceDepth;
+
+    if (trimmed.startsWith('// --- End Forge3D Template:')) {
+      sectionByLine[lineIndex] = currentSection;
+      currentSection = null;
+    } else {
+      if (trimmed.startsWith('// --- Forge3D Template:')) {
+        currentSection = trimmed
+          .replace('// --- Forge3D Template:', '')
+          .replace(/---$/, '')
+          .trim();
+      }
+      sectionByLine[lineIndex] = currentSection;
+    }
+
+    for (let charIndex = 0; charIndex < line.length; charIndex++) {
+      const char = line[charIndex];
+      const nextChar = line[charIndex + 1];
+
+      if (inBlockComment) {
+        if (char === '*' && nextChar === '/') {
+          inBlockComment = false;
+          charIndex += 1;
+        }
+        continue;
+      }
+
+      if (inString) {
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        if (char === stringQuote) {
+          inString = false;
+          stringQuote = '';
+        }
+        continue;
+      }
+
+      if (char === '/' && nextChar === '/') {
+        break;
+      }
+
+      if (char === '/' && nextChar === '*') {
+        inBlockComment = true;
+        charIndex += 1;
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        inString = true;
+        stringQuote = char;
+        continue;
+      }
+
+      if (char === '{') {
+        braceDepth += 1;
+      } else if (char === '}') {
+        braceDepth = Math.max(0, braceDepth - 1);
+      }
+    }
+  }
+
+  return { lines, depthAtLineStart, sectionByLine };
+}
+
 /**
  * Parse all @param annotations AND auto-detect top-level variables from OpenSCAD source code.
  *
@@ -14,16 +126,16 @@
  *   // @param name = "A"            // type: string, options: A,B,C,D
  *
  * Auto-detection:
- *   - Finds variable assignments before first module/function/comment block
- *   - Infers type from value (number, string, boolean)
+ *   - Finds top-level variable assignments anywhere in the file
+ *   - Ignores assignments nested inside module/function bodies
  *   - Adds smart min/max based on naming patterns (size, width, height, count, etc.)
  *
  * @param {string} code - The .scad source code
- * @returns {Array<{name: string, value: any, type: string, min?: number, max?: number, step?: number, options?: string[], line: number, auto?: boolean}>}
+ * @returns {Array<{id: string, name: string, value: any, type: string, min?: number, max?: number, step?: number, options?: string[], line: number, auto?: boolean}>}
  */
 export function parseParams(code) {
   const params = [];
-  const lines = code.split('\n');
+  const { lines, sectionByLine } = buildLineContexts(code);
 
   // Match: // @param name = value   // optional metadata
   const paramRegex = /^\/\/\s*@param\s+(\w+)\s*=\s*(.+?)(?:\s*\/\/\s*(.*))?$/;
@@ -34,35 +146,24 @@ export function parseParams(code) {
     if (!match) continue;
 
     const name = match[1];
-    let rawValue = match[2].trim();
+    const rawValue = match[2].trim();
     const metaStr = match[3] || '';
 
     // Parse the value
-    let value, type;
-    if (rawValue.startsWith('"') && rawValue.endsWith('"')) {
-      value = rawValue.slice(1, -1);
-      type = 'string';
-    } else if (!isNaN(parseFloat(rawValue))) {
-      value = parseFloat(rawValue);
-      type = 'number';
-    } else if (rawValue === 'true' || rawValue === 'false') {
-      value = rawValue === 'true';
-      type = 'boolean';
-    } else {
-      value = rawValue;
-      type = 'string';
-    }
+    let { value, type } = parseLiteralValue(rawValue);
+    const defaultValue = value;
 
     // Parse metadata: type: number, min: 0, max: 100, step: 0.5, options: A,B,C
     const meta = {};
     if (metaStr) {
-      const pairs = metaStr.split(',').map(p => p.trim());
+      const pairs = metaStr.split(/,\s*(?=\w+\s*:)/).map(p => p.trim());
       for (const pair of pairs) {
         const colonIdx = pair.indexOf(':');
         if (colonIdx === -1) continue;
         const key = pair.slice(0, colonIdx).trim().toLowerCase();
         const val = pair.slice(colonIdx + 1).trim();
         if (key === 'type') meta.type = val;
+        else if (key === 'label') meta.label = val;
         else if (key === 'min') meta.min = parseFloat(val);
         else if (key === 'max') meta.max = parseFloat(val);
         else if (key === 'step') meta.step = parseFloat(val);
@@ -106,11 +207,15 @@ export function parseParams(code) {
     }
 
     params.push({
+      id: createParamId(name, assignmentLine >= 0 ? assignmentLine + 1 : i + 1),
       name,
       value,
+      defaultValue,
       type,
       line: i + 1, // 1-indexed
       assignmentLine: assignmentLine >= 0 ? assignmentLine + 1 : i + 1,
+      section: sectionByLine[assignmentLine >= 0 ? assignmentLine : i] || null,
+      ...(meta.label && { label: meta.label }),
       ...(meta.min !== undefined && { min: meta.min }),
       ...(meta.max !== undefined && { max: meta.max }),
       ...(meta.step !== undefined && { step: meta.step }),
@@ -128,7 +233,7 @@ export function parseParams(code) {
 
 /**
  * Auto-detect top-level variable assignments and infer parameter metadata.
- * Only detects variables before the first module/function definition.
+ * Detects depth-0 assignments anywhere in the file.
  *
  * @param {string} code - The .scad source code
  * @param {Array} existingParams - Already parsed @param annotations to avoid duplicates
@@ -136,24 +241,15 @@ export function parseParams(code) {
  */
 function autoDetectVariables(code, existingParams) {
   const autoParams = [];
-  const lines = code.split('\n');
+  const { lines, depthAtLineStart, sectionByLine } = buildLineContexts(code);
   const existingNames = new Set(existingParams.map(p => p.name));
-
-  // Find the cutoff line (first module, function, or for/if statement)
-  let cutoffLine = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.match(/^(module|function)\s+\w+/) ||
-        trimmed.match(/^(for|if)\s*\(/)) {
-      cutoffLine = i;
-      break;
-    }
-  }
 
   // Match: variable = value;
   const assignRegex = /^(\w+)\s*=\s*(.+?)\s*;(?:\s*\/\/\s*(.*))?$/;
 
-  for (let i = 0; i < cutoffLine; i++) {
+  for (let i = 0; i < lines.length; i++) {
+    if (depthAtLineStart[i] !== 0) continue;
+
     const trimmed = lines[i].trim();
 
     // Skip comments and empty lines
@@ -173,18 +269,12 @@ function autoDetectVariables(code, existingParams) {
     if (name.startsWith('$')) continue;
 
     // Parse value and infer type
-    let value, type;
-    if (rawValue.startsWith('"') && rawValue.endsWith('"')) {
-      value = rawValue.slice(1, -1);
-      type = 'string';
-    } else if (rawValue === 'true' || rawValue === 'false') {
-      value = rawValue === 'true';
-      type = 'boolean';
-    } else if (!isNaN(parseFloat(rawValue))) {
-      value = parseFloat(rawValue);
-      type = 'number';
-    } else {
-      // Skip complex expressions, arrays, etc.
+    const parsed = parseLiteralValue(rawValue);
+    const value = parsed.value;
+    const type = parsed.type;
+
+    if (type === 'string' && !(rawValue.startsWith('"') && rawValue.endsWith('"'))) {
+      // Skip complex expressions, arrays, and module calls for auto-detect.
       continue;
     }
 
@@ -195,11 +285,13 @@ function autoDetectVariables(code, existingParams) {
     };
 
     autoParams.push({
+      id: createParamId(name, i + 1),
       name,
       value,
       type: meta.options ? 'enum' : type,
       line: i + 1,
       assignmentLine: i + 1,
+      section: sectionByLine[i] || null,
       auto: true, // Mark as auto-detected
       ...meta,
     });
@@ -286,8 +378,9 @@ function inferInlineMetadata(type, inlineComment) {
  */
 export function applyParamChange(code, paramName, newValue) {
   const lines = code.split('\n');
-  const params = parseParams(code);
-  const param = params.find(p => p.name === paramName);
+  const param = typeof paramName === 'string'
+    ? parseParams(code).find((entry) => entry.name === paramName)
+    : paramName;
   if (!param) return code;
 
   // Format the new value
@@ -303,7 +396,7 @@ export function applyParamChange(code, paramName, newValue) {
   // Find and replace in the assignment line
   const lineIdx = param.assignmentLine - 1;
   const line = lines[lineIdx];
-  const assignRegex = new RegExp(`^(\\s*${paramName}\\s*=\\s*)(.+?)(\\s*;.*)$`);
+  const assignRegex = new RegExp(`^(\\s*${escapeRegex(param.name)}\\s*=\\s*)(.+?)(\\s*;.*)$`);
   const match = line.match(assignRegex);
   if (match) {
     lines[lineIdx] = `${match[1]}${formatted}${match[3]}`;

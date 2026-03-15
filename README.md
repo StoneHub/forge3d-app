@@ -63,10 +63,13 @@ npm run dist
 - **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
 - **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
 - **Automatic dimension brackets** — CAD-style measurement overlays showing width, depth, and height of rendered objects
+- **Smart templates** — categorized OpenSCAD templates with safe append, cursor, and replace workflows
+- **Resilient params workflow** — top-level params are detected anywhere in the file, including after appended template blocks
 - **OpenSCAD LSP** — bundled `openscad-lsp` binary, diagnostics appear in Problems tab as you type
 - **Syntax-highlighted editor** — bracket matching, auto-close, auto-indent, tab-to-spaces
 - **Three.js viewport** — orbit (LMB), pan (RMB), zoom (scroll), grid, axes, edge overlay, dimensions
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
+- **Workspace helpers** — recent files, workspace browser, and parameter jump-to-source links
 - **STL export** — one-click export of the rendered geometry
 - **Dark / light theme**
 
@@ -123,9 +126,11 @@ forge3d-app/
 - [x] Embedded terminal pane (PowerShell/bash)
 - [x] Recent files menu + workspace folder browser
 - [x] Enhanced Params tab with slider/input UI from `// @param` annotations
+- [x] Smart templates with safe append / cursor / replace modes
 - [x] Resizable panels — drag handles between editor/viewport and editor/console
 - [x] Windows installer (NSIS) via `npm run dist`
 - [x] MIT license, public repo
+- [ ] Reference parts / assembly layer for loading a second `.scad` beside the active model
 - [ ] Print Mode — bed arrangement + PrusaSlicer integration
 - [ ] Slicer settings embedded in `.scad` file as comment block
 - [ ] AI code generation (plain English → OpenSCAD)
