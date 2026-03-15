@@ -1,6 +1,6 @@
 # Forge3D — Current Status
 
-_Last updated: 2026-03-14_
+_Last updated: 2026-03-15_
 
 ## ✅ Completed Features
 
@@ -21,6 +21,8 @@ _Last updated: 2026-03-14_
 - [x] **Auto-parameter detection** — Infer UI controls from variable naming patterns
 - [x] **Recent files tracking** — Quick access to last 10 opened files
 - [x] **Workspace folder browser** — Tree view of `.scad` files in workspace
+- [x] **Smart template library** — Toolbar dropdown for inserting categorized OpenSCAD snippets
+- [x] **App icon wiring** — Browser favicon, window icon, and packaged PNG/ICO assets
 
 ### UI/UX Polish
 - [x] Removed primitive insert buttons (Cube/Sphere/Cylinder)
@@ -51,26 +53,17 @@ _Last updated: 2026-03-14_
 
 See [next-features.md](next-features.md) for detailed implementation plans.
 
-### High Priority
-1. **App icon** 🎨
-   - Design: Forge/Anvil + 3D cube
-   - Files needed: `public/icon.png`, `public/favicon.ico`
-
-2. **Smart code templates** 📋
-   - Replace removed primitive buttons
-   - Categories: Parametric shapes, mechanical parts, joinery, utilities
-   - Store in `src/forge3d/templates.js`
-
 ### Lower Priority
-3. **File history/snapshots** ⏱
+1. **File history/snapshots** ⏱
    - Auto-snapshot on save, every N minutes
    - Timeline view with diff viewer
    - Never lose work
 
-4. **Code ↔ geometry explorer** 🔎
+2. **Code ↔ geometry explorer** 🔎
    - Jump from viewport/build tree/params back to source
    - Highlight model regions tied to code blocks
    - Debug model construction step-by-step
+   - Expose an API/MCP layer so agents can inspect screenshots, scene state, and code links together
 
 ---
 
@@ -131,7 +124,7 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 
 ## 🎯 Project Goals
 
-**Short-term:** Finish UX improvements (icon, templates, stronger assembly-ready workflow)
+**Short-term:** Build assembly-ready workflow improvements on top of the shipped icon and template updates
 
 **Medium-term:** Add a dedicated assembly layer for multi-part move/rotate/scale and union/subtract/intersect, then connect it to print-bed arrangement and PrusaSlicer CLI
 

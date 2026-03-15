@@ -48,12 +48,12 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 - Sidebar resize + collapse
 - Store sizes in localStorage
 
-### 1B. App Icon 🎨
+### 1B. App Icon 🎨 **SHIPPED**
 - Design professional icon (Forge/Anvil + 3D cube theme)
 - Create `public/icon.png` (256x256+) and `public/favicon.ico`
 - Update `electron-builder` config
 
-### 1C. Smart Code Templates 📋
+### 1C. Smart Code Templates 📋 **SHIPPED**
 Replace removed primitive buttons with useful parametric templates:
 - Parametric shapes (rounded box, etc.)
 - Mechanical parts (brackets, clips)
@@ -293,6 +293,9 @@ Make the editor and viewport feel connected, similar to how the Params panel alr
    - Great for debugging why a model looks wrong
 5. **Module-level visibility toggles**
    - Eye icons to hide/show subassemblies or code blocks without editing source
+6. **Agent API / MCP layer**
+   - Expose viewport screenshots, orbit presets, model stats, scene/build tree, and source links to coding agents
+   - Allow agents to inspect code, geometry, and render state together instead of guessing from text alone
 
 **Practical note:** because Forge3D renders through native OpenSCAD, the most realistic first version is a lightweight scene/build tree plus editor jump/highlight links, not perfect AST-level mapping for every triangle.
 

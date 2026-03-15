@@ -116,6 +116,15 @@ function spawnLSP(win) {
 // ── Dynamic menu builder ────────────────────────────────────────────────────
 let mainWin = null
 
+function getWindowIconPath() {
+  const iconName = process.platform === 'linux' ? 'icon.png' : 'icon.ico'
+  const iconPath = isDev
+    ? path.join(__dirname, '..', 'public', iconName)
+    : path.join(__dirname, '..', 'dist', iconName)
+
+  return fsSync.existsSync(iconPath) ? iconPath : undefined
+}
+
 function buildAppMenu() {
   const config = loadConfig()
   const recentSubmenu = config.recentFiles.length > 0
@@ -180,6 +189,7 @@ function buildAppMenu() {
 
 // ── Window ──────────────────────────────────────────────────────────────────
 function createWindow() {
+  const windowIcon = getWindowIconPath()
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -187,6 +197,7 @@ function createWindow() {
     minHeight: 600,
     title: 'Forge3D',
     backgroundColor: '#13141f',
+    icon: windowIcon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

@@ -527,6 +527,18 @@ export default function Forge3D() {
     setStatusMessage(`Loaded example: ${name}`);
   }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
+  const handleInsertTemplate = useCallback((template) => {
+    if (!template?.code) return;
+
+    const inserted = editorRef.current?.insertText?.(template.code, { selectInserted: true });
+    if (!inserted) {
+      const nextCode = code.trim() ? `${code}\n\n${template.code}` : template.code;
+      applyCodeChange(nextCode);
+    }
+
+    setStatusMessage(`Inserted template: ${template.name}`);
+  }, [applyCodeChange, code]);
+
   const handleParamChange = useCallback((name, value) => {
     const nextCode = applyParamChange(code, name, value);
     applyCodeChange(nextCode);
@@ -595,6 +607,7 @@ export default function Forge3D() {
         onResetView={() => setResetViewSignal(v => v + 1)}
         onRunCode={runCode}
         onSaveFile={saveFile}
+        onInsertTemplate={handleInsertTemplate}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         onUndo={undoCode}
         theme={theme}

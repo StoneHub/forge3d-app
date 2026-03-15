@@ -25,7 +25,7 @@ Allow users to resize code editor, viewport, and console/terminal panels to thei
 
 ---
 
-## 2. App Icon 🎨
+## 2. App Icon 🎨 Done
 
 ### Options
 1. **Forge/Anvil + 3D cube** - represents "forging" 3D objects
@@ -104,7 +104,7 @@ Start with **custom snapshot system** (simpler, more integrated). Can add git in
 
 ---
 
-## 4. Better Code Templates (Replace Primitive Buttons)
+## 4. Better Code Templates (Replace Primitive Buttons) Done
 
 ### Concept: Smart Templates Library
 
@@ -171,8 +171,8 @@ export const TEMPLATES = {
 
 1. ✅ **UI Polish** (DONE: removed clutter, improved colors, reset buttons)
 2. ✅ **Resizable Panels** (DONE: sidebar, editor, and console layout persistence)
-3. 🎨 **App Icon** - MEDIUM (branding, looks professional)
-4. 📋 **Templates System** - MEDIUM (discoverability)
+3. ✅ **App Icon** - DONE
+4. ✅ **Templates System** - DONE
 5. 🧩 **Assembly Layer** - MEDIUM/HIGH
    - Load multiple parts into one scene
    - Move/rotate/scale each part visually
@@ -182,6 +182,7 @@ export const TEMPLATES = {
    - Jump from params or picked geometry back to source lines
    - Highlight/isolate sub-parts in the viewport from a build tree
    - Add a step-through construction mode for debugging unions/differences
+   - Add an agent-facing API/MCP layer for screenshots, model stats, scene tree, and source links
 7. ⏱ **File History** - LOWER (nice-to-have, but impactful)
 
 ---

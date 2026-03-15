@@ -43,6 +43,38 @@ function HighlightedCode({ code }) {
 
 const AUTO_CLOSE = { '{': '}', '(': ')', '[': ']', '"': '"' };
 
+function prepareBlockInsertion(source, start, end, text) {
+  if (!source.trim()) {
+    return {
+      nextCode: text,
+      selectionStart: 0,
+      selectionEnd: text.length,
+    };
+  }
+
+  if (start !== end) {
+    return {
+      nextCode: source.slice(0, start) + text + source.slice(end),
+      selectionStart: start,
+      selectionEnd: start + text.length,
+    };
+  }
+
+  const before = source.slice(0, start);
+  const after = source.slice(end);
+  const trailingNewlines = before.match(/\n*$/)?.[0].length ?? 0;
+  const leadingNewlines = after.match(/^\n*/)?.[0].length ?? 0;
+  const prefix = before.length === 0 ? '' : '\n'.repeat(Math.max(0, 2 - trailingNewlines));
+  const suffix = after.length === 0 ? '' : '\n'.repeat(Math.max(0, 2 - leadingNewlines));
+  const insertionStart = start + prefix.length;
+
+  return {
+    nextCode: before + prefix + text + suffix + after,
+    selectionStart: insertionStart,
+    selectionEnd: insertionStart + text.length,
+  };
+}
+
 // ─── CODE EDITOR COMPONENT ───────────────────────────────────────────
 export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUndo, onRedo, canUndo, canRedo, onBuild, theme }, ref) {
   const textareaRef = useRef(null);
@@ -90,6 +122,30 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
 
+  const insertText = useCallback((text, options = {}) => {
+    const ta = textareaRef.current;
+    if (!ta) return false;
+
+    const { selectionStart = code.length, selectionEnd = code.length } = ta;
+    const insertion = prepareBlockInsertion(code, selectionStart, selectionEnd, text);
+    const shouldSelectInserted = options.selectInserted ?? true;
+
+    onChange(insertion.nextCode);
+
+    requestAnimationFrame(() => {
+      const nextTextarea = textareaRef.current;
+      if (!nextTextarea) return;
+      nextTextarea.focus();
+      if (shouldSelectInserted) {
+        nextTextarea.setSelectionRange(insertion.selectionStart, insertion.selectionEnd);
+      } else {
+        nextTextarea.setSelectionRange(insertion.selectionEnd, insertion.selectionEnd);
+      }
+    });
+
+    return true;
+  }, [code, onChange]);
+
   // Expose imperative jumpToLine for error click navigation
   useImperativeHandle(ref, () => ({
     jumpToLine(lineNumber) {
@@ -109,8 +165,9 @@ export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUnd
       if (lineRef.current) lineRef.current.scrollTop = scrollTop;
       ta.scrollTop = scrollTop;
     },
+    insertText,
     openFind,
-  }));
+  }), [insertText, openFind]);
 
   const lines = code.split('\n');
   const isDark = theme !== 'light';

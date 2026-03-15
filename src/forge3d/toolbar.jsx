@@ -1,15 +1,22 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Icons from './icons.jsx';
+import { TEMPLATE_LIBRARY } from './templates.js';
 
-function ToolbarButton({ colors, disabled, icon: Icon, label, onClick, title }) {
+function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, onClick, title }) {
+  const restingStyle = {
+    background: active ? colors.btnHover : 'none',
+    borderColor: active ? colors.borderHover : 'transparent',
+    color: disabled ? colors.textFaint : active ? colors.text : colors.textMuted,
+  };
+
   return (
     <button
       onClick={onClick}
       title={title || label}
       disabled={disabled}
       style={{
-        background: 'none',
         border: '1px solid transparent',
-        color: disabled ? colors.textFaint : colors.textMuted,
+        ...restingStyle,
         padding: '4px 8px',
         borderRadius: '4px',
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -29,16 +36,137 @@ function ToolbarButton({ colors, disabled, icon: Icon, label, onClick, title }) 
         }
       }}
       onMouseLeave={(event) => {
-        Object.assign(event.currentTarget.style, {
-          background: 'none',
-          borderColor: 'transparent',
-          color: disabled ? colors.textFaint : colors.textMuted,
-        });
+        Object.assign(event.currentTarget.style, restingStyle);
       }}
     >
       <Icon />
       <span>{label}</span>
     </button>
+  );
+}
+
+function TemplatesMenu({ colors, onInsertTemplate }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const groupedTemplates = useMemo(() => {
+    return TEMPLATE_LIBRARY.reduce((groups, template) => {
+      if (!groups[template.category]) groups[template.category] = [];
+      groups[template.category].push(template);
+      return groups;
+    }, {});
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <ToolbarButton
+        active={open}
+        colors={colors}
+        icon={Icons.Clipboard}
+        label="Templates"
+        onClick={() => setOpen((current) => !current)}
+        title="Insert a parametric template at the cursor"
+      />
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 10px)',
+            left: 0,
+            width: '360px',
+            maxHeight: '460px',
+            overflowY: 'auto',
+            padding: '10px',
+            borderRadius: '12px',
+            border: `1px solid ${colors.border}`,
+            background: `${colors.bgPanel}f6`,
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 18px 40px rgba(0,0,0,0.28)',
+            zIndex: 20,
+          }}
+        >
+          <div style={{ padding: '2px 4px 10px', borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: colors.text }}>Smart Templates</div>
+            <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '3px' }}>
+              Inserts at the cursor, or replaces your current selection.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px' }}>
+            {Object.entries(groupedTemplates).map(([category, templates]) => (
+              <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colors.textFaint, padding: '0 4px' }}>
+                  {category}
+                </div>
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => {
+                      onInsertTemplate?.(template);
+                      setOpen(false);
+                    }}
+                    title={template.tags.join(', ')}
+                    style={{
+                      background: colors.bgDarker,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: '8px',
+                      color: colors.text,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: '4px',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={(event) => Object.assign(event.currentTarget.style, {
+                      background: colors.btnHover,
+                      borderColor: colors.accent,
+                    })}
+                    onMouseLeave={(event) => Object.assign(event.currentTarget.style, {
+                      background: colors.bgDarker,
+                      borderColor: colors.border,
+                    })}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600 }}>
+                      <Icons.File />
+                      {template.name}
+                    </span>
+                    <span style={{ fontSize: '11px', color: colors.textMuted, paddingLeft: '22px' }}>
+                      {template.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -57,6 +185,7 @@ export default function ForgeToolbar({
   onResetView,
   onRunCode,
   onSaveFile,
+  onInsertTemplate,
   onThemeToggle,
   onUndo,
   theme,
@@ -75,6 +204,7 @@ export default function ForgeToolbar({
         <ToolbarButton colors={colors} icon={Icons.File} label="New" onClick={onNewFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Open" onClick={onOpenFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Save" onClick={onSaveFile} />
+        <TemplatesMenu colors={colors} onInsertTemplate={onInsertTemplate} />
         <ToolbarButton colors={colors} icon={Icons.Grid} label="Export STL" onClick={onExportStl} />
         <ToolbarButton colors={colors} disabled={!canUndo} icon={Icons.Undo} label="Undo" onClick={onUndo} title="Ctrl/Cmd+Z" />
         <ToolbarButton colors={colors} disabled={!canRedo} icon={Icons.Redo} label="Redo" onClick={onRedo} title="Ctrl/Cmd+Shift+Z" />
