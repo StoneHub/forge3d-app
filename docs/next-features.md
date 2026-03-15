@@ -38,7 +38,7 @@ const handleMouseDown = (e, direction) => {
 
 ### Files Needed
 - `public/icon.png` (256x256+) - for Electron
-- `public/favicon.ico` - for browser/titlebar
+- `public/favicon.ico` - for window/titlebar assets
 - Update `electron-builder` config in package.json
 
 ### Tool
@@ -83,7 +83,7 @@ const saveSnapshot = async () => {
 };
 ```
 
-**Phase 2: Snapshot browser UI**
+**Phase 2: Snapshot history UI**
 - List snapshots in sidebar
 - Show timestamp, size, preview
 - Diff viewer (highlight changes)

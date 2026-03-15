@@ -8,7 +8,7 @@ Forge3D.jsx (state machine)
   │
   ├── mode: 'design' ──→ CodeEditor + Electron IPC + Viewport + LSP + Terminal
   │                        │
-  │                        ├── forgeAPI.render(code) → IPC → Main Process
+  │                        ├── forgeAPI.renderOpenSCAD(code) → IPC → Main Process
   │                        │      └── child_process.execFile("openscad.com", ["-o", "out.stl"])
   │                        │            → returns STL binary via IPC
   │                        │
@@ -35,7 +35,7 @@ Forge3D.jsx (state machine)
   │
   ├── workspace.js ─────→ localStorage persistence + file I/O via IPC
   │
-  └── exporter.js ──────→ THREE.Scene → binary STL download
+  └── exporter.js ──────→ THREE.Scene → STL serialization + native save dialog
 ```
 
 ## Native OpenSCAD Rendering (Electron IPC)
@@ -43,20 +43,14 @@ Forge3D.jsx (state machine)
 ### Render Flow
 ```
 Renderer (Forge3D.jsx)
-  → forgeAPI.render(code)
+  → forgeAPI.renderOpenSCAD(code)
     → IPC: 'openscad:render'
       → Main Process (electron/main.mjs)
-        → Write code to temp file: {userData}/temp/input.scad
-        → child_process.execFile('C:/Program Files/OpenSCAD/openscad.com', [
-            '-o', '{userData}/temp/output.stl',
-            '--enable=all',
-            '--quiet',
-            'input.scad'
-          ])
-        → Read STL binary from temp/output.stl
-        → Return { stl: Buffer, stdout, stderr, time }
+        → Write code to temp file in os.tmpdir()
+        → child_process.execFile('C:/Program Files/OpenSCAD/openscad.com', ['-o', outputPath, inputPath])
+        → Read STL binary from outputPath
+        → Return { stl } or { error }
       ← IPC response
-    ← forgeAPI promise resolves
   → Parse STL → Three.js geometry → render viewport
 ```
 
@@ -73,10 +67,9 @@ Renderer (Forge3D.jsx)
 **Flow:**
 ```
 lsp-client.js (React hook)
-  → Spawn LSP server via forgeAPI.spawnLSP()
-    → Main Process spawns child_process (stdio pipes)
-  → Send LSP messages (initialize, textDocument/didChange, etc.)
-  → Receive diagnostics (errors, warnings)
+  → Send LSP messages via forgeAPI.lspSend()
+    → Main Process forwards JSON-RPC to the bundled language server
+  → Receive diagnostics via forgeAPI.onLspReceive()
   → Display in Problems tab with line numbers
 ```
 

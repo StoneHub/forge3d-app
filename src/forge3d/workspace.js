@@ -1,5 +1,5 @@
-// Electron-only workspace helpers
-// openBrowserFile and downloadTextFile removed — native dialogs used exclusively via forgeAPI IPC.
+// Workspace helpers for the Electron renderer.
+// File open/save lives in the preload bridge via forgeAPI IPC.
 
 import { EXAMPLES } from './examples.js';
 

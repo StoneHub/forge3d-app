@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   },
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   saveFile: (payload) => ipcRenderer.invoke('dialog:saveFile', payload),
+  saveStlFile: (payload) => ipcRenderer.invoke('dialog:saveStlFile', payload),
   openFilePath: (filePath) => ipcRenderer.invoke('file:openPath', filePath),
 
   // Recent files

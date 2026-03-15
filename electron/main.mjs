@@ -243,6 +243,24 @@ ipcMain.handle('dialog:saveFile', async (_event, payload = {}) => {
   return { filePath, name: path.basename(filePath) }
 })
 
+ipcMain.handle('dialog:saveStlFile', async (_event, payload = {}) => {
+  const { content = '', filePath: existingPath, suggestedName = 'model.stl' } = payload
+  let filePath = existingPath
+
+  if (!filePath) {
+    const { canceled, filePath: chosenPath } = await dialog.showSaveDialog({
+      title: 'Export STL',
+      defaultPath: suggestedName,
+      filters: [{ name: 'STL files', extensions: ['stl'] }],
+    })
+    if (canceled || !chosenPath) return null
+    filePath = chosenPath
+  }
+
+  await fs.writeFile(filePath, content, 'utf8')
+  return { filePath, name: path.basename(filePath) }
+})
+
 // ── Open a specific file by path (for recent files / workspace) ─────────────
 ipcMain.handle('file:openPath', async (_event, filePath) => {
   try {

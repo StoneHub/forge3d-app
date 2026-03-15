@@ -7,7 +7,7 @@
    - Add practical templates (fixture plate, enclosure lid, tabs/snap fits, text emboss/deboss).
    - Add comments in each example that explain *why* a pattern is used.
 
-2. **Examples browser UX**
+2. **Examples library UX**
    - Add categories (Basics, Mechanical, Text, Artistic, Print-ready).
    - Add search and tags (e.g., `offset`, `hull`, `text`, `threads`).
    - Show "learning goals" and expected print time/material for each example.

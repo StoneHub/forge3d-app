@@ -3,28 +3,16 @@ import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import 'xterm/css/xterm.css'
 import './terminal.css'
+import { requireForgeAPI } from './forge-api.js'
 
 export default function TerminalPane({ colors }) {
   const containerRef = useRef(null)
   const terminalRef = useRef(null)
   const fitAddonRef = useRef(null)
+  const forgeAPI = requireForgeAPI()
 
   useEffect(() => {
     if (!containerRef.current) return
-
-    // Check if running in Electron
-    const isElectron = window.forgeAPI?.spawnTerminal
-
-    if (!isElectron) {
-      // Show fallback message in browser mode
-      containerRef.current.innerHTML = `
-        <div style="padding: 20px; color: ${colors.textSecondary}; text-align: center;">
-          <p>Terminal is only available in Electron desktop mode.</p>
-          <p style="margin-top: 10px; font-size: 0.9em;">Run <code>npm run electron:dev</code> to use the terminal.</p>
-        </div>
-      `
-      return
-    }
 
     // Initialize xterm.js
     const terminal = new Terminal({
@@ -32,10 +20,10 @@ export default function TerminalPane({ colors }) {
       fontSize: 13,
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: {
-        background: colors.panelBg,
+        background: colors.bgPanel,
         foreground: colors.text,
-        cursor: colors.primary,
-        selection: colors.selectionBg,
+        cursor: colors.accent,
+        selectionBackground: `${colors.accent}44`,
         black: '#000000',
         red: '#e06c75',
         green: '#98c379',
@@ -64,7 +52,7 @@ export default function TerminalPane({ colors }) {
     fitAddonRef.current = fitAddon
 
     // Spawn PTY in main process
-    window.forgeAPI.spawnTerminal().then((result) => {
+    forgeAPI.spawnTerminal().then((result) => {
       if (result.error) {
         terminal.writeln(`\x1b[31mError: ${result.error}\x1b[0m`)
         terminal.writeln('Terminal could not be initialized.')
@@ -73,18 +61,18 @@ export default function TerminalPane({ colors }) {
 
     // Pipe terminal input to PTY
     terminal.onData((data) => {
-      window.forgeAPI.writeTerminal(data)
+      forgeAPI.writeTerminal(data)
     })
 
     // Pipe PTY output to terminal
-    const unsubscribe = window.forgeAPI.onTerminalData((data) => {
+    const unsubscribe = forgeAPI.onTerminalData((data) => {
       terminal.write(data)
     })
 
     // Handle window resize
     const handleResize = () => {
       fitAddon.fit()
-      window.forgeAPI.resizeTerminal(terminal.cols, terminal.rows)
+      forgeAPI.resizeTerminal(terminal.cols, terminal.rows)
     }
 
     window.addEventListener('resize', handleResize)
@@ -96,10 +84,10 @@ export default function TerminalPane({ colors }) {
       clearTimeout(timeoutId)
       window.removeEventListener('resize', handleResize)
       unsubscribe()
-      window.forgeAPI.killTerminal()
+      forgeAPI.killTerminal()
       terminal.dispose()
     }
-  }, [colors])
+  }, [colors, forgeAPI])
 
   return (
     <div
@@ -108,7 +96,7 @@ export default function TerminalPane({ colors }) {
         width: '100%',
         height: '100%',
         overflow: 'hidden',
-        backgroundColor: colors.panelBg,
+        backgroundColor: colors.bgPanel,
       }}
     />
   )

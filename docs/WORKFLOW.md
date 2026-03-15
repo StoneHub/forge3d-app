@@ -37,19 +37,20 @@ Forge3D has two modes. The UI physically transforms between them — this is not
 
 ### Behavior
 - User writes/edits `.scad` code
-- **Build** sends code to openscad-wasm worker → returns STL binary
+- **Build** sends code through Electron IPC → native OpenSCAD binary → returns STL bytes
 - STL is parsed into Three.js BufferGeometry and displayed in viewport
-- Console shows openscad-wasm stdout/stderr (echo, warnings, errors)
-- Auto-build on 1s debounce (toggleable)
+- Console shows render status, build timing, and native OpenSCAD errors
+- Auto-build on 400ms debounce (toggleable)
 
-### Build Pipeline (openscad-wasm)
+### Build Pipeline (native OpenSCAD)
 ```
 User code (string)
-  → Web Worker: openscad-wasm
-    → instance.FS.writeFile("/input.scad", code)
-    → instance.callMain(["/input.scad", "-o", "/output.stl", "--enable=manifold"])
-    → output = instance.FS.readFile("/output.stl")
-  → Main thread: parse STL binary → Three.js BufferGeometry
+  → Renderer: forgeAPI.renderOpenSCAD(code)
+    → Electron IPC: 'openscad:render'
+      → Main process writes temp .scad file
+      → Run openscad.com -o output.stl input.scad
+      → Read STL bytes from temp file
+  → Renderer: parse STL binary → Three.js BufferGeometry
   → Render in viewport
 ```
 
@@ -201,12 +202,11 @@ Replaces console/errors panel. Shows:
 
 ## SLICING PIPELINE
 
-### Browser Mode (no PrusaSlicer)
-- Slice button is hidden
-- Show only: [💾 Export STL] to download the mesh
-- Future: integrate a WASM slicer (e.g., CuraEngine WASM) for browser-only slicing
+### Desktop App Scope
+- Forge3D is Electron-only.
+- Until PrusaSlicer wiring is complete, the safe fallback is native STL export and optional handoff to the PrusaSlicer GUI.
 
-### Electron/Desktop Mode (PrusaSlicer available)
+### PrusaSlicer CLI Mode
 ```
 1. Write all STL parts to temp directory
 2. Build PrusaSlicer CLI command:
@@ -245,7 +245,7 @@ DESIGN MODE                          PRINT MODE
 .scad code                           STL meshes[]
     │                                    │
     ▼                                    ▼
-openscad-wasm worker                 Three.js scene
+Electron IPC render                  Three.js scene
     │                                    │
     ▼                                    ▼
 STL binary ──── carries over ────→  Mesh on print bed
@@ -275,16 +275,7 @@ Three.js mesh                        PrusaSlicer CLI
 
 ## IMPLEMENTATION PHASES
 
-### Phase 1: openscad-wasm Integration (CURRENT PRIORITY)
-- [ ] `npm install openscad-wasm`
-- [ ] Create `src/forge3d/openscad.worker.js` — loads WASM, processes .scad → STL
-- [ ] Create `src/forge3d/stl-parser.js` — binary STL → Three.js BufferGeometry
-- [ ] Update `Forge3D.jsx` `runCode()` to use new worker
-- [ ] Remove dependency on `interpreter.js` for rendering (keep tokenizer for syntax highlighting)
-- [ ] Update renderer to accept BufferGeometry directly instead of object descriptors
-- [ ] Test with `magnetic_letter_only.scad` — should render identically to OpenSCAD
-
-### Phase 2: Print Mode UI Shell
+### Phase 1: Print Mode UI Shell (CURRENT PRIORITY)
 - [ ] Add `mode` state: `'design' | 'print'`
 - [ ] Create `src/forge3d/PrintBed.jsx` — print bed viewport component
 - [ ] Create `src/forge3d/PrintSettings.jsx` — settings form component
@@ -293,7 +284,7 @@ Three.js mesh                        PrusaSlicer CLI
 - [ ] Print bed grid with configurable dimensions
 - [ ] Part selection, drag, rotate on bed
 
-### Phase 3: PrusaSlicer Integration (Electron)
+### Phase 2: PrusaSlicer Integration (Electron)
 - [ ] Create `src/forge3d/slicer.js` — profile discovery + CLI invocation
 - [ ] Scan `%APPDATA%/PrusaSlicer/` for profiles on startup
 - [ ] Populate dropdowns from discovered profiles
@@ -301,7 +292,7 @@ Three.js mesh                        PrusaSlicer CLI
 - [ ] Parse G-code output for stats (time, filament, layers)
 - [ ] Stream CLI output to slice log panel
 
-### Phase 4: Polish
+### Phase 3: Polish
 - [ ] Auto-arrange algorithm (bin packing)
 - [ ] Collision detection between parts
 - [ ] G-code preview in viewport (layer-by-layer visualization)
@@ -314,5 +305,4 @@ Three.js mesh                        PrusaSlicer CLI
 ## OPEN QUESTIONS
 - Should we support LycheeSlicer for SLA/resin prints? (installed on dev machine)
 - G-code preview: build custom or use an existing viewer library?
-- Should browser mode get a WASM slicer (CuraEngine) for basic slicing without Electron?
 - OPENCLAW integration: when co-hosted, how do agents coordinate on the same project files?

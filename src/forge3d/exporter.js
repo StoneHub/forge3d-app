@@ -1,11 +1,11 @@
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 
 /**
- * Exports a Three.js scene to an STL file format and triggers a browser download.
+ * Serializes the user mesh subset of a Three.js scene into ASCII STL text.
  * @param {THREE.Scene} scene The scene to export
- * @param {string} filename The name of the downloaded file (e.g. 'model.stl')
+ * @returns {string}
  */
-export function exportSceneToSTL(scene, filename = 'model.stl') {
+export function exportSceneToSTL(scene) {
   // We only want to export the actual user-created objects, not the grid, axes, or lights.
   // We can do this by cloning the root scene and removing any helpers before exporting,
   // or by selecting only standard Meshes.
@@ -25,18 +25,5 @@ export function exportSceneToSTL(scene, filename = 'model.stl') {
 
   // Use the Three.js STLExporter
   const exporter = new STLExporter();
-  const stlString = exporter.parse(exportScene);
-
-  // Trigger download
-  const blob = new Blob([stlString], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  
-  // Append to body, click, and cleanup
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  return exporter.parse(exportScene);
 }

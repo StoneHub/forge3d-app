@@ -155,7 +155,7 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       return box.isEmpty() ? null : box;
     };
 
-    // ── STL geometry from openscad-wasm (Phase 1) ──
+    // ── STL geometry from the native OpenSCAD render ──
     if (stlGeometry) {
       const stlMaterial = new THREE.MeshPhysicalMaterial({
         color: new THREE.Color('#4fc3f7'),

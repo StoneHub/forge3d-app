@@ -10,6 +10,7 @@ import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
 import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
 import TerminalPane from "./forge3d/terminal.jsx";
+import { requireForgeAPI } from "./forge3d/forge-api.js";
 
 // ─── HISTORY ────────────────────────────────────────────────────────
 function createHistoryState(initialCode) {
@@ -41,8 +42,7 @@ export default function Forge3D() {
   const [stlGeometry, setStlGeometry] = useState(null);
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [] });
-  const forgeAPI = window.forgeAPI ?? null;
-  const isDesktopRuntime = !!forgeAPI?.renderOpenSCAD;
+  const forgeAPI = requireForgeAPI();
 
   // ─── Phase 1 state ──────────────────────────────────────────────────
   const [recentFiles, setRecentFiles] = useState([]);
@@ -147,12 +147,6 @@ export default function Forge3D() {
 
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async () => {
-    if (!forgeAPI?.renderOpenSCAD) {
-      setResult({ objects: [], logs: [], errors: ['Desktop runtime required: Forge API bridge is unavailable.'], warnings: [], variables: {} });
-      setActiveTab('errors');
-      return;
-    }
-
     const id = ++buildIdRef.current;
     buildStartRef.current = performance.now();
     setBuilding(true);
@@ -200,10 +194,6 @@ export default function Forge3D() {
   }, [replaceCodeWithoutHistory]);
 
   const openFile = useCallback(async () => {
-    if (!forgeAPI?.openFile) {
-      setStatusMessage('Desktop runtime required for file operations');
-      return;
-    }
     try {
       const payload = await forgeAPI.openFile();
       if (!payload) return;
@@ -213,17 +203,13 @@ export default function Forge3D() {
       setCurrentFilePath(payload.filePath || null);
       setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
       // Refresh recent files list
-      forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
+      forgeAPI.getRecentFiles().then(setRecentFiles).catch(() => {});
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
   }, [forgeAPI, replaceCodeWithoutHistory]);
 
   const openFilePath = useCallback(async (filePath) => {
-    if (!forgeAPI?.openFilePath) {
-      setStatusMessage('Desktop runtime required for workspace file operations');
-      return;
-    }
     try {
       const payload = await forgeAPI.openFilePath(filePath);
       if (!payload || payload.error) {
@@ -235,17 +221,13 @@ export default function Forge3D() {
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
       setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
-      forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
+      forgeAPI.getRecentFiles().then(setRecentFiles).catch(() => {});
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
   }, [forgeAPI, replaceCodeWithoutHistory]);
 
   const saveFile = useCallback(async () => {
-    if (!forgeAPI?.saveFile) {
-      setStatusMessage('Desktop runtime required for saving files');
-      return;
-    }
     try {
       const suggestedName = currentFileName?.endsWith('.scad') ? currentFileName : `${currentFileName || 'model'}.scad`;
       const saved = await forgeAPI.saveFile({ content: code, filePath: currentFilePath, suggestedName });
@@ -274,12 +256,11 @@ export default function Forge3D() {
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
-    if (!forgeAPI) return;
-    forgeAPI.getRecentFiles?.().then(setRecentFiles).catch(() => {});
-    forgeAPI.getWorkspaceFolder?.().then(folder => {
+    forgeAPI.getRecentFiles().then(setRecentFiles).catch(() => {});
+    forgeAPI.getWorkspaceFolder().then(folder => {
       if (folder) {
         setWorkspaceFolder(folder);
-        forgeAPI.listWorkspaceFiles?.().then(setWorkspaceFiles).catch(() => {});
+        forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
       }
     }).catch(() => {});
   }, [forgeAPI]);
@@ -310,7 +291,7 @@ export default function Forge3D() {
       if (event.key === 'F5' || (event.shiftKey && event.key === 'Enter')) { event.preventDefault(); runCode(); }
     };
 
-    const removeMenu = forgeAPI?.onMenuAction?.((action) => {
+    const removeMenu = forgeAPI.onMenuAction((action) => {
       if (action === 'new-file') resetWorkspace();
       if (action === 'open-file') openFile();
       if (action === 'save-file') saveFile();
@@ -380,12 +361,18 @@ export default function Forge3D() {
     reader.readAsText(file);
   }, [replaceCodeWithoutHistory]);
 
-  const handleExportSTL = useCallback(() => {
+  const handleExportSTL = useCallback(async () => {
     if (!scene) return;
     const baseName = currentFileName.replace(/\.scad$/i, '');
-    exportSceneToSTL(scene, `${baseName}.stl`);
-    setStatusMessage(`Exported ${baseName}.stl`);
-  }, [scene, currentFileName]);
+    try {
+      const content = exportSceneToSTL(scene);
+      const saved = await forgeAPI.saveStlFile({ content, suggestedName: `${baseName}.stl` });
+      if (!saved) return;
+      setStatusMessage(`Exported ${saved.name || `${baseName}.stl`}`);
+    } catch (error) {
+      setStatusMessage(`STL export failed: ${error.message}`);
+    }
+  }, [currentFileName, forgeAPI, scene]);
 
   const jumpToLine = useCallback((lineNum) => {
     editorRef.current?.jumpToLine(lineNum);
@@ -410,22 +397,6 @@ export default function Forge3D() {
     display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
     backdropFilter: 'blur(8px)',
   });
-
-  if (!isDesktopRuntime) {
-    return (
-      <div style={{ minHeight: '100vh', background: colors.bg, color: colors.text, display: 'grid', placeItems: 'center', padding: '24px' }}>
-        <div style={{ maxWidth: '680px', background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '18px 20px', lineHeight: 1.55 }}>
-          <h2 style={{ margin: '0 0 10px 0' }}>Forge3D is desktop-only</h2>
-          <p style={{ margin: '0 0 10px 0', color: colors.textMuted }}>
-            This app requires the Electron preload bridge (<code>window.forgeAPI</code>) and does not run as a standalone browser app.
-          </p>
-          <p style={{ margin: 0, color: colors.textMuted }}>
-            Launch with Electron. In headless/root CI environments, use <code>--no-sandbox</code> and optionally <code>xvfb-run</code>.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   // ─── RENDER ──────────────────────────────────────────────────────────
   return (
@@ -500,7 +471,7 @@ export default function Forge3D() {
                 <button key={id} onClick={() => {
                   setSidebarTab(id);
                   if (id === 'workspace' && workspaceFolder) {
-                    forgeAPI.listWorkspaceFiles?.().then(setWorkspaceFiles).catch(() => {});
+                    forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
                   }
                 }}
                   style={{ flex: 1, padding: '6px 2px', background: sidebarTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: sidebarTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: sidebarTab === id ? colors.accent : colors.textMuted, cursor: 'pointer', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}
@@ -516,7 +487,7 @@ export default function Forge3D() {
                     <>
                       <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '4px 2px 2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span>🕐 Recent</span>
-                        <button onClick={() => { forgeAPI.clearRecentFiles?.().then(() => setRecentFiles([])); }} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '9px', padding: '2px 4px' }} title="Clear recent files">✕</button>
+                        <button onClick={() => { forgeAPI.clearRecentFiles().then(() => setRecentFiles([])); }} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '9px', padding: '2px 4px' }} title="Clear recent files">✕</button>
                       </div>
                       {recentFiles.slice(0, 5).map(fp => {
                         const fname = fp.split(/[\\/]/).pop();
@@ -569,10 +540,10 @@ export default function Forge3D() {
                       <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span title={workspaceFolder}>📁 {workspaceFolder.split(/[\\/]/).pop()}</span>
                         <button onClick={async () => {
-                          const folder = await forgeAPI.setWorkspaceFolder?.();
+                          const folder = await forgeAPI.setWorkspaceFolder();
                           if (folder) {
                             setWorkspaceFolder(folder);
-                            const files = await forgeAPI.listWorkspaceFiles?.();
+                            const files = await forgeAPI.listWorkspaceFiles();
                             setWorkspaceFiles(files || []);
                           }
                         }} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Change folder">📂</button>
@@ -593,10 +564,10 @@ export default function Forge3D() {
                     <div style={{ textAlign: 'center', padding: '16px 8px' }}>
                       <div style={{ color: colors.textFaint, fontSize: '11px', marginBottom: '10px' }}>Set a workspace folder to browse .scad files</div>
                       <button onClick={async () => {
-                        const folder = await forgeAPI.setWorkspaceFolder?.();
+                        const folder = await forgeAPI.setWorkspaceFolder();
                         if (folder) {
                           setWorkspaceFolder(folder);
-                          const files = await forgeAPI.listWorkspaceFiles?.();
+                          const files = await forgeAPI.listWorkspaceFiles();
                           setWorkspaceFiles(files || []);
                         }
                       }}

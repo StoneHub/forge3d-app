@@ -1,8 +1,8 @@
-// LSP JSON-RPC client for OpenSCAD Language Server (Electron-only)
-// Only activates when window.forgeAPI.lspSend is available.
+// LSP JSON-RPC client for the bundled OpenSCAD Language Server.
 // Sends textDocument/didOpen and didChange, receives publishDiagnostics.
 
 import { useEffect, useRef, useCallback } from 'react';
+import { requireForgeAPI } from './forge-api.js';
 
 let _msgId = 1;
 function nextId() { return _msgId++; }
@@ -14,16 +14,16 @@ function nextId() { return _msgId++; }
  * @param {function} onDiagnostics — called with { errors: string[], warnings: string[] }
  */
 export function useLSP(code, filePath, onDiagnostics) {
+  const forgeAPI = requireForgeAPI();
   const initializedRef = useRef(false);
   const openedUriRef = useRef(null);
   const versionRef = useRef(0);
   const changeTimerRef = useRef(null);
   const removeListenerRef = useRef(null);
 
-  // Stable reference to send — only works in Electron
   const send = useCallback((msg) => {
-    try { window.forgeAPI?.lspSend?.(msg); } catch (_) {}
-  }, []);
+    try { forgeAPI.lspSend(msg); } catch (_) {}
+  }, [forgeAPI]);
 
   // Map a file path / null → a stable URI for the LSP
   const getUri = useCallback((fp) => {
@@ -33,7 +33,6 @@ export function useLSP(code, filePath, onDiagnostics) {
 
   // Initialize LSP once and register diagnostics listener
   useEffect(() => {
-    if (!window.forgeAPI?.lspSend) return; // not in Electron
     if (initializedRef.current) return;
     initializedRef.current = true;
 
@@ -54,7 +53,7 @@ export function useLSP(code, filePath, onDiagnostics) {
     });
 
     // Register for LSP messages
-    const removeListener = window.forgeAPI.onLspReceive((msg) => {
+    const removeListener = forgeAPI.onLspReceive((msg) => {
       try {
         // Handle initialize result
         if (msg.id && msg.result?.capabilities) {
@@ -81,11 +80,11 @@ export function useLSP(code, filePath, onDiagnostics) {
     return () => {
       removeListenerRef.current?.();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [forgeAPI, send]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open / reopen document when filePath changes
   useEffect(() => {
-    if (!window.forgeAPI?.lspSend || !initializedRef.current) return;
+    if (!initializedRef.current) return;
     const uri = getUri(filePath);
 
     if (openedUriRef.current && openedUriRef.current !== uri) {
@@ -116,7 +115,7 @@ export function useLSP(code, filePath, onDiagnostics) {
 
   // Send didChange on code edits (throttled 300ms)
   useEffect(() => {
-    if (!window.forgeAPI?.lspSend || !initializedRef.current) return;
+    if (!initializedRef.current) return;
     if (!openedUriRef.current) return;
 
     clearTimeout(changeTimerRef.current);
