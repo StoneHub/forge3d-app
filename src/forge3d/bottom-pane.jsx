@@ -1,20 +1,73 @@
 import Icons from './icons.jsx';
 import TerminalPane from './terminal.jsx';
 
-export default function BottomPane({ activeTab, allErrors, allWarnings, askAI, buildTime, colors, jumpToLine, onActiveTabChange, result, statusMessage }) {
+export default function BottomPane({
+  activeTab,
+  allErrors,
+  allWarnings,
+  askAI,
+  buildTime,
+  colors,
+  jumpToLine,
+  onActiveTabChange,
+  onEnsureTerminalSession,
+  onFocusTerminal,
+  result,
+  statusMessage,
+  terminalFocusToken,
+  terminalResetToken,
+  terminalState,
+}) {
+  const panelStyle = (visible, extra = {}) => ({
+    position: 'absolute',
+    inset: 0,
+    overflow: visible ? 'auto' : 'hidden',
+    opacity: visible ? 1 : 0,
+    pointerEvents: visible ? 'auto' : 'none',
+    padding: extra.padding ?? '8px',
+    transition: 'opacity 0.12s ease',
+    fontFamily: "'JetBrains Mono',monospace",
+    fontSize: '11px',
+    lineHeight: '18px',
+  });
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
       <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
         {[
           { id: 'console', label: 'Console', count: result.logs.length },
           { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length },
-          { id: 'terminal', label: '>_ Terminal', count: 0 }
+          { id: 'terminal', label: 'Terminal', count: 0 },
         ].map(({ id, label, count }) => (
-          <button key={id} onClick={() => onActiveTabChange(id)}
-            style={{ background: activeTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: activeTab === id ? colors.text : colors.textMuted, cursor: 'pointer', padding: '5px 10px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}
-          >{label}{count > 0 && <span style={{ background: id === 'errors' && allErrors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && allErrors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>{count}</span>}</button>
+          <button
+            key={id}
+            onClick={() => {
+              onActiveTabChange(id);
+              if (id === 'terminal') onFocusTerminal?.();
+            }}
+            style={{
+              background: activeTab === id ? colors.bgPanel : 'transparent',
+              border: 'none',
+              borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent',
+              color: activeTab === id ? colors.textSoft : colors.textMuted,
+              cursor: 'pointer',
+              padding: '5px 10px',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            {label}
+            {count > 0 && (
+              <span style={{ background: id === 'errors' && allErrors.length > 0 ? `${colors.error}44` : `${colors.accent}44`, color: id === 'errors' && allErrors.length > 0 ? colors.error : colors.accent, borderRadius: '8px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}>
+                {count}
+              </span>
+            )}
+          </button>
         ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: colors.textFaint }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>
           {(allErrors.length > 0 || allWarnings.length > 0) && (
             <button onClick={askAI} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', padding: '3px 9px', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span>✦</span> Ask AI
@@ -23,9 +76,20 @@ export default function BottomPane({ activeTab, allErrors, allWarnings, askAI, b
           <Icons.Zap /><span>{buildTime}ms</span>
         </div>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: activeTab === 'terminal' ? '0' : '8px', fontFamily: "'JetBrains Mono',monospace", fontSize: '11px', lineHeight: '18px' }}>
-        {activeTab === 'console' && (<>{result.logs.length === 0 && <div style={{ color: colors.textFaint, marginBottom: '6px' }}>{statusMessage}</div>}{result.logs.length === 0 && <div style={{ color: colors.borderHover }}>// Console output appears here...</div>}{result.logs.map((log, index) => (<div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}><span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span><span>{log}</span></div>))}</>)}
-        {activeTab === 'errors' && (
+
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <div style={panelStyle(activeTab === 'console')}>
+          {result.logs.length === 0 && <div style={{ color: colors.textMuted, marginBottom: '6px' }}>{statusMessage}</div>}
+          {result.logs.length === 0 && <div style={{ color: colors.textFaint }}>// Console output appears here...</div>}
+          {result.logs.map((log, index) => (
+            <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}>
+              <span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span>
+              <span>{log}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={panelStyle(activeTab === 'errors')}>
           <>
             {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
             {allErrors.map((rawError, index) => {
@@ -61,8 +125,18 @@ export default function BottomPane({ activeTab, allErrors, allWarnings, askAI, b
               );
             })}
           </>
-        )}
-        {activeTab === 'terminal' && <TerminalPane colors={colors} />}
+        </div>
+
+        <div style={panelStyle(activeTab === 'terminal', { padding: '0' })}>
+          <TerminalPane
+            active={activeTab === 'terminal'}
+            colors={colors}
+            focusToken={terminalFocusToken}
+            onEnsureSession={onEnsureTerminalSession}
+            resetToken={terminalResetToken}
+            sessionState={terminalState}
+          />
+        </div>
       </div>
     </div>
   );

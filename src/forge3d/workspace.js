@@ -13,6 +13,17 @@ const DEFAULT_PANEL_LAYOUT = {
   bottomPanelHeight: 180,
 };
 
+const DEFAULT_START_STATE = {
+  search: '',
+  kindFilter: 'all',
+};
+
+const DEFAULT_TERMINAL_PREFERENCES = {
+  preferredShellId: null,
+};
+
+const DEFAULT_TERMINAL_MANAGER_STATE = {};
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -71,11 +82,17 @@ function migrateLegacyMagneticLetters(workspace) {
 
 export function getDefaultWorkspace() {
   return {
-    code: EXAMPLES["Welcome"],
+    code: '',
+    lastSavedCode: '',
     viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true },
-    autoRun: true,
+    autoRun: false,
     currentFileName: DEFAULT_FILE_NAME,
-    templateInsertMode: 'append',
+    currentFilePath: null,
+    activeActivity: 'start',
+    workbenchTab: 'console',
+    startState: DEFAULT_START_STATE,
+    terminalPreferences: DEFAULT_TERMINAL_PREFERENCES,
+    terminalManagerState: DEFAULT_TERMINAL_MANAGER_STATE,
     panelLayout: DEFAULT_PANEL_LAYOUT,
   };
 }
@@ -88,8 +105,12 @@ export function loadWorkspace() {
     return {
       ...getDefaultWorkspace(),
       ...parsed,
+      lastSavedCode: parsed.lastSavedCode ?? parsed.code ?? '',
       viewSettings: { ...getDefaultWorkspace().viewSettings, ...(parsed.viewSettings || {}) },
       panelLayout: { ...DEFAULT_PANEL_LAYOUT, ...(parsed.panelLayout || {}) },
+      startState: { ...DEFAULT_START_STATE, ...(parsed.startState || {}) },
+      terminalPreferences: { ...DEFAULT_TERMINAL_PREFERENCES, ...(parsed.terminalPreferences || {}) },
+      terminalManagerState: { ...DEFAULT_TERMINAL_MANAGER_STATE, ...(parsed.terminalManagerState || {}) },
     };
   } catch {
     return getDefaultWorkspace();

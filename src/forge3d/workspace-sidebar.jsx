@@ -52,7 +52,7 @@ export default function WorkspaceSidebar({
       </div>
 
       <div style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '10px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colors.textFaint, marginBottom: '8px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textMuted, marginBottom: '8px' }}>
           Current File
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: colors.text, fontSize: '12px' }}>
@@ -61,7 +61,7 @@ export default function WorkspaceSidebar({
             <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentFileName}
             </div>
-            <div style={{ color: colors.textMuted, fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ color: colors.textMuted, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentFilePath || 'Unsaved workspace file'}
             </div>
           </div>
@@ -69,25 +69,25 @@ export default function WorkspaceSidebar({
       </div>
 
       <div style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '10px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colors.textFaint, marginBottom: '8px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textMuted, marginBottom: '8px' }}>
           Modeling Flow
         </div>
-        <div style={{ color: colors.textMuted, fontSize: '11px', lineHeight: 1.5 }}>
-          Use the toolbar Templates menu for larger starters and the editor Quick Start button for small building blocks like cube, sphere, plane, and offset.
+        <div style={{ color: colors.textMuted, fontSize: '12px', lineHeight: 1.55 }}>
+          Use the Start tool in the left rail for Basics, Recipes, and Templates. Workspace stays focused on files, folders, and where your project lives on disk.
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: colors.textMuted, padding: '2px', letterSpacing: '0.6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>Recent Files</span>
           {recentFiles.length > 0 && (
-            <button onClick={onClearRecentFiles} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Clear recent files">
+            <button onClick={onClearRecentFiles} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '11px', fontWeight: 700, padding: '2px 4px' }} title="Clear recent files">
               Clear
             </button>
           )}
         </div>
         {recentFiles.length === 0 ? (
-          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '6px 2px' }}>Recent .scad files will appear here.</div>
+          <div style={{ color: colors.textMuted, fontSize: '12px', padding: '6px 2px' }}>Recent .scad files will appear here.</div>
         ) : (
           recentFiles.slice(0, 8).map((filePath) => {
             const fileName = filePath.split(/[\\/]/).pop();
@@ -123,19 +123,19 @@ export default function WorkspaceSidebar({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: colors.textMuted, padding: '2px', letterSpacing: '0.6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>{workspaceFolder ? workspaceFolder.split(/[\\/]/).pop() : 'Workspace Folder'}</span>
-          <button onClick={onChooseWorkspaceFolder} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}>
+          <button onClick={onChooseWorkspaceFolder} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '11px', fontWeight: 700, padding: '2px 4px' }} title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}>
             Browse
           </button>
         </div>
 
         {!workspaceFolder ? (
-          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px 2px', lineHeight: 1.45 }}>
+          <div style={{ color: colors.textMuted, fontSize: '12px', padding: '8px 2px', lineHeight: 1.5 }}>
             Set a workspace folder to browse local `.scad` files like a project explorer.
           </div>
         ) : workspaceFiles.length === 0 ? (
-          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px 2px', textAlign: 'center' }}>No .scad files found</div>
+          <div style={{ color: colors.textMuted, fontSize: '12px', padding: '8px 2px', textAlign: 'center' }}>No .scad files found</div>
         ) : (
           workspaceFiles.map((file) => {
             const isActive = currentFilePath === file.fullPath;

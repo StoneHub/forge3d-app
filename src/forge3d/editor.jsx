@@ -9,6 +9,7 @@ import 'monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.j
 import 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { configureMonacoOpenScad, ensureForge3DThemes, extractOpenScadSymbols, OPENSCAD_LANGUAGE_ID } from './editor-language.js';
+import { getOpenScadDoc } from './openscad-docs.js';
 
 const INLINE_ACCEPT_ID = 'editor.action.inlineSuggest.commit';
 const INLINE_ACCEPT_WORD_ID = 'editor.action.inlineSuggest.acceptNextWord';
@@ -171,6 +172,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
   diagnostics = [],
   onBuild,
   onChange,
+  onOpenBuiltinDocs,
   onRedo,
   onUndo,
   showDiff = false,
@@ -181,6 +183,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
   const modifiedEditorRef = useRef(null);
   const monacoRef = useRef(null);
   const decorationIdsRef = useRef([]);
+  const interactionDisposablesRef = useRef([]);
 
   const editorTheme = useMemo(() => getEditorTheme(theme), [theme]);
 
@@ -212,6 +215,20 @@ export const CodeEditor = forwardRef(function CodeEditor({
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ, () => onRedo?.());
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, () => onRedo?.());
   }, [onBuild, onRedo, onUndo]);
+
+  const attachBuiltinDocsInteractions = useCallback((editor) => {
+    interactionDisposablesRef.current.forEach((disposable) => disposable?.dispose?.());
+    interactionDisposablesRef.current = [];
+
+    interactionDisposablesRef.current.push(editor.onMouseDown((event) => {
+      const position = event.target.position;
+      if (!position || !(event.event.ctrlKey || event.event.metaKey)) return;
+      const model = editor.getModel();
+      const word = model?.getWordAtPosition(position)?.word;
+      if (!getOpenScadDoc(word)) return;
+      onOpenBuiltinDocs?.(word);
+    }));
+  }, [onOpenBuiltinDocs]);
 
   const refreshDecorationsAndMarkers = useCallback(() => {
     const editor = getActiveEditor();
@@ -336,6 +353,11 @@ export const CodeEditor = forwardRef(function CodeEditor({
     editor?.updateOptions({ theme: editorTheme });
   }, [editorTheme, getActiveEditor]);
 
+  useEffect(() => () => {
+    interactionDisposablesRef.current.forEach((disposable) => disposable?.dispose?.());
+    interactionDisposablesRef.current = [];
+  }, []);
+
   const handleBeforeMount = useCallback((monaco) => {
     monacoRef.current = monaco;
     configureMonacoOpenScad(monaco);
@@ -347,16 +369,18 @@ export const CodeEditor = forwardRef(function CodeEditor({
     editorRef.current = editor;
     modifiedEditorRef.current = null;
     applyEditorEnhancements(editor, monaco);
+    attachBuiltinDocsInteractions(editor);
     refreshDecorationsAndMarkers();
-  }, [applyEditorEnhancements, refreshDecorationsAndMarkers]);
+  }, [applyEditorEnhancements, attachBuiltinDocsInteractions, refreshDecorationsAndMarkers]);
 
   const handleDiffMount = useCallback((editor, monaco) => {
     monacoRef.current = monaco;
     diffEditorRef.current = editor;
     modifiedEditorRef.current = editor.getModifiedEditor();
     applyEditorEnhancements(modifiedEditorRef.current, monaco);
+    attachBuiltinDocsInteractions(modifiedEditorRef.current);
     refreshDecorationsAndMarkers();
-  }, [applyEditorEnhancements, refreshDecorationsAndMarkers]);
+  }, [applyEditorEnhancements, attachBuiltinDocsInteractions, refreshDecorationsAndMarkers]);
 
   const baseOptions = useMemo(() => getBaseEditorOptions(theme), [theme]);
   const diffOptions = useMemo(() => ({

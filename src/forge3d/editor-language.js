@@ -1,4 +1,5 @@
 import { BUILTINS, KEYWORDS } from './interpreter.js';
+import { getOpenScadDoc } from './openscad-docs.js';
 
 export const OPENSCAD_LANGUAGE_ID = 'openscad';
 
@@ -231,6 +232,13 @@ export function extractOpenScadSymbols(code) {
   const lines = code.split('\n');
   const depthAtLineStart = buildLineContexts(lines);
   const symbols = [];
+  const makeSymbol = (kind, name, startLine, endLine) => ({
+    id: `${kind}:${name}:${startLine}`,
+    kind,
+    name,
+    startLine,
+    endLine,
+  });
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
@@ -246,41 +254,26 @@ export function extractOpenScadSymbols(code) {
           break;
         }
       }
-      symbols.push({ kind: 'template', name: templateMatch[1], startLine: lineIndex + 1, endLine });
+      symbols.push(makeSymbol('template', templateMatch[1], lineIndex + 1, endLine));
       continue;
     }
 
     const moduleMatch = line.match(new RegExp(`^\\s*module\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(`));
     if (moduleMatch) {
-      symbols.push({
-        kind: 'module',
-        name: moduleMatch[1],
-        startLine: lineIndex + 1,
-        endLine: findBlockEndLine(lines, lineIndex),
-      });
+      symbols.push(makeSymbol('module', moduleMatch[1], lineIndex + 1, findBlockEndLine(lines, lineIndex)));
       continue;
     }
 
     const functionMatch = line.match(new RegExp(`^\\s*function\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(`));
     if (functionMatch) {
-      symbols.push({
-        kind: 'function',
-        name: functionMatch[1],
-        startLine: lineIndex + 1,
-        endLine: lineIndex + 1,
-      });
+      symbols.push(makeSymbol('function', functionMatch[1], lineIndex + 1, lineIndex + 1));
       continue;
     }
 
     if (depthAtLineStart[lineIndex] === 0) {
       const variableMatch = line.match(new RegExp(`^\\s*(${SYMBOL_NAME_PATTERN})\\s*=\\s*.+;`));
       if (variableMatch && !variableMatch[1].startsWith('$')) {
-        symbols.push({
-          kind: 'variable',
-          name: variableMatch[1],
-          startLine: lineIndex + 1,
-          endLine: lineIndex + 1,
-        });
+        symbols.push(makeSymbol('variable', variableMatch[1], lineIndex + 1, lineIndex + 1));
       }
     }
   }
@@ -323,7 +316,8 @@ function buildKeywordSuggestions(monaco, model, position) {
     kind: monaco.languages.CompletionItemKind.Function,
     insertText: label,
     range,
-    detail: 'OpenSCAD built-in',
+    detail: getOpenScadDoc(label)?.signature || 'OpenSCAD built-in',
+    documentation: getOpenScadDoc(label)?.summary,
   }));
 
   const snippetItems = SNIPPETS.map((snippet) => ({
@@ -336,6 +330,68 @@ function buildKeywordSuggestions(monaco, model, position) {
   }));
 
   return [...snippetItems, ...keywordItems, ...builtinItems];
+}
+
+function buildDocContents(doc) {
+  const argumentSummary = doc.arguments.length === 0
+    ? 'No named parameters.'
+    : doc.arguments.map((argument) => `- \`${argument.name}\` (${argument.type})${argument.defaultValue ? ` default \`${argument.defaultValue}\`` : ''}: ${argument.description}`).join('\n');
+
+  return [
+    { value: `**${doc.signature}**` },
+    { value: `${doc.summary}\n\n${argumentSummary}\n\nCtrl/Cmd+click for Forge3D docs.` },
+  ];
+}
+
+function getActiveCallInfo(model, position) {
+  const linePrefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+  let depth = 0;
+  let commaCount = 0;
+  let inString = false;
+  let stringQuote = '';
+
+  for (let index = linePrefix.length - 1; index >= 0; index -= 1) {
+    const char = linePrefix[index];
+
+    if (inString) {
+      if (char === stringQuote && linePrefix[index - 1] !== '\\') {
+        inString = false;
+        stringQuote = '';
+      }
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      inString = true;
+      stringQuote = char;
+      continue;
+    }
+
+    if (char === ')' || char === ']' || char === '}') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '(') {
+      if (depth === 0) {
+        const callPrefix = linePrefix.slice(0, index);
+        const match = callPrefix.match(/([$\w]+)\s*$/);
+        if (!match) return null;
+        return {
+          name: match[1],
+          activeParameter: commaCount,
+        };
+      }
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+
+    if (char === ',' && depth === 0) {
+      commaCount += 1;
+    }
+  }
+
+  return null;
 }
 
 function buildInlineSuggestions(monaco, model, position) {
@@ -513,6 +569,45 @@ export function configureMonacoOpenScad(monaco) {
         selectionRange: buildRange(monaco, symbol.startLine, symbol.startLine),
         children: [],
       }));
+    },
+  });
+
+  monaco.languages.registerHoverProvider(OPENSCAD_LANGUAGE_ID, {
+    provideHover(model, position) {
+      const word = model.getWordAtPosition(position)?.word;
+      const doc = getOpenScadDoc(word);
+      if (!doc) return null;
+      const range = wordRangeAtPosition(monaco, model, position).range;
+      return {
+        range,
+        contents: buildDocContents(doc),
+      };
+    },
+  });
+
+  monaco.languages.registerSignatureHelpProvider(OPENSCAD_LANGUAGE_ID, {
+    signatureHelpTriggerCharacters: ['(', ','],
+    signatureHelpRetriggerCharacters: [','],
+    provideSignatureHelp(model, position) {
+      const callInfo = getActiveCallInfo(model, position);
+      const doc = getOpenScadDoc(callInfo?.name);
+      if (!doc) return null;
+
+      return {
+        value: {
+          signatures: [{
+            label: doc.signature,
+            documentation: doc.summary,
+            parameters: doc.arguments.map((argument) => ({
+              label: argument.name,
+              documentation: `${argument.type}${argument.defaultValue ? `, default ${argument.defaultValue}` : ''} — ${argument.description}`,
+            })),
+          }],
+          activeSignature: 0,
+          activeParameter: Math.min(callInfo?.activeParameter || 0, Math.max(doc.arguments.length - 1, 0)),
+        },
+        dispose() {},
+      };
     },
   });
 

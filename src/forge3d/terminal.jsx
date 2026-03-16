@@ -5,10 +5,12 @@ import 'xterm/css/xterm.css'
 import './terminal.css'
 import { requireForgeAPI } from './forge-api.js'
 
-export default function TerminalPane({ colors }) {
+export default function TerminalPane({ active, colors, focusToken = 0, onEnsureSession, resetToken = 0, sessionState = {} }) {
   const containerRef = useRef(null)
   const terminalRef = useRef(null)
   const fitAddonRef = useRef(null)
+  const lastErrorRef = useRef('')
+  const requestingSessionRef = useRef(false)
   const forgeAPI = requireForgeAPI()
 
   useEffect(() => {
@@ -19,6 +21,7 @@ export default function TerminalPane({ colors }) {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Consolas, "Courier New", monospace',
+      convertEol: true,
       theme: {
         background: colors.bgPanel,
         foreground: colors.text,
@@ -51,17 +54,64 @@ export default function TerminalPane({ colors }) {
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    // Spawn PTY in main process
-    forgeAPI.spawnTerminal().then((result) => {
-      if (result.error) {
-        terminal.writeln(`\x1b[31mError: ${result.error}\x1b[0m`)
-        terminal.writeln('Terminal could not be initialized.')
+    const copySelection = async () => {
+      const selection = terminal.getSelection()
+      if (!selection) return false
+      try {
+        await forgeAPI.writeClipboardText?.(selection)
+        return true
+      } catch (_) {
+        return false
       }
-    })
+    }
+
+    const pasteText = (text) => {
+      if (!text) return false
+      forgeAPI.writeTerminal(text)
+      return true
+    }
+
+    const pasteClipboard = async () => {
+      try {
+        const text = await forgeAPI.readClipboardText?.()
+        return pasteText(text)
+      } catch (_) {
+        return false
+      }
+    }
 
     // Pipe terminal input to PTY
     terminal.onData((data) => {
       forgeAPI.writeTerminal(data)
+    })
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+
+      const key = String(event.key || '').toLowerCase()
+      const mod = event.ctrlKey || event.metaKey
+
+      if (mod && event.shiftKey && key === 'c') {
+        void copySelection()
+        return false
+      }
+
+      if (mod && event.shiftKey && key === 'v') {
+        void pasteClipboard()
+        return false
+      }
+
+      if (event.ctrlKey && key === 'insert') {
+        void copySelection()
+        return false
+      }
+
+      if (event.shiftKey && key === 'insert') {
+        void pasteClipboard()
+        return false
+      }
+
+      return true
     })
 
     // Pipe PTY output to terminal
@@ -71,11 +121,27 @@ export default function TerminalPane({ colors }) {
 
     // Handle window resize
     const handleResize = () => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return
       fitAddon.fit()
       forgeAPI.resizeTerminal(terminal.cols, terminal.rows)
     }
 
     window.addEventListener('resize', handleResize)
+    const handlePaste = (event) => {
+      const text = event.clipboardData?.getData('text/plain') || ''
+      if (!text) return
+      event.preventDefault()
+      pasteText(text)
+    }
+    const handleCopy = (event) => {
+      const selection = terminal.getSelection()
+      if (!selection) return
+      event.preventDefault()
+      event.clipboardData?.setData('text/plain', selection)
+      void forgeAPI.writeClipboardText?.(selection)
+    }
+    containerRef.current.addEventListener('paste', handlePaste)
+    containerRef.current.addEventListener('copy', handleCopy)
     // Also trigger fit after a short delay to ensure layout is stable
     const timeoutId = setTimeout(handleResize, 100)
 
@@ -83,15 +149,58 @@ export default function TerminalPane({ colors }) {
     return () => {
       clearTimeout(timeoutId)
       window.removeEventListener('resize', handleResize)
+      containerRef.current?.removeEventListener('paste', handlePaste)
+      containerRef.current?.removeEventListener('copy', handleCopy)
       unsubscribe()
-      forgeAPI.killTerminal()
       terminal.dispose()
     }
   }, [colors, forgeAPI])
 
+  useEffect(() => {
+    if (!active || sessionState?.status !== 'idle' || requestingSessionRef.current) return
+    requestingSessionRef.current = true
+    Promise.resolve(onEnsureSession?.()).finally(() => {
+      requestingSessionRef.current = false
+    })
+  }, [active, onEnsureSession, sessionState?.status])
+
+  useEffect(() => {
+    if (sessionState?.status === 'running' || sessionState?.status === 'error' || sessionState?.status === 'exited') {
+      requestingSessionRef.current = false
+    }
+  }, [sessionState?.status])
+
+  useEffect(() => {
+    if (sessionState?.status !== 'error' || !sessionState.error || lastErrorRef.current === sessionState.error) return
+    lastErrorRef.current = sessionState.error
+    terminalRef.current?.writeln(`\x1b[31m${sessionState.error}\x1b[0m`)
+  }, [sessionState?.error, sessionState?.status])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) return
+    terminal.reset()
+    terminal.clear()
+  }, [resetToken])
+
+  useEffect(() => {
+    if (!active) return
+    const terminal = terminalRef.current
+    const fitAddon = fitAddonRef.current
+    const focusTerminal = () => {
+      if (!containerRef.current || containerRef.current.offsetParent === null) return
+      fitAddon?.fit()
+      forgeAPI.resizeTerminal(terminal?.cols || 80, terminal?.rows || 24)
+      terminal?.focus()
+    }
+    const frameId = requestAnimationFrame(focusTerminal)
+    return () => cancelAnimationFrame(frameId)
+  }, [active, focusToken, forgeAPI, sessionState?.pid])
+
   return (
     <div
       ref={containerRef}
+      onMouseDown={() => terminalRef.current?.focus()}
       style={{
         width: '100%',
         height: '100%',

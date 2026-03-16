@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
 contextBridge.exposeInMainWorld('forgeAPI', {
   // File dialogs
@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   saveFile: (payload) => ipcRenderer.invoke('dialog:saveFile', payload),
   saveStlFile: (payload) => ipcRenderer.invoke('dialog:saveStlFile', payload),
   openFilePath: (filePath) => ipcRenderer.invoke('file:openPath', filePath),
+  readFileSnapshot: (filePath) => ipcRenderer.invoke('file:readSnapshot', filePath),
+  watchFile: (filePath) => ipcRenderer.invoke('file:watch', filePath),
+  unwatchFile: () => ipcRenderer.invoke('file:unwatch'),
 
   // Zoom controls
   getZoomFactor: () => ipcRenderer.invoke('zoom:get'),
@@ -44,7 +47,10 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   },
 
   // Terminal bridge (Electron-only)
-  spawnTerminal: (cwd) => ipcRenderer.invoke('terminal:spawn', cwd),
+  listTerminalShells: () => ipcRenderer.invoke('terminal:listShells'),
+  getTerminalState: () => ipcRenderer.invoke('terminal:getState'),
+  spawnTerminal: (options) => ipcRenderer.invoke('terminal:spawn', options),
+  restartTerminal: (options) => ipcRenderer.invoke('terminal:restart', options),
   writeTerminal: (data) => ipcRenderer.invoke('terminal:write', data),
   resizeTerminal: (cols, rows) => ipcRenderer.invoke('terminal:resize', cols, rows),
   killTerminal: () => ipcRenderer.invoke('terminal:kill'),
@@ -52,5 +58,27 @@ contextBridge.exposeInMainWorld('forgeAPI', {
     const handler = (_event, data) => cb(data)
     ipcRenderer.on('terminal:data', handler)
     return () => ipcRenderer.removeListener('terminal:data', handler)
+  },
+  onTerminalState: (cb) => {
+    const handler = (_event, state) => cb(state)
+    ipcRenderer.on('terminal:state', handler)
+    return () => ipcRenderer.removeListener('terminal:state', handler)
+  },
+
+  // Viewport capture
+  saveViewportCapture: (payload) => ipcRenderer.invoke('viewport:saveCapture', payload),
+
+  // System helpers
+  openExternalUrl: (url) => ipcRenderer.invoke('system:openExternal', url),
+
+  // Clipboard helpers
+  readClipboardText: () => clipboard.readText(),
+  writeClipboardText: (text) => clipboard.writeText(text || ''),
+
+  // File sync events
+  onFileChanged: (cb) => {
+    const handler = (_event, payload) => cb(payload)
+    ipcRenderer.on('file:changed', handler)
+    return () => ipcRenderer.removeListener('file:changed', handler)
   },
 })

@@ -1,10 +1,10 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
-import { spawn, execFile } from 'child_process'
+import { spawn, execFile, spawnSync } from 'child_process'
 import { promisify } from 'util'
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
@@ -63,6 +63,17 @@ function getWindowZoomFactor(win) {
   return clampZoomFactor(win.webContents.getZoomFactor())
 }
 
+function safeSendToWindow(win, channel, ...args) {
+  if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return false
+  try {
+    win.webContents.send(channel, ...args)
+    return true
+  } catch (err) {
+    console.warn(`[IPC] Failed to send ${channel}:`, err.message)
+    return false
+  }
+}
+
 function persistZoomFactor(zoomFactor) {
   const config = loadConfig()
   config.zoomFactor = clampZoomFactor(zoomFactor)
@@ -71,8 +82,7 @@ function persistZoomFactor(zoomFactor) {
 }
 
 function notifyZoomChange(win, zoomFactor = getWindowZoomFactor(win)) {
-  if (!win?.webContents || win.isDestroyed()) return
-  win.webContents.send('zoom:changed', clampZoomFactor(zoomFactor))
+  safeSendToWindow(win, 'zoom:changed', clampZoomFactor(zoomFactor))
 }
 
 function setWindowZoomFactor(win, zoomFactor, { persist = true, notify = true } = {}) {
@@ -130,7 +140,7 @@ function spawnLSP(win) {
         if (buf.length < headerEnd + 4 + len) break
         const body = buf.slice(headerEnd + 4, headerEnd + 4 + len)
         buf = buf.slice(headerEnd + 4 + len)
-        try { win.webContents.send('lsp-recv', JSON.parse(body)) } catch (_) {}
+        try { safeSendToWindow(win, 'lsp-recv', JSON.parse(body)) } catch (_) {}
       }
     })
 
@@ -158,6 +168,9 @@ function spawnLSP(win) {
 
 // ── Dynamic menu builder ────────────────────────────────────────────────────
 let mainWin = null
+let activeFileWatcher = null
+let activeWatchedFilePath = null
+let activeFileWatchTimer = null
 
 function getWindowIconPath() {
   const iconName = process.platform === 'linux' ? 'icon.png' : 'icon.ico'
@@ -168,13 +181,69 @@ function getWindowIconPath() {
   return fsSync.existsSync(iconPath) ? iconPath : undefined
 }
 
+function stopWatchingFile() {
+  if (activeFileWatchTimer) {
+    clearTimeout(activeFileWatchTimer)
+    activeFileWatchTimer = null
+  }
+  if (activeFileWatcher) {
+    try {
+      activeFileWatcher.close()
+    } catch (_) {}
+    activeFileWatcher = null
+  }
+  activeWatchedFilePath = null
+}
+
+function watchFilePath(filePath) {
+  stopWatchingFile()
+
+  if (!filePath || !fsSync.existsSync(filePath)) {
+    return { watching: false, filePath: null }
+  }
+
+  activeWatchedFilePath = filePath
+
+  try {
+    activeFileWatcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
+      if (!activeWatchedFilePath) return
+      if (activeFileWatchTimer) clearTimeout(activeFileWatchTimer)
+      activeFileWatchTimer = setTimeout(() => {
+        const watchedPath = activeWatchedFilePath
+        const exists = fsSync.existsSync(watchedPath)
+        safeSendToWindow(mainWin, 'file:changed', {
+          filePath: watchedPath,
+          eventType,
+          exists,
+        })
+        if (!exists) {
+          stopWatchingFile()
+          return
+        }
+        watchFilePath(watchedPath)
+      }, 120)
+    })
+
+    activeFileWatcher.on?.('error', (err) => {
+      console.warn('[FileWatch] Watch error:', err.message)
+      stopWatchingFile()
+    })
+
+    return { watching: true, filePath }
+  } catch (err) {
+    console.warn('[FileWatch] Failed to watch file:', err.message)
+    stopWatchingFile()
+    return { watching: false, filePath, error: err.message }
+  }
+}
+
 function buildAppMenu() {
   const config = loadConfig()
   const recentSubmenu = config.recentFiles.length > 0
     ? [
         ...config.recentFiles.map(fp => ({
           label: fp,
-          click: () => mainWin?.webContents.send('menu-action', `open-recent:${fp}`),
+          click: () => safeSendToWindow(mainWin, 'menu-action', `open-recent:${fp}`),
         })),
         { type: 'separator' },
         { label: 'Clear Recent Files', click: () => {
@@ -186,7 +255,7 @@ function buildAppMenu() {
       ]
     : [{ label: 'No recent files', enabled: false }]
 
-  const sendMenuAction = (action) => mainWin?.webContents.send('menu-action', action)
+  const sendMenuAction = (action) => safeSendToWindow(mainWin, 'menu-action', action)
 
   const menu = Menu.buildFromTemplate([
     {
@@ -293,6 +362,12 @@ function createWindow() {
 }
 
 // ── File dialogs ─────────────────────────────────────────────────────────────
+function buildCaptureFileName() {
+  const now = new Date()
+  const pad = (value) => String(value).padStart(2, '0')
+  return `forge3d-render-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.png`
+}
+
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     title: 'Open SCAD file',
@@ -343,7 +418,39 @@ ipcMain.handle('dialog:saveStlFile', async (_event, payload = {}) => {
   }
 
   await fs.writeFile(filePath, content, 'utf8')
+  addRecentFile(filePath)
+  buildAppMenu()
   return { filePath, name: path.basename(filePath) }
+})
+
+ipcMain.handle('viewport:saveCapture', async (_event, payload = {}) => {
+  const { dataUrl = '', preferredDir = null, suggestedName = buildCaptureFileName() } = payload
+  const dataMatch = String(dataUrl).match(/^data:image\/png;base64,(.+)$/)
+  if (!dataMatch) {
+    return { error: 'Invalid PNG capture payload.' }
+  }
+
+  let filePath = null
+  if (preferredDir && fsSync.existsSync(preferredDir)) {
+    filePath = path.join(preferredDir, suggestedName)
+  } else {
+    const { canceled, filePath: chosenPath } = await dialog.showSaveDialog({
+      title: 'Save Render Capture',
+      defaultPath: path.join(app.getPath('pictures'), suggestedName),
+      filters: [{ name: 'PNG image', extensions: ['png'] }],
+    })
+    if (canceled || !chosenPath) return null
+    filePath = chosenPath
+  }
+
+  await fs.writeFile(filePath, Buffer.from(dataMatch[1], 'base64'))
+  return { filePath, name: path.basename(filePath) }
+})
+
+ipcMain.handle('system:openExternal', async (_event, url) => {
+  if (!url) return false
+  await shell.openExternal(url)
+  return true
 })
 
 // ── Open a specific file by path (for recent files / workspace) ─────────────
@@ -356,6 +463,35 @@ ipcMain.handle('file:openPath', async (_event, filePath) => {
   } catch (err) {
     return { error: err.message }
   }
+})
+
+ipcMain.handle('file:readSnapshot', async (_event, filePath) => {
+  try {
+    const stats = await fs.stat(filePath)
+    const content = await fs.readFile(filePath, 'utf8')
+    return {
+      exists: true,
+      filePath,
+      name: path.basename(filePath),
+      content,
+      mtimeMs: stats.mtimeMs,
+    }
+  } catch (err) {
+    return {
+      exists: false,
+      filePath,
+      error: err.message,
+    }
+  }
+})
+
+ipcMain.handle('file:watch', async (_event, filePath) => {
+  return watchFilePath(filePath)
+})
+
+ipcMain.handle('file:unwatch', async () => {
+  stopWatchingFile()
+  return { watching: false }
 })
 
 // ── Recent files IPC ────────────────────────────────────────────────────────
@@ -481,24 +617,146 @@ ipcMain.handle('openscad:render', async (_event, { code }) => {
 
 // ── Terminal PTY ────────────────────────────────────────────────────────────
 let ptyProcess = null
+let terminalSessionId = 0
+let terminalState = {
+  status: 'idle',
+  pid: null,
+  cwd: null,
+  shellId: null,
+  shellLabel: null,
+  shellCommand: null,
+  exitCode: null,
+  error: null,
+}
 
-ipcMain.handle('terminal:spawn', async (_event, cwd) => {
-  // Lazy-load node-pty (only when terminal is actually opened)
-  if (!pty) {
-    try {
-      pty = await import('node-pty')
-    } catch (err) {
-      console.warn('[Terminal] node-pty not available:', err.message)
-      return { error: 'Terminal not available. node-pty failed to load. Try running: npm install --save-optional node-pty' }
-    }
+function emitTerminalState() {
+  safeSendToWindow(mainWin, 'terminal:state', terminalState)
+}
+
+function resolveCommand(command) {
+  if (!command) return null
+  if (path.isAbsolute(command)) {
+    return fsSync.existsSync(command) ? command : null
   }
 
+  const result = spawnSync(process.platform === 'win32' ? 'where.exe' : 'which', [command], {
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+
+  if (result.status !== 0) return null
+  const resolved = result.stdout.split(/\r?\n/).find(Boolean)
+  return resolved || null
+}
+
+function getShellLabel(command) {
+  const normalized = path.basename(command).toLowerCase()
+  if (normalized === 'powershell.exe') return 'Windows PowerShell'
+  if (normalized === 'pwsh.exe') return 'PowerShell 7'
+  if (normalized === 'cmd.exe') return 'Command Prompt'
+  if (normalized === 'bash' || normalized === 'bash.exe') return 'Bash'
+  if (normalized === 'zsh') return 'Zsh'
+  if (normalized === 'sh') return 'Shell'
+  return path.basename(command)
+}
+
+function getTerminalShells() {
+  const envShell = process.env.SHELL
+  const candidates = process.platform === 'win32'
+    ? [
+        { id: 'powershell', command: 'powershell.exe', args: ['-NoLogo'] },
+        { id: 'pwsh', command: 'pwsh.exe', args: ['-NoLogo'] },
+        { id: 'cmd', command: 'cmd.exe', args: [] },
+        { id: 'git-bash', command: 'C:\\Program Files\\Git\\bin\\bash.exe', args: ['--login', '-i'] },
+      ]
+    : [
+        ...(envShell ? [{ id: 'login-shell', command: envShell, args: [] }] : []),
+        { id: 'zsh', command: '/bin/zsh', args: [] },
+        { id: 'bash', command: '/bin/bash', args: [] },
+        { id: 'sh', command: '/bin/sh', args: [] },
+      ]
+
+  const seen = new Set()
+  return candidates.reduce((shells, candidate) => {
+    const resolvedCommand = resolveCommand(candidate.command)
+    if (!resolvedCommand || seen.has(resolvedCommand)) return shells
+    seen.add(resolvedCommand)
+    shells.push({
+      id: candidate.id,
+      label: getShellLabel(resolvedCommand),
+      command: resolvedCommand,
+      args: candidate.args || [],
+    })
+    return shells
+  }, [])
+}
+
+function getTerminalStateSnapshot() {
+  return { ...terminalState }
+}
+
+function normalizeTerminalCwd(requestedCwd) {
+  if (requestedCwd && fsSync.existsSync(requestedCwd)) return requestedCwd
   const config = loadConfig()
-  const workingDir = cwd || config.workspaceFolder || os.homedir()
-  const shell = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash'
+  if (config.workspaceFolder && fsSync.existsSync(config.workspaceFolder)) return config.workspaceFolder
+  return os.homedir()
+}
+
+async function ensureNodePty() {
+  if (pty) return null
+  try {
+    pty = await import('node-pty')
+    return null
+  } catch (err) {
+    const error = 'Terminal not available. node-pty failed to load. Try running: npm install --save-optional node-pty'
+    console.warn('[Terminal] node-pty not available:', err.message)
+    terminalState = {
+      ...terminalState,
+      status: 'error',
+      pid: null,
+      error,
+    }
+    emitTerminalState()
+    return error
+  }
+}
+
+async function spawnTerminalSession(options = {}) {
+  const { cwd, forceRestart = false, shellId = null } = options
+  const ptyError = await ensureNodePty()
+  if (ptyError) {
+    return { error: ptyError, state: getTerminalStateSnapshot() }
+  }
+
+  if (ptyProcess && !forceRestart) {
+    return { success: true, reused: true, state: getTerminalStateSnapshot() }
+  }
+
+  if (ptyProcess && forceRestart) {
+    try {
+      ptyProcess.kill()
+    } catch (_) {}
+    ptyProcess = null
+  }
+
+  const shells = getTerminalShells()
+  const shell = shells.find((candidate) => candidate.id === shellId) || shells[0]
+  if (!shell) {
+    terminalState = {
+      ...terminalState,
+      status: 'error',
+      pid: null,
+      error: 'No supported shell was detected on this system.',
+    }
+    emitTerminalState()
+    return { error: terminalState.error, state: getTerminalStateSnapshot() }
+  }
+
+  const sessionId = ++terminalSessionId
+  const workingDir = normalizeTerminalCwd(cwd)
 
   try {
-    ptyProcess = pty.spawn(shell, [], {
+    ptyProcess = pty.spawn(shell.command, shell.args, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
@@ -506,46 +764,129 @@ ipcMain.handle('terminal:spawn', async (_event, cwd) => {
       env: process.env,
     })
 
+    terminalState = {
+      status: 'running',
+      pid: ptyProcess.pid,
+      cwd: workingDir,
+      shellId: shell.id,
+      shellLabel: shell.label,
+      shellCommand: shell.command,
+      exitCode: null,
+      error: null,
+    }
+    emitTerminalState()
+
     ptyProcess.onData((data) => {
-      mainWin?.webContents.send('terminal:data', data)
+      if (sessionId !== terminalSessionId) return
+      safeSendToWindow(mainWin, 'terminal:data', data)
     })
 
     ptyProcess.onExit(({ exitCode }) => {
+      if (sessionId !== terminalSessionId) return
       console.log('[Terminal] PTY exited with code', exitCode)
       ptyProcess = null
+      terminalState = {
+        ...terminalState,
+        status: 'exited',
+        pid: null,
+        exitCode,
+      }
+      emitTerminalState()
     })
 
     console.log('[Terminal] Spawned PTY PID', ptyProcess.pid, 'in', workingDir)
-    return { success: true, pid: ptyProcess.pid }
+    return { success: true, reused: false, state: getTerminalStateSnapshot() }
   } catch (err) {
     console.error('[Terminal] Failed to spawn PTY:', err.message)
-    return { error: err.message }
+    terminalState = {
+      ...terminalState,
+      status: 'error',
+      pid: null,
+      cwd: workingDir,
+      shellId: shell.id,
+      shellLabel: shell.label,
+      shellCommand: shell.command,
+      error: err.message,
+    }
+    emitTerminalState()
+    return { error: err.message, state: getTerminalStateSnapshot() }
   }
+}
+
+ipcMain.handle('terminal:listShells', () => {
+  const shells = getTerminalShells()
+  return { shells, defaultShellId: shells[0]?.id || null }
+})
+
+ipcMain.handle('terminal:getState', () => getTerminalStateSnapshot())
+
+ipcMain.handle('terminal:spawn', async (_event, options = {}) => {
+  return spawnTerminalSession(options)
+})
+
+ipcMain.handle('terminal:restart', async (_event, options = {}) => {
+  return spawnTerminalSession({ ...options, forceRestart: true })
 })
 
 ipcMain.handle('terminal:write', (_event, data) => {
   if (ptyProcess) {
-    ptyProcess.write(data)
+    try {
+      ptyProcess.write(data)
+    } catch (err) {
+      console.warn('[Terminal] Write failed:', err.message)
+      terminalState = {
+        ...terminalState,
+        status: 'exited',
+        pid: null,
+        error: null,
+      }
+      ptyProcess = null
+      emitTerminalState()
+    }
   }
 })
 
 ipcMain.handle('terminal:resize', (_event, cols, rows) => {
   if (ptyProcess) {
-    ptyProcess.resize(cols, rows)
+    try {
+      ptyProcess.resize(cols, rows)
+    } catch (err) {
+      console.warn('[Terminal] Resize failed:', err.message)
+      terminalState = {
+        ...terminalState,
+        status: 'exited',
+        pid: null,
+        error: null,
+      }
+      ptyProcess = null
+      emitTerminalState()
+    }
   }
 })
 
 ipcMain.handle('terminal:kill', () => {
   if (ptyProcess) {
-    ptyProcess.kill()
+    try {
+      ptyProcess.kill()
+    } catch (_) {}
     ptyProcess = null
+    terminalState = {
+      ...terminalState,
+      status: 'exited',
+      pid: null,
+      exitCode: null,
+      error: null,
+    }
+    emitTerminalState()
   }
+  return getTerminalStateSnapshot()
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
+  stopWatchingFile()
   if (lspProcess) { lspProcess.kill(); lspProcess = null }
   if (ptyProcess) { ptyProcess.kill(); ptyProcess = null }
   if (process.platform !== 'darwin') app.quit()

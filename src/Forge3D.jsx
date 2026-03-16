@@ -4,6 +4,7 @@ import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
 import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
 import { CodeEditor } from "./forge3d/editor.jsx";
+import { extractOpenScadSymbols } from "./forge3d/editor-language.js";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
 import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
@@ -11,11 +12,13 @@ import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
 import { requireForgeAPI } from "./forge3d/forge-api.js";
 import ForgeToolbar from "./forge3d/toolbar.jsx";
 import StatusBar from "./forge3d/status-bar.jsx";
+import StartSidebar from "./forge3d/start-sidebar.jsx";
 import WorkspaceSidebar from "./forge3d/workspace-sidebar.jsx";
 import ParamsSidebar from "./forge3d/params-sidebar.jsx";
+import TerminalSidebar from "./forge3d/terminal-sidebar.jsx";
 import BottomPane from "./forge3d/bottom-pane.jsx";
 import ViewportPane from "./forge3d/viewport-pane.jsx";
-import QuickStartPanel from "./forge3d/quickstart-panel.jsx";
+import DocsDrawer from "./forge3d/docs-drawer.jsx";
 import { prepareTemplateInsertion } from "./forge3d/template-merge.js";
 import { getThemeColors } from "./forge3d/theme.js";
 
@@ -24,8 +27,16 @@ function createHistoryState(initialCode) {
   return { past: [], present: initialCode, future: [] };
 }
 
-function buildTemplateStatus(templateName, mode, stats = {}) {
-  const actionLabel = mode === 'replace' ? 'Merged template' : mode === 'cursor' ? 'Inserted template' : 'Added template';
+function getParentDirectory(filePath) {
+  if (!filePath) return null;
+  const normalized = String(filePath).replace(/[\\/]+$/, '');
+  const separatorIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+  if (separatorIndex <= 0) return null;
+  return normalized.slice(0, separatorIndex);
+}
+
+function buildMergedInsertionStatus(itemName, mode, stats = {}) {
+  const actionLabel = mode === 'replace' ? 'Replaced with' : mode === 'cursor' ? 'Inserted' : 'Added';
   const details = [];
 
   if (stats.reusedParamCount > 0) {
@@ -40,8 +51,24 @@ function buildTemplateStatus(templateName, mode, stats = {}) {
     details.push(`reused ${stats.reusedSpecialCount} render setting${stats.reusedSpecialCount === 1 ? '' : 's'}`);
   }
 
-  if (details.length === 0) return `${actionLabel}: ${templateName}`;
-  return `${actionLabel}: ${templateName} (${details.join(', ')})`;
+  if (details.length === 0) return `${actionLabel} ${itemName}`;
+  return `${actionLabel} ${itemName} (${details.join(', ')})`;
+}
+
+function applyPreviewVisibilityMask(code, symbols, hiddenIds) {
+  if (!hiddenIds || hiddenIds.size === 0) return code;
+  const lines = code.split('\n');
+
+  for (const symbol of symbols) {
+    if (!hiddenIds.has(symbol.id) || symbol.kind !== 'template') continue;
+    for (let lineIndex = symbol.startLine - 1; lineIndex < symbol.endLine; lineIndex += 1) {
+      lines[lineIndex] = lineIndex === symbol.startLine - 1
+        ? `// Forge3D preview-hidden: ${symbol.name}`
+        : '';
+    }
+  }
+
+  return lines.join('\n');
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────
@@ -52,33 +79,39 @@ export default function Forge3D() {
   const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
   const code = history.present;
   const [result, setResult] = useState({ objects: [], logs: [], errors: [], warnings: [], variables: {} });
-  const [activeTab, setActiveTab] = useState('console');
+  const [activeTab, setActiveTab] = useState(initialWorkspace.workbenchTab || 'console');
   const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
   const [sidebarOpen, setSidebarOpen] = useState(initialPanelLayout.sidebarOpen ?? true);
-  const [sidebarTab, setSidebarTab] = useState('workspace');
+  const [sidebarTab, setSidebarTab] = useState(initialWorkspace.activeActivity || (initialWorkspace.code.trim() ? 'workspace' : 'start'));
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [buildTime, setBuildTime] = useState(0);
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
-  const [currentFilePath, setCurrentFilePath] = useState(null);
-  const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.code);
+  const [currentFilePath, setCurrentFilePath] = useState(initialWorkspace.currentFilePath || null);
+  const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.lastSavedCode ?? initialWorkspace.code);
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
   const [zoomFactor, setZoomFactor] = useState(1);
   const [resetViewSignal, setResetViewSignal] = useState(0);
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
-  const [templateInsertMode, setTemplateInsertMode] = useState(initialWorkspace.templateInsertMode || 'append');
+  const [startState, setStartState] = useState(initialWorkspace.startState || { search: '', kindFilter: 'all' });
+  const [preferredShellId, setPreferredShellId] = useState(initialWorkspace.terminalPreferences?.preferredShellId || null);
+  const [terminalManagerState] = useState(initialWorkspace.terminalManagerState || {});
   const appRef = useRef(null);
   const contentRef = useRef(null);
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
   const editorRef = useRef(null);
-  const quickStartButtonRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [stlGeometry, setStlGeometry] = useState(null);
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
   const [showDiffEditor, setShowDiffEditor] = useState(false);
-  const [showQuickStart, setShowQuickStart] = useState(false);
+  const [activeDocKey, setActiveDocKey] = useState(null);
+  const [hiddenPreviewSymbolIds, setHiddenPreviewSymbolIds] = useState([]);
+  const [availableShells, setAvailableShells] = useState([]);
+  const [terminalState, setTerminalState] = useState({ status: 'idle', pid: null, cwd: null, shellId: null, shellLabel: null, error: null });
+  const [terminalResetToken, setTerminalResetToken] = useState(0);
+  const [terminalFocusToken, setTerminalFocusToken] = useState(0);
   const forgeAPI = requireForgeAPI();
 
   // ─── Phase 1 state ──────────────────────────────────────────────────
@@ -107,9 +140,17 @@ export default function Forge3D() {
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const buildTimeoutRef = useRef(null);
+  const hiddenPreviewBuildRef = useRef(hiddenPreviewSymbolIds);
   const BUILD_TIMEOUT = 60000;
 
   const colors = getThemeColors(theme);
+  const projectWorkingDirectory = useMemo(() => workspaceFolder || getParentDirectory(currentFilePath), [workspaceFolder, currentFilePath]);
+  const documentSymbols = useMemo(() => extractOpenScadSymbols(code), [code]);
+  const hiddenPreviewSymbolIdSet = useMemo(() => new Set(hiddenPreviewSymbolIds), [hiddenPreviewSymbolIds]);
+  const previewCode = useMemo(
+    () => applyPreviewVisibilityMask(code, documentSymbols, hiddenPreviewSymbolIdSet),
+    [code, documentSymbols, hiddenPreviewSymbolIdSet],
+  );
 
   // ─── History ────────────────────────────────────────────────────────
   const applyCodeChange = useCallback((nextCodeOrUpdater) => {
@@ -152,6 +193,14 @@ export default function Forge3D() {
   const canRedo = history.future.length > 0;
   const isDirty = code !== lastSavedCode;
 
+  const updateStartState = useCallback((partialState) => {
+    setStartState((current) => ({ ...current, ...partialState }));
+  }, []);
+
+  const focusTerminal = useCallback(() => {
+    setTerminalFocusToken((value) => value + 1);
+  }, []);
+
   // ─── STL loader helper ───────────────────────────────────────────────
   const loadStlBytes = useCallback((bytes, elapsed) => {
     const parsed = parseSTL(bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes));
@@ -177,6 +226,42 @@ export default function Forge3D() {
     }
   }, []);
 
+  const loadFileSnapshot = useCallback(async (filePath, { quiet = false, reason = 'reload' } = {}) => {
+    if (!filePath || !forgeAPI.readFileSnapshot) return null;
+
+    const snapshot = await forgeAPI.readFileSnapshot(filePath);
+    if (!snapshot?.exists || snapshot.error) {
+      if (!quiet) {
+        setStatusMessage(`Disk reload failed: ${snapshot?.error || 'file is unavailable'}`);
+      }
+      return snapshot;
+    }
+
+    const hasUnsavedLocalChanges = code !== lastSavedCode;
+    if (hasUnsavedLocalChanges) {
+      if (!quiet) {
+        setStatusMessage(`Disk changed for ${snapshot.name || currentFileName}; save or reopen to load external edits`);
+      }
+      return { skipped: true, reason: 'dirty', snapshot };
+    }
+
+    if (snapshot.content === code && snapshot.content === lastSavedCode) {
+      return { reused: true, snapshot };
+    }
+
+    queueAutoFitView();
+    replaceCodeWithoutHistory(snapshot.content);
+    setLastSavedCode(snapshot.content);
+    setCurrentFileName(snapshot.name || currentFileName);
+    setCurrentFilePath(snapshot.filePath || filePath);
+    setStatusMessage(
+      reason === 'restore'
+        ? `Loaded latest disk version of ${snapshot.name || currentFileName}`
+        : `Reloaded ${snapshot.name || currentFileName} from disk`,
+    );
+    return { applied: true, snapshot };
+  }, [code, currentFileName, forgeAPI, lastSavedCode, queueAutoFitView, replaceCodeWithoutHistory]);
+
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async () => {
     const id = ++buildIdRef.current;
@@ -195,7 +280,7 @@ export default function Forge3D() {
     buildTimeoutRef.current = timeoutHandle;
 
     try {
-      const response = await forgeAPI.renderOpenSCAD(code);
+      const response = await forgeAPI.renderOpenSCAD(previewCode);
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
       setBuilding(false);
@@ -218,7 +303,7 @@ export default function Forge3D() {
       setResult({ objects: [], logs: [], errors: [`Render error: ${err.message}`], warnings: [], variables: {} });
       setActiveTab('errors');
     }
-  }, [BUILD_TIMEOUT, clearBuildTimeout, code, forgeAPI, loadStlBytes]);
+  }, [BUILD_TIMEOUT, clearBuildTimeout, forgeAPI, loadStlBytes, previewCode]);
 
   const cancelBuild = useCallback(() => {
     buildIdRef.current += 1;
@@ -246,9 +331,16 @@ export default function Forge3D() {
     const next = getDefaultWorkspace();
     queueAutoFitView();
     replaceCodeWithoutHistory(next.code);
+    setHiddenPreviewSymbolIds([]);
+    setActiveDocKey(null);
     setLastSavedCode(next.code);
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
+    setAutoRun(next.autoRun);
+    setSidebarTab(next.activeActivity || 'start');
+    setSidebarOpen(true);
+    setStartState(next.startState || { search: '', kindFilter: 'all' });
+    setActiveTab(next.workbenchTab || 'console');
     setStatusMessage('Started a new workspace');
   }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
@@ -258,6 +350,8 @@ export default function Forge3D() {
       if (!payload) return;
       queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
+      setHiddenPreviewSymbolIds([]);
+      setActiveDocKey(null);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
@@ -278,6 +372,8 @@ export default function Forge3D() {
       }
       queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
+      setHiddenPreviewSymbolIds([]);
+      setActiveDocKey(null);
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
@@ -322,11 +418,19 @@ export default function Forge3D() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       code,
+      lastSavedCode,
       viewSettings,
       autoRun,
+      activeActivity: sidebarTab,
+      workbenchTab: activeTab,
       currentFileName,
+      currentFilePath,
       theme,
-      templateInsertMode,
+      startState,
+      terminalPreferences: {
+        preferredShellId,
+      },
+      terminalManagerState,
       panelLayout: {
         sidebarOpen,
         sidebarWidth,
@@ -334,7 +438,7 @@ export default function Forge3D() {
         bottomPanelHeight,
       },
     }));
-  }, [autoRun, bottomPanelHeight, code, currentFileName, editorWidth, sidebarOpen, sidebarWidth, templateInsertMode, theme, viewSettings]);
+  }, [activeTab, autoRun, bottomPanelHeight, code, currentFileName, currentFilePath, editorWidth, lastSavedCode, preferredShellId, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
@@ -354,8 +458,62 @@ export default function Forge3D() {
       if (Number.isFinite(value)) setZoomFactor(value);
     });
 
-    return () => removeZoomListener?.();
-  }, [forgeAPI]);
+    forgeAPI.listTerminalShells?.().then((payload) => {
+      const shells = payload?.shells || [];
+      setAvailableShells(shells);
+      if (!preferredShellId && payload?.defaultShellId) {
+        setPreferredShellId(payload.defaultShellId);
+      }
+    }).catch(() => {});
+
+    forgeAPI.getTerminalState?.().then((state) => {
+      if (state) setTerminalState(state);
+    }).catch(() => {});
+
+    const removeTerminalListener = forgeAPI.onTerminalState?.((state) => {
+      if (state) setTerminalState(state);
+    });
+
+    return () => {
+      removeZoomListener?.();
+      removeTerminalListener?.();
+    };
+  }, [forgeAPI, preferredShellId]);
+
+  useEffect(() => {
+    if (!currentFilePath) {
+      Promise.resolve(forgeAPI.unwatchFile?.()).catch(() => {});
+      return undefined;
+    }
+
+    Promise.resolve(forgeAPI.watchFile?.(currentFilePath)).catch(() => {});
+    loadFileSnapshot(currentFilePath, { quiet: true, reason: 'restore' }).catch(() => {});
+
+    return () => {
+      Promise.resolve(forgeAPI.unwatchFile?.()).catch(() => {});
+    };
+  }, [currentFilePath, forgeAPI, loadFileSnapshot]);
+
+  useEffect(() => {
+    const removeFileChangedListener = forgeAPI.onFileChanged?.((payload) => {
+      if (!payload?.filePath || payload.filePath !== currentFilePath) return;
+      if (payload.exists === false) {
+        setStatusMessage(`File removed on disk: ${currentFileName}`);
+        return;
+      }
+      loadFileSnapshot(payload.filePath).catch(() => {});
+    });
+
+    return () => {
+      removeFileChangedListener?.();
+    };
+  }, [currentFileName, currentFilePath, forgeAPI, loadFileSnapshot]);
+
+  useEffect(() => {
+    if (availableShells.length === 0) return;
+    if (preferredShellId && availableShells.some((shell) => shell.id === preferredShellId)) return;
+    setPreferredShellId((current) => current || availableShells[0].id);
+  }, [availableShells, preferredShellId]);
 
   // ─── Parse @param annotations on code change ─────────────────────────
   useEffect(() => {
@@ -366,6 +524,21 @@ export default function Forge3D() {
       setParsedParams([]);
     }
   }, [code]);
+
+  useEffect(() => {
+    const validIds = new Set(documentSymbols.map((symbol) => symbol.id));
+    setHiddenPreviewSymbolIds((current) => {
+      const next = current.filter((id) => validIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [documentSymbols]);
+
+  useEffect(() => {
+    if (hiddenPreviewBuildRef.current === hiddenPreviewSymbolIds) return;
+    hiddenPreviewBuildRef.current = hiddenPreviewSymbolIds;
+    if (!code.trim()) return;
+    runCode();
+  }, [code, hiddenPreviewSymbolIds, runCode]);
 
   // ─── Global keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
@@ -414,12 +587,6 @@ export default function Forge3D() {
       setShowDiffEditor(false);
     }
   }, [isDirty, showDiffEditor]);
-
-  useEffect(() => {
-    if (showDiffEditor && showQuickStart) {
-      setShowQuickStart(false);
-    }
-  }, [showDiffEditor, showQuickStart]);
 
   // ─── Panel resize mouse handlers ──────────────────────────────────────
   useEffect(() => {
@@ -514,9 +681,11 @@ export default function Forge3D() {
       const content = ev.target.result;
       queueAutoFitView();
       replaceCodeWithoutHistory(content);
+      setHiddenPreviewSymbolIds([]);
+      setActiveDocKey(null);
       setLastSavedCode(content);
       setCurrentFileName(file.name);
-      setCurrentFilePath(null);
+      setCurrentFilePath(file.path || null);
       setStatusMessage(`Opened: ${file.name}`);
     };
     reader.readAsText(file);
@@ -551,7 +720,13 @@ export default function Forge3D() {
     if (nextTab === 'workspace' && workspaceFolder) {
       forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
     }
-  }, [forgeAPI, sidebarTab, workspaceFolder]);
+    if (nextTab === 'terminal') {
+      setActiveTab('terminal');
+      if (terminalState?.status === 'running') {
+        focusTerminal();
+      }
+    }
+  }, [focusTerminal, forgeAPI, sidebarTab, terminalState?.status, workspaceFolder]);
 
   const handleChooseWorkspaceFolder = useCallback(async () => {
     const folder = await forgeAPI.setWorkspaceFolder();
@@ -561,49 +736,120 @@ export default function Forge3D() {
     setWorkspaceFiles(files || []);
   }, [forgeAPI]);
 
-  const handleInsertTemplate = useCallback((template, mode = templateInsertMode) => {
-    const insertion = prepareTemplateInsertion(template, code, mode);
+  const ensureTerminalSession = useCallback(async (options = {}) => {
+    const payload = await forgeAPI.spawnTerminal({
+      cwd: options.cwd || projectWorkingDirectory,
+      shellId: preferredShellId || undefined,
+    });
+
+    if (!payload) return null;
+
+    if (payload.state) {
+      setTerminalState(payload.state);
+    }
+
+    if (payload.error) {
+      setStatusMessage(`Terminal: ${payload.error}`);
+      return payload;
+    }
+
+    if (!payload.reused) {
+      setTerminalResetToken((value) => value + 1);
+      setStatusMessage(`Terminal ready: ${payload.state?.shellLabel || 'shell'}`);
+    }
+
+    return payload;
+  }, [forgeAPI, preferredShellId, projectWorkingDirectory]);
+
+  const restartTerminalSession = useCallback(async (cwdOverride = null) => {
+    const payload = await forgeAPI.restartTerminal({
+      cwd: cwdOverride || projectWorkingDirectory,
+      shellId: preferredShellId || undefined,
+    });
+
+    if (!payload) return null;
+
+    if (payload.state) {
+      setTerminalState(payload.state);
+    }
+
+    if (payload.error) {
+      setStatusMessage(`Terminal restart failed: ${payload.error}`);
+      return payload;
+    }
+
+    setTerminalResetToken((value) => value + 1);
+    setStatusMessage(`Terminal restarted: ${payload.state?.shellLabel || 'shell'}`);
+    return payload;
+  }, [forgeAPI, preferredShellId, projectWorkingDirectory]);
+
+  const handleKillTerminal = useCallback(async () => {
+    const state = await forgeAPI.killTerminal();
+    if (state) setTerminalState(state);
+    setStatusMessage('Terminal stopped');
+  }, [forgeAPI]);
+
+  const handleOpenTerminalTool = useCallback(async () => {
+    setSidebarTab('terminal');
+    setSidebarOpen(true);
+    setActiveTab('terminal');
+    const payload = await ensureTerminalSession();
+    if (payload?.state?.status === 'running') {
+      focusTerminal();
+    }
+  }, [ensureTerminalSession, focusTerminal]);
+
+  const handlePreferredShellChange = useCallback((nextShellId) => {
+    setPreferredShellId(nextShellId || null);
+    setStatusMessage(nextShellId ? 'Terminal shell preference saved for the next restart' : 'Terminal shell preference cleared');
+  }, []);
+
+  const handleInsertStartItem = useCallback((item, explicitMode) => {
+    if (!item?.code) return;
+
+    const mode = !code.trim()
+      ? 'replace'
+      : explicitMode || item.defaultInsertBehavior || (item.kind === 'basic' ? 'cursor' : 'append');
+
+    if (item.kind === 'basic') {
+      if (mode === 'replace' || !code.trim()) {
+        applyCodeChange(`${item.code.trimEnd()}\n`);
+        setStatusMessage(`Start loaded: ${item.name}`);
+        return;
+      }
+
+      const inserted = editorRef.current?.insertText?.(item.code, { selectInserted: true });
+      if (inserted) {
+        setStatusMessage(`Inserted ${item.name}`);
+        return;
+      }
+
+      applyCodeChange(`${code.replace(/\s+$/, '')}\n\n${item.code.trim()}\n`);
+      setStatusMessage(`Added ${item.name}`);
+      return;
+    }
+
+    const insertion = prepareTemplateInsertion({ name: item.name, code: item.code }, code, mode);
     if (!insertion) return;
 
     if (insertion.insertText) {
       const inserted = editorRef.current?.insertText?.(insertion.insertText, { selectInserted: true });
       if (inserted) {
-        setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+        setStatusMessage(buildMergedInsertionStatus(item.name, mode, insertion.stats));
         return;
       }
+
       if (insertion.fallbackNextCode) {
         applyCodeChange(insertion.fallbackNextCode);
-        setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+        setStatusMessage(buildMergedInsertionStatus(item.name, mode, insertion.stats));
       }
       return;
     }
 
     if (insertion.nextCode) {
       applyCodeChange(insertion.nextCode);
-      setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+      setStatusMessage(buildMergedInsertionStatus(item.name, mode, insertion.stats));
     }
-  }, [applyCodeChange, code, templateInsertMode]);
-
-  const handleInsertQuickStart = useCallback((starter) => {
-    if (!starter?.code) return;
-
-    if (!code.trim()) {
-      applyCodeChange(`${starter.code.trimEnd()}\n`);
-      setStatusMessage(`Quick Start: ${starter.name}`);
-      setShowQuickStart(false);
-      return;
-    }
-
-    const inserted = editorRef.current?.insertText?.(starter.code, { selectInserted: true });
-    if (inserted) {
-      setStatusMessage(`Quick Start inserted: ${starter.name}`);
-      setShowQuickStart(false);
-      return;
-    }
-
-    applyCodeChange(`${code.replace(/\s+$/, '')}\n\n${starter.code.trim()}\n`);
-    setStatusMessage(`Quick Start added: ${starter.name}`);
-    setShowQuickStart(false);
   }, [applyCodeChange, code]);
 
   const handleParamChange = useCallback((param, value) => {
@@ -628,8 +874,65 @@ export default function Forge3D() {
     setStatusMessage(`Jumped to ${param.name}`);
   }, []);
 
+  const handleJumpToSymbol = useCallback((symbol) => {
+    if (!symbol?.startLine) return;
+    editorRef.current?.jumpToLine(symbol.startLine);
+    setStatusMessage(`Jumped to ${symbol.name}`);
+  }, []);
+
+  const handleTogglePreviewSymbol = useCallback((symbol) => {
+    if (!symbol?.id || symbol.kind !== 'template') return;
+    setHiddenPreviewSymbolIds((current) => {
+      const next = current.includes(symbol.id)
+        ? current.filter((id) => id !== symbol.id)
+        : [...current, symbol.id];
+      const nowHidden = !current.includes(symbol.id);
+      setStatusMessage(nowHidden ? `Hidden ${symbol.name} from preview` : `Showing ${symbol.name} in preview`);
+      return next;
+    });
+  }, []);
+
   const handleClearRecentFiles = useCallback(() => {
     forgeAPI.clearRecentFiles().then(() => setRecentFiles([]));
+  }, [forgeAPI]);
+
+  const handleCaptureRender = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      setStatusMessage('Render capture is not ready yet');
+      return;
+    }
+
+    try {
+      const saved = await forgeAPI.saveViewportCapture({
+        dataUrl: canvas.toDataURL('image/png'),
+        preferredDir: projectWorkingDirectory,
+      });
+
+      if (!saved) return;
+      if (saved.error) {
+        setStatusMessage(`Capture failed: ${saved.error}`);
+        return;
+      }
+
+      setStatusMessage(`Render captured: ${saved.name}`);
+    } catch (error) {
+      setStatusMessage(`Capture failed: ${error.message}`);
+    }
+  }, [forgeAPI, projectWorkingDirectory]);
+
+  const handleInsertDocExample = useCallback((example) => {
+    if (!example) return;
+    const inserted = editorRef.current?.insertText?.(example, { selectInserted: true });
+    if (!inserted) {
+      applyCodeChange((current) => `${current.replace(/\s+$/, '')}\n\n${example.trim()}\n`);
+    }
+    setStatusMessage('Inserted OpenSCAD docs example');
+  }, [applyCodeChange]);
+
+  const handleOpenExternalDoc = useCallback((url) => {
+    if (!url) return;
+    Promise.resolve(forgeAPI.openExternalUrl?.(url)).catch(() => {});
   }, [forgeAPI]);
 
   const askAI = useCallback(() => {
@@ -676,11 +979,8 @@ export default function Forge3D() {
         onResetView={() => setResetViewSignal(v => v + 1)}
         onRunCode={runCode}
         onSaveFile={saveFile}
-        onInsertTemplate={handleInsertTemplate}
-        onTemplateInsertModeChange={setTemplateInsertMode}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         onUndo={undoCode}
-        templateInsertMode={templateInsertMode}
         theme={theme}
       />
 
@@ -688,8 +988,10 @@ export default function Forge3D() {
       <div ref={contentRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ width: ACTIVITY_RAIL_WIDTH, minWidth: ACTIVITY_RAIL_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0 8px', gap: '8px', flexShrink: 0 }}>
           {[
+            { id: 'start', label: 'Start', icon: Icons.Spark },
             { id: 'workspace', label: 'Workspace', icon: Icons.Folder },
             { id: 'params', label: 'Params', icon: Icons.Sliders },
+            { id: 'terminal', label: 'Terminal', icon: Icons.Terminal },
           ].map(({ id, icon: Icon, label }) => {
             const active = sidebarTab === id && sidebarOpen;
             return (
@@ -744,16 +1046,28 @@ export default function Forge3D() {
         {sidebarOpen && (
           <div style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{ borderBottom: `1px solid ${colors.border}`, padding: '10px 12px 8px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textFaint }}>
-                {sidebarTab === 'workspace' ? 'Workspace' : 'Params'}
+              <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textMuted }}>
+                {sidebarTab === 'start' ? 'Start' : sidebarTab === 'workspace' ? 'Workspace' : sidebarTab === 'terminal' ? 'Terminal' : 'Params'}
               </div>
-              <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '3px' }}>
-                {sidebarTab === 'workspace'
-                  ? 'Project files, recent files, and local modeling setup.'
-                  : 'Live parameters parsed from the current file.'}
+              <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '4px', lineHeight: 1.5 }}>
+                {sidebarTab === 'start'
+                  ? 'Basics, recipes, and larger templates in one learning-focused surface.'
+                  : sidebarTab === 'workspace'
+                    ? 'Project files, recent files, and local modeling setup.'
+                    : sidebarTab === 'terminal'
+                      ? 'Manage the live integrated terminal session and shell preference.'
+                      : 'Live parameters parsed from the current file.'}
               </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
+              {sidebarTab === 'start' && (
+                <StartSidebar
+                  colors={colors}
+                  onInsertItem={handleInsertStartItem}
+                  onStateChange={updateStartState}
+                  startState={startState}
+                />
+              )}
               {sidebarTab === 'workspace' && (
                 <WorkspaceSidebar
                   colors={colors}
@@ -768,6 +1082,20 @@ export default function Forge3D() {
                   recentFiles={recentFiles}
                   workspaceFiles={workspaceFiles}
                   workspaceFolder={workspaceFolder}
+                />
+              )}
+              {sidebarTab === 'terminal' && (
+                <TerminalSidebar
+                  availableShells={availableShells}
+                  colors={colors}
+                  onKill={handleKillTerminal}
+                  onOpen={handleOpenTerminalTool}
+                  onPreferredShellChange={handlePreferredShellChange}
+                  onRestart={() => restartTerminalSession()}
+                  onRestartInProject={() => restartTerminalSession(projectWorkingDirectory)}
+                  preferredShellId={preferredShellId}
+                  sessionState={terminalState}
+                  suggestedProjectPath={projectWorkingDirectory}
                 />
               )}
               {sidebarTab === 'params' && (
@@ -798,24 +1126,9 @@ export default function Forge3D() {
 
         {/* Editor panel */}
         <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'relative' }}>
-          <div style={{ height: '30px', minHeight: '30px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
-            <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted }}>{currentFileName}{isDirty ? ' *' : ''}</span>
-            <span style={{ fontSize: '10px', color: canUndo || canRedo ? colors.accent : colors.borderHover, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
-            <button
-              ref={quickStartButtonRef}
-              onClick={() => setShowQuickStart((value) => !value)}
-              title="Insert small starter code blocks like cube, sphere, offset, or module"
-              style={{
-                background: showQuickStart ? `${colors.accent}22` : 'transparent',
-                border: `1px solid ${showQuickStart ? colors.accent : colors.border}`,
-                borderRadius: '999px',
-                color: showQuickStart ? colors.accent : colors.textMuted,
-                cursor: 'pointer',
-                padding: '2px 8px',
-                fontSize: '10px',
-                fontWeight: 700,
-              }}
-            >Quick Start</button>
+          <div style={{ height: '32px', minHeight: '32px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
+            <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>{currentFileName}{isDirty ? ' *' : ''}</span>
+            <span style={{ fontSize: '11px', color: canUndo || canRedo ? colors.accent : colors.textMuted, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>{history.past.length} undo · {history.future.length} redo</span>
             <button
               onClick={() => setShowDiffEditor((value) => !value)}
               disabled={!isDirty}
@@ -826,25 +1139,17 @@ export default function Forge3D() {
                 borderRadius: '999px',
                 color: !isDirty ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
                 cursor: !isDirty ? 'not-allowed' : 'pointer',
-                padding: '2px 8px',
-                fontSize: '10px',
+                padding: '3px 8px',
+                fontSize: '11px',
                 fontWeight: 700,
               }}
             >Diff</button>
-            <span style={{ fontSize: '10px', color: colors.textFaint, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '2px 8px' }}>
-              Ghost: Alt+/ trigger · Tab accept · Ctrl+Right word · Ctrl+Shift+Right line
+            <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
+              Start lives in the left rail • Ghost: Alt+/ • Tab • Ctrl+Right • Ctrl+Shift+Right
             </span>
-            <span style={{ fontSize: '10px', color: colors.borderHover, marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
-            <span style={{ fontSize: '10px', color: colors.textFaint }}>{Math.round(editorWidth)}px</span>
+            <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>{code.split("\n").length} lines</span>
+            <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
           </div>
-          {showQuickStart && (
-            <QuickStartPanel
-              anchorRef={quickStartButtonRef}
-              colors={colors}
-              onClose={() => setShowQuickStart(false)}
-              onInsert={handleInsertQuickStart}
-            />
-          )}
           <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden' }}>
             <CodeEditor
               ref={editorRef}
@@ -853,12 +1158,22 @@ export default function Forge3D() {
               diagnostics={lspDiagnostics.markers}
               onBuild={runCode}
               onChange={applyCodeChange}
+              onOpenBuiltinDocs={setActiveDocKey}
               onRedo={redoCode}
               onUndo={undoCode}
               showDiff={showDiffEditor && isDirty}
               theme={theme}
             />
           </div>
+          {activeDocKey && (
+            <DocsDrawer
+              colors={colors}
+              docKey={activeDocKey}
+              onClose={() => setActiveDocKey(null)}
+              onInsertExample={handleInsertDocExample}
+              onOpenExternal={handleOpenExternalDoc}
+            />
+          )}
 
           {/* Bottom panel drag handle */}
           <div
@@ -881,8 +1196,13 @@ export default function Forge3D() {
               colors={colors}
               jumpToLine={jumpToLine}
               onActiveTabChange={setActiveTab}
+              onEnsureTerminalSession={ensureTerminalSession}
+              onFocusTerminal={focusTerminal}
               result={result}
               statusMessage={statusMessage}
+              terminalFocusToken={terminalFocusToken}
+              terminalResetToken={terminalResetToken}
+              terminalState={terminalState}
             />
           </div>
         </div>
@@ -902,8 +1222,13 @@ export default function Forge3D() {
         <ViewportPane
           canvasRef={canvasRef}
           colors={colors}
+          hiddenPreviewSymbolIds={hiddenPreviewSymbolIds}
           minViewportWidth={MIN_VIEWPORT_WIDTH}
+          onCaptureRender={handleCaptureRender}
+          onJumpToSymbol={handleJumpToSymbol}
+          onTogglePreviewSymbol={handleTogglePreviewSymbol}
           setViewSettings={setViewSettings}
+          symbols={documentSymbols}
           theme={theme}
           viewSettings={viewSettings}
         />

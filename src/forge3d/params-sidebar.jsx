@@ -6,10 +6,10 @@ export default function ParamsSidebar({ colors, onJumpToParam, onParamChange, on
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
       {parsedParams.length === 0 ? (
-        <div style={{ color: colors.textFaint, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>
+        <div style={{ color: colors.textMuted, fontSize: '12px', padding: '12px 8px', textAlign: 'center', lineHeight: 1.55 }}>
           <div style={{ marginBottom: '8px' }}>No parameters detected.</div>
-          <div style={{ fontSize: '10px', color: colors.textFaint, lineHeight: '1.45', marginBottom: '8px' }}>Parameters are auto-detected from top-level variables anywhere in the file, or you can use <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '10px' }}>// @param</code> annotations for more control:</div>
-          <pre style={{ textAlign: 'left', fontSize: '9px', marginTop: '8px', padding: '6px', background: colors.bgDarker, borderRadius: '4px', border: `1px solid ${colors.border}`, lineHeight: '1.4', overflow: 'auto' }}>{`// Auto-detected:
+          <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: '1.5', marginBottom: '8px' }}>Parameters are auto-detected from top-level variables anywhere in the file, or you can use <code style={{ background: `${colors.accent}22`, padding: '1px 4px', borderRadius: '3px', fontSize: '11px' }}>// @param</code> annotations for more control:</div>
+          <pre style={{ textAlign: 'left', fontSize: '10px', marginTop: '8px', padding: '8px', background: colors.bgDarker, borderRadius: '6px', border: `1px solid ${colors.border}`, lineHeight: '1.5', overflow: 'auto', color: colors.textSoft }}>{`// Auto-detected:
 size = 10;
 height = 20;
 
@@ -79,7 +79,7 @@ radius = 5;`}</pre>
                       onParamChange(param, value);
                     }
                   }}
-                  style={{ width: '52px', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '2px 4px', fontSize: '11px', textAlign: 'center' }}
+                  style={{ width: '60px', background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '4px', color: colors.text, padding: '4px 6px', fontSize: '11px', textAlign: 'center' }}
                 />
               </div>
             )}
