@@ -56,7 +56,7 @@ _Last updated: 2026-03-15_
 See [next-features.md](next-features.md) for detailed implementation plans.
 
 ### Current Goal
-1. **Assembly / reference parts layer** 🧩
+1. **Reference Parts First / Assembly layer** 🧩
    - Load a second `.scad` file or template beside the current model without mutating the working code
    - Show multiple parts on the same build plate / scene so joins, gaps, overlaps, and fit are visible
    - Build toward move/rotate/scale, boolean operations, and print-bed layout
@@ -132,7 +132,7 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 
 ## 🎯 Project Goals
 
-**Short-term:** Ship a reference-parts / assembly workflow so extra templates and files can be compared on the same scene without unsafe code insertion
+**Short-term:** Ship the "Reference Parts First" assembly workflow so extra templates and files can be compared on the same scene without unsafe code insertion
 
 **Medium-term:** Add a dedicated assembly layer for multi-part move/rotate/scale and union/subtract/intersect, then connect it to print-bed arrangement and PrusaSlicer CLI
 

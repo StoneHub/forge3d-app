@@ -47,16 +47,20 @@ function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, on
 export default function ForgeToolbar({
   autoRun,
   building,
+  canEnterAssembly,
   canRedo,
   canUndo,
   colors,
+  mode = 'design',
   onAutoRunChange,
   onCancelBuild,
+  onEnterAssemblyMode,
   onExportStl,
   onNewFile,
   onOpenFile,
   onRedo,
   onResetView,
+  onReturnToDesignMode,
   onRunCode,
   onSaveFile,
   onThemeToggle,
@@ -77,24 +81,46 @@ export default function ForgeToolbar({
         <ToolbarButton colors={colors} icon={Icons.File} label="New" onClick={onNewFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Open" onClick={onOpenFile} />
         <ToolbarButton colors={colors} icon={Icons.File} label="Save" onClick={onSaveFile} />
-        <ToolbarButton colors={colors} icon={Icons.Grid} label="Export STL" onClick={onExportStl} />
+        <ToolbarButton colors={colors} icon={Icons.Grid} label={mode === 'assembly' ? 'Export Combined STL' : 'Export STL'} onClick={onExportStl} />
         <ToolbarButton colors={colors} disabled={!canUndo} icon={Icons.Undo} label="Undo" onClick={onUndo} title="Ctrl/Cmd+Z" />
-        <ToolbarButton colors={colors} disabled={!canRedo} icon={Icons.Redo} label="Redo" onClick={onRedo} title="Ctrl/Cmd+Shift+Z" />
+        <ToolbarButton colors={colors} disabled={!canRedo} icon={Icons.Redo} label="Redo" onClick={onRedo} title="Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y" />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button onClick={onThemeToggle} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '12px' }}>
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
+        {mode === 'assembly' ? (
+          <button onClick={onReturnToDesignMode} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Design Mode</button>
+        ) : (
+          <button
+            disabled={!canEnterAssembly}
+            onClick={onEnterAssemblyMode}
+            style={{
+              background: canEnterAssembly ? `${colors.bgDarker}cc` : colors.bgDarker,
+              border: `1px solid ${canEnterAssembly ? colors.accent : colors.border}`,
+              color: canEnterAssembly ? colors.textSoft : colors.textFaint,
+              padding: '5px 10px',
+              borderRadius: '6px',
+              cursor: canEnterAssembly ? 'pointer' : 'not-allowed',
+              fontSize: '12px',
+              fontWeight: 700,
+            }}
+          >
+            Assembly Mode
+          </button>
+        )}
         <button onClick={onResetView} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Reset View</button>
-        {building ? (
+        {mode === 'design' && (building ? (
           <button onClick={onCancelBuild} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700 }}>⏹ Cancel</button>
         ) : (
           <button onClick={onRunCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700 }}><Icons.Play /> Build</button>
+        ))}
+        {mode === 'design' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', fontWeight: 600 }}>
+            <input type='checkbox' checked={autoRun} onChange={(event) => onAutoRunChange(event.target.checked)} style={{ accentColor: colors.accent }} />Auto
+          </label>
         )}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', fontWeight: 600 }}>
-          <input type='checkbox' checked={autoRun} onChange={(event) => onAutoRunChange(event.target.checked)} style={{ accentColor: colors.accent }} />Auto
-        </label>
       </div>
     </div>
   );

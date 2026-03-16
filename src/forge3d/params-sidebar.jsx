@@ -2,9 +2,19 @@ function stopEvent(event) {
   event.stopPropagation();
 }
 
-export default function ParamsSidebar({ colors, onJumpToParam, onParamChange, onResetParam, parsedParams }) {
+export default function ParamsSidebar({
+  colors,
+  compact = false,
+  onJumpToParam,
+  onParamChange,
+  onResetParam,
+  parsedParams,
+  showLineMeta = !compact,
+}) {
+  const canJump = typeof onJumpToParam === 'function';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '6px' }}>
       {parsedParams.length === 0 ? (
         <div style={{ color: colors.textMuted, fontSize: '12px', padding: '12px 8px', textAlign: 'center', lineHeight: 1.55 }}>
           <div style={{ marginBottom: '8px' }}>No parameters detected.</div>
@@ -21,30 +31,39 @@ radius = 5;`}</pre>
         parsedParams.map((param) => (
           <div
             key={param.id || `${param.name}:${param.assignmentLine}`}
-            role="button"
-            tabIndex={0}
-            title={`Jump to ${param.label || param.name} in code`}
-            onClick={() => onJumpToParam?.(param)}
-            onKeyDown={(event) => {
+            role={canJump ? 'button' : undefined}
+            tabIndex={canJump ? 0 : undefined}
+            title={canJump ? `Jump to ${param.label || param.name} in code` : undefined}
+            onClick={canJump ? () => onJumpToParam(param) : undefined}
+            onKeyDown={canJump ? (event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                onJumpToParam?.(param);
+                onJumpToParam(param);
               }
+            } : undefined}
+            style={{
+              background: compact ? colors.bgDarker : colors.bgPanel,
+              border: `1px solid ${colors.border}`,
+              borderRadius: compact ? '10px' : '6px',
+              padding: compact ? '10px' : '8px 10px',
+              cursor: canJump ? 'pointer' : 'default',
+              transition: 'border-color 0.15s, background 0.15s',
             }}
-            style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px', cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s' }}
-            onMouseEnter={(event) => Object.assign(event.currentTarget.style, { borderColor: colors.accent, background: colors.btnHover })}
-            onMouseLeave={(event) => Object.assign(event.currentTarget.style, { borderColor: colors.border, background: colors.bgPanel })}
+            onMouseEnter={canJump ? (event) => Object.assign(event.currentTarget.style, { borderColor: colors.accent, background: colors.btnHover }) : undefined}
+            onMouseLeave={canJump ? (event) => Object.assign(event.currentTarget.style, { borderColor: colors.border, background: compact ? colors.bgDarker : colors.bgPanel }) : undefined}
           >
             <div style={{ fontSize: '11px', fontWeight: 600, color: colors.text, marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', minWidth: 0 }}>
                 {param.label || param.name}
                 {param.auto && <span style={{ fontSize: '8px', background: `${colors.success}22`, color: colors.success, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Auto-detected parameter">AUTO</span>}
                 {param.section && <span style={{ fontSize: '8px', background: `${colors.accent}22`, color: colors.accent, padding: '1px 4px', borderRadius: '3px', fontWeight: 600 }} title="Parameter source section">{param.section}</span>}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '10px', color: colors.accent, background: `${colors.accent}22`, borderRadius: '999px', padding: '1px 6px', fontWeight: 600 }}>
-                  line {param.assignmentLine || param.line}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                {showLineMeta && (
+                  <span style={{ fontSize: '10px', color: colors.accent, background: `${colors.accent}22`, borderRadius: '999px', padding: '1px 6px', fontWeight: 600 }}>
+                    line {param.assignmentLine || param.line}
+                  </span>
+                )}
                 <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 400 }}>{param.type}</span>
                 <button
                   onClick={(event) => {

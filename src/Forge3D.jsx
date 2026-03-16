@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
+import { CSG } from 'three-csg-ts';
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
 import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
@@ -19,13 +20,22 @@ import TerminalSidebar from "./forge3d/terminal-sidebar.jsx";
 import BottomPane from "./forge3d/bottom-pane.jsx";
 import ViewportPane from "./forge3d/viewport-pane.jsx";
 import DocsDrawer from "./forge3d/docs-drawer.jsx";
+import AssemblySidebar from "./forge3d/assembly-sidebar.jsx";
+import AssemblyInspector from "./forge3d/assembly-inspector.jsx";
+import { createHistoryState, pushHistoryState, redoHistoryState, replaceHistoryState, undoHistoryState, updateHistoryPresent } from "./forge3d/history.js";
 import { prepareTemplateInsertion } from "./forge3d/template-merge.js";
 import { getThemeColors } from "./forge3d/theme.js";
-
-// ─── HISTORY ────────────────────────────────────────────────────────
-function createHistoryState(initialCode) {
-  return { past: [], present: initialCode, future: [] };
-}
+import {
+  createAssemblyGeometryFromDesignGeometry,
+  createAssemblyGeometryFromStlBytes,
+  createAssemblyPart,
+  createCenteredTransform,
+  createFloorAlignedTransform,
+  deserializeAssemblyScene,
+  duplicateAssemblyPart,
+  getAssemblyPartMetrics,
+  serializeAssemblyScene,
+} from "./forge3d/assembly.js";
 
 function getParentDirectory(filePath) {
   if (!filePath) return null;
@@ -71,6 +81,133 @@ function applyPreviewVisibilityMask(code, symbols, hiddenIds) {
   return lines.join('\n');
 }
 
+const DEFAULT_ASSEMBLY_SCENE = {
+  parts: [],
+  selectedPartId: null,
+  snap: {
+    enabled: true,
+    translateStepMm: 1,
+    rotateStepDeg: 15,
+  },
+};
+
+const DEFAULT_ASSEMBLY_MEASUREMENT = {
+  enabled: false,
+  points: [],
+  distance: null,
+  history: [],
+};
+
+const MAX_MEASUREMENT_HISTORY = 10;
+
+function cloneTransformState(transform = {}) {
+  return {
+    position: Array.isArray(transform.position) ? [...transform.position] : [0, 0, 0],
+    rotation: Array.isArray(transform.rotation) ? [...transform.rotation] : [0, 0, 0],
+    scale: Array.isArray(transform.scale) ? [...transform.scale] : [1, 1, 1],
+  };
+}
+
+function snapMetric(value, step) {
+  if (!step) return value;
+  return Math.round(value / step) * step;
+}
+
+function applyAssemblySnap(transform, snap) {
+  if (snap?.enabled === false) return cloneTransformState(transform);
+  const next = cloneTransformState(transform);
+  const translateStep = snap?.translateStepMm || 1;
+  const rotateStep = snap?.rotateStepDeg || 15;
+  next.position = next.position.map((value) => snapMetric(value, translateStep));
+  next.rotation = next.rotation.map((value) => snapMetric(value, rotateStep));
+  return next;
+}
+
+function cloneMeasurementPoint(point = {}) {
+  return {
+    position: Array.isArray(point.position) ? [...point.position] : [0, 0, 0],
+    partId: point.partId || null,
+  };
+}
+
+function cloneMeasurementEntry(entry = {}) {
+  return {
+    id: entry.id || `measurement-${Date.now()}`,
+    distance: Number.isFinite(entry.distance) ? entry.distance : 0,
+    label: entry.label || 'Measurement',
+    createdAt: entry.createdAt || Date.now(),
+    points: Array.isArray(entry.points) ? entry.points.map(cloneMeasurementPoint) : [],
+  };
+}
+
+function cloneMeasurementState(measurement = {}) {
+  return {
+    enabled: measurement.enabled === true,
+    points: Array.isArray(measurement.points) ? measurement.points.map(cloneMeasurementPoint) : [],
+    distance: Number.isFinite(measurement.distance) ? measurement.distance : null,
+    history: Array.isArray(measurement.history) ? measurement.history.map(cloneMeasurementEntry) : [],
+  };
+}
+
+function computeMeasurementDistance(points = []) {
+  if (points.length < 2) return null;
+  const [start, end] = points;
+  return Math.hypot(
+    end.position[0] - start.position[0],
+    end.position[1] - start.position[1],
+    end.position[2] - start.position[2],
+  );
+}
+
+function clearMeasurementDraft(measurement = {}, { disable = true } = {}) {
+  const current = cloneMeasurementState(measurement);
+  return {
+    ...current,
+    enabled: disable ? false : current.enabled,
+    points: [],
+    distance: null,
+  };
+}
+
+function appendMeasurementPick(measurement = {}, point, resolvePartName) {
+  const current = cloneMeasurementState(measurement);
+  const nextPoints = [...current.points, cloneMeasurementPoint(point)].slice(-2);
+  const distance = computeMeasurementDistance(nextPoints);
+
+  if (nextPoints.length === 2 && Number.isFinite(distance)) {
+    const labels = nextPoints
+      .map((candidate) => resolvePartName(candidate.partId))
+      .filter(Boolean);
+    const entry = {
+      id: `measurement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      distance,
+      label: labels.length === 2 && labels[0] !== labels[1] ? `${labels[0]} -> ${labels[1]}` : (labels[0] || 'Measurement'),
+      createdAt: Date.now(),
+      points: nextPoints,
+    };
+    return {
+      entry,
+      nextMeasurement: {
+        ...current,
+        enabled: true,
+        points: [],
+        distance: null,
+        history: [entry, ...current.history].slice(0, MAX_MEASUREMENT_HISTORY),
+      },
+    };
+  }
+
+  return {
+    entry: null,
+    nextMeasurement: {
+      ...current,
+      enabled: true,
+      points: nextPoints,
+      distance,
+    },
+  };
+}
+
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const ACTIVITY_RAIL_WIDTH = 52;
@@ -103,6 +240,11 @@ export default function Forge3D() {
   const editorRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [stlGeometry, setStlGeometry] = useState(null);
+  const [mode, setMode] = useState('design');
+  const [assemblyScenePath, setAssemblyScenePath] = useState(null);
+  const [booleanOperandId, setBooleanOperandId] = useState(null);
+  const [assemblyHistory, setAssemblyHistory] = useState(() => createHistoryState(DEFAULT_ASSEMBLY_SCENE));
+  const [assemblyMeasurement, setAssemblyMeasurement] = useState(DEFAULT_ASSEMBLY_MEASUREMENT);
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
   const [showDiffEditor, setShowDiffEditor] = useState(false);
@@ -151,6 +293,31 @@ export default function Forge3D() {
     () => applyPreviewVisibilityMask(code, documentSymbols, hiddenPreviewSymbolIdSet),
     [code, documentSymbols, hiddenPreviewSymbolIdSet],
   );
+  const assemblyScene = assemblyHistory.present;
+  const selectedAssemblyPart = useMemo(
+    () => assemblyScene.parts.find((part) => part.id === assemblyScene.selectedPartId) || null,
+    [assemblyScene.parts, assemblyScene.selectedPartId],
+  );
+  const selectedAssemblyMetrics = useMemo(
+    () => (selectedAssemblyPart ? getAssemblyPartMetrics(selectedAssemblyPart) : null),
+    [selectedAssemblyPart],
+  );
+  const canEnterAssembly = Boolean(stlGeometry || assemblyScene.parts.length > 0);
+  const canRefreshCurrentRender = Boolean(stlGeometry);
+  const booleanOperandOptions = useMemo(
+    () => assemblyScene.parts.filter((part) => part.id !== selectedAssemblyPart?.id),
+    [assemblyScene.parts, selectedAssemblyPart],
+  );
+
+  useEffect(() => {
+    if (!selectedAssemblyPart || booleanOperandOptions.length === 0) {
+      if (booleanOperandId !== null) setBooleanOperandId(null);
+      return;
+    }
+    if (!booleanOperandOptions.some((part) => part.id === booleanOperandId)) {
+      setBooleanOperandId(booleanOperandOptions[0].id);
+    }
+  }, [booleanOperandId, booleanOperandOptions, selectedAssemblyPart]);
 
   // ─── History ────────────────────────────────────────────────────────
   const applyCodeChange = useCallback((nextCodeOrUpdater) => {
@@ -158,22 +325,20 @@ export default function Forge3D() {
       const nextCode = typeof nextCodeOrUpdater === 'function'
         ? nextCodeOrUpdater(current.present)
         : nextCodeOrUpdater;
-      if (nextCode === current.present) return current;
-      return { past: [...current.past, current.present].slice(-100), present: nextCode, future: [] };
+      return pushHistoryState(current, nextCode);
     });
   }, []);
 
   const replaceCodeWithoutHistory = useCallback((nextCode) => {
-    setHistory(createHistoryState(nextCode));
+    setHistory(replaceHistoryState(nextCode));
   }, []);
 
   const undoCode = useCallback(() => {
     let changed = false;
     setHistory((current) => {
-      if (current.past.length === 0) return current;
-      const previous = current.past[current.past.length - 1];
-      changed = true;
-      return { past: current.past.slice(0, -1), present: previous, future: [current.present, ...current.future] };
+      const result = undoHistoryState(current);
+      changed = result.changed;
+      return result.state;
     });
     if (changed) setStatusMessage('Undo applied');
   }, []);
@@ -181,16 +346,19 @@ export default function Forge3D() {
   const redoCode = useCallback(() => {
     let changed = false;
     setHistory((current) => {
-      if (current.future.length === 0) return current;
-      const [next, ...rest] = current.future;
-      changed = true;
-      return { past: [...current.past, current.present].slice(-100), present: next, future: rest };
+      const result = redoHistoryState(current);
+      changed = result.changed;
+      return result.state;
     });
     if (changed) setStatusMessage('Redo applied');
   }, []);
 
-  const canUndo = history.past.length > 0;
-  const canRedo = history.future.length > 0;
+  const canUndoCode = history.past.length > 0;
+  const canRedoCode = history.future.length > 0;
+  const canUndoAssembly = assemblyHistory.past.length > 0;
+  const canRedoAssembly = assemblyHistory.future.length > 0;
+  const canUndo = mode === 'assembly' ? canUndoAssembly : canUndoCode;
+  const canRedo = mode === 'assembly' ? canRedoAssembly : canRedoCode;
   const isDirty = code !== lastSavedCode;
 
   const updateStartState = useCallback((partialState) => {
@@ -216,6 +384,408 @@ export default function Forge3D() {
   const queueAutoFitView = useCallback(() => {
     shouldAutoFitViewRef.current = true;
   }, []);
+
+  const queueAssemblyFitView = useCallback(() => {
+    queueAutoFitView();
+    setFitViewSignal((value) => value + 1);
+  }, [queueAutoFitView]);
+
+  const resetAssemblyState = useCallback(({ keepMode = false } = {}) => {
+    setAssemblyHistory(replaceHistoryState(DEFAULT_ASSEMBLY_SCENE));
+    setAssemblyMeasurement(DEFAULT_ASSEMBLY_MEASUREMENT);
+    setAssemblyScenePath(null);
+    setBooleanOperandId(null);
+    if (!keepMode) setMode('design');
+  }, []);
+
+  const replaceAssemblySceneWithoutHistory = useCallback((nextScene) => {
+    setAssemblyHistory(replaceHistoryState(nextScene));
+  }, []);
+
+  const updateAssemblyScene = useCallback((updater, { recordHistory = true } = {}) => {
+    setAssemblyHistory((current) => {
+      const baseScene = current.present;
+      const nextScene = typeof updater === 'function' ? updater(baseScene) : updater;
+      if (!nextScene || Object.is(nextScene, baseScene)) return current;
+      return recordHistory
+        ? pushHistoryState(current, nextScene)
+        : updateHistoryPresent(current, nextScene);
+    });
+  }, []);
+
+  const resolveAssemblyPartName = useCallback((partId) => (
+    assemblyScene.parts.find((part) => part.id === partId)?.name || 'Measurement'
+  ), [assemblyScene.parts]);
+
+  const undoAssemblyScene = useCallback(() => {
+    let changed = false;
+    setAssemblyHistory((current) => {
+      const result = undoHistoryState(current);
+      changed = result.changed;
+      return result.state;
+    });
+    if (changed) {
+      setAssemblyMeasurement((current) => clearMeasurementDraft(current, { disable: false }));
+      setStatusMessage('Assembly undo applied');
+    }
+  }, []);
+
+  const redoAssemblyScene = useCallback(() => {
+    let changed = false;
+    setAssemblyHistory((current) => {
+      const result = redoHistoryState(current);
+      changed = result.changed;
+      return result.state;
+    });
+    if (changed) {
+      setAssemblyMeasurement((current) => clearMeasurementDraft(current, { disable: false }));
+      setStatusMessage('Assembly redo applied');
+    }
+  }, []);
+
+  const handleAssemblyMeasurementPick = useCallback((payload) => {
+    if (!payload?.point) return;
+    let nextStatus = null;
+    setAssemblyMeasurement((current) => {
+      const { entry, nextMeasurement } = appendMeasurementPick(current, payload, resolveAssemblyPartName);
+      nextStatus = entry
+        ? `Logged measurement ${entry.distance.toFixed(2)} mm`
+        : 'First point picked. Click a second point to log the measurement.';
+      return nextMeasurement;
+    });
+    if (nextStatus) setStatusMessage(nextStatus);
+  }, [resolveAssemblyPartName]);
+
+  const handleMeasurementPrimaryAction = useCallback(() => {
+    let activating = false;
+    setAssemblyMeasurement((current) => {
+      const shouldActivate = !(current.enabled || current.points.length > 0);
+      activating = shouldActivate;
+      return shouldActivate
+        ? { ...cloneMeasurementState(current), enabled: true, points: [], distance: null }
+        : clearMeasurementDraft(current);
+    });
+    setStatusMessage(activating ? 'Pick two points in the viewport to log a measurement' : 'Cleared active measurement picks');
+  }, []);
+
+  const handleClearMeasurementHistory = useCallback(() => {
+    setAssemblyMeasurement((current) => ({
+      ...clearMeasurementDraft(current, { disable: current.enabled === false }),
+      history: [],
+    }));
+    setStatusMessage('Cleared measurement log');
+  }, []);
+
+  const addAssemblyPart = useCallback(({ name, source, geometry, centerOnAdd = false, switchMode = true }) => {
+    const basePart = createAssemblyPart({ name, source, geometry });
+    const floorTransform = centerOnAdd ? createCenteredTransform(basePart) : createFloorAlignedTransform(basePart);
+    const nextPart = { ...basePart, transform: floorTransform };
+
+    updateAssemblyScene((current) => ({
+      ...current,
+      parts: [...current.parts, nextPart],
+      selectedPartId: nextPart.id,
+    }));
+    setAssemblyMeasurement((current) => clearMeasurementDraft(current));
+    if (switchMode) {
+      setMode('assembly');
+      setSidebarTab('assembly');
+      setSidebarOpen(true);
+    }
+    queueAssemblyFitView();
+    return nextPart;
+  }, [queueAssemblyFitView, updateAssemblyScene]);
+
+  const addCurrentRenderToAssembly = useCallback(({ centerOnAdd = false, switchMode = true } = {}) => {
+    if (!stlGeometry) {
+      setStatusMessage('Build the current design before adding it to Assembly Mode');
+      return null;
+    }
+
+    const baseName = currentFileName.replace(/\.scad$/i, '') || 'Current Render';
+    const nextPart = addAssemblyPart({
+      name: baseName,
+      source: { kind: 'active-render', filePath: currentFilePath || null },
+      geometry: createAssemblyGeometryFromDesignGeometry(stlGeometry),
+      centerOnAdd,
+      switchMode,
+    });
+    setStatusMessage(`Added ${nextPart.name} to Assembly Mode`);
+    return nextPart;
+  }, [addAssemblyPart, currentFileName, currentFilePath, stlGeometry]);
+
+  const updateAssemblyPart = useCallback((partId, updater) => {
+    updateAssemblyScene((current) => {
+      let changed = false;
+      const nextParts = current.parts.map((part) => {
+        if (part.id !== partId) return part;
+        changed = true;
+        return typeof updater === 'function' ? updater(part) : { ...part, ...updater };
+      });
+      return changed ? { ...current, parts: nextParts } : current;
+    });
+  }, [updateAssemblyScene]);
+
+  const updateAssemblyPartTransform = useCallback((partId, nextTransform) => {
+    const sourcePart = assemblyScene.parts.find((part) => part.id === partId);
+    if (!sourcePart || sourcePart.locked) {
+      if (sourcePart?.locked) setStatusMessage(`Unlock ${sourcePart.name} before changing its transform`);
+      return;
+    }
+    updateAssemblyPart(partId, (part) => {
+      const merged = applyAssemblySnap({
+        ...cloneTransformState(part.transform),
+        ...nextTransform,
+        position: nextTransform.position ? [...nextTransform.position] : [...part.transform.position],
+        rotation: nextTransform.rotation ? [...nextTransform.rotation] : [...part.transform.rotation],
+        scale: nextTransform.scale ? [...nextTransform.scale] : [...part.transform.scale],
+      }, assemblyScene.snap);
+      return { ...part, transform: merged };
+    });
+  }, [assemblyScene.parts, assemblyScene.snap, updateAssemblyPart]);
+
+  const selectAssemblyPart = useCallback((partId) => {
+    updateAssemblyScene((current) => ({
+      ...current,
+      selectedPartId: partId,
+    }), { recordHistory: false });
+  }, [updateAssemblyScene]);
+
+  const refreshSelectedCurrentRenderPart = useCallback(() => {
+    if (!selectedAssemblyPart || selectedAssemblyPart.source?.kind !== 'active-render' || !stlGeometry) {
+      setStatusMessage('Build the current design before refreshing this Assembly part');
+      return;
+    }
+
+    updateAssemblyPart(selectedAssemblyPart.id, (part) => {
+      const refreshedGeometry = createAssemblyGeometryFromDesignGeometry(stlGeometry);
+      return {
+        ...part,
+        geometry: refreshedGeometry,
+        transform: createFloorAlignedTransform({
+          ...part,
+          geometry: refreshedGeometry,
+        }),
+      };
+    });
+    queueAssemblyFitView();
+    setStatusMessage(`Refreshed ${selectedAssemblyPart.name} from the current Design render`);
+  }, [queueAssemblyFitView, selectedAssemblyPart, stlGeometry, updateAssemblyPart]);
+
+  const duplicateSelectedAssemblyPart = useCallback((partId) => {
+    const sourcePart = assemblyScene.parts.find((part) => part.id === partId);
+    if (!sourcePart) return;
+    const nextPart = duplicateAssemblyPart(sourcePart);
+    updateAssemblyScene((current) => ({
+      ...current,
+      parts: [...current.parts, nextPart],
+      selectedPartId: nextPart.id,
+    }));
+    queueAssemblyFitView();
+    setStatusMessage(`Duplicated ${sourcePart.name}`);
+  }, [assemblyScene.parts, queueAssemblyFitView, updateAssemblyScene]);
+
+  const deleteAssemblyPart = useCallback((partId) => {
+    const sourcePart = assemblyScene.parts.find((part) => part.id === partId);
+    if (!sourcePart) return;
+    if (sourcePart.locked) {
+      setStatusMessage(`Unlock ${sourcePart.name} before deleting it`);
+      return;
+    }
+    updateAssemblyScene((current) => {
+      const nextParts = current.parts.filter((part) => part.id !== partId);
+      return {
+        ...current,
+        parts: nextParts,
+        selectedPartId: current.selectedPartId === partId ? nextParts[0]?.id || null : current.selectedPartId,
+      };
+    });
+    setAssemblyMeasurement((current) => clearMeasurementDraft(current));
+    if (assemblyScene.parts.length === 1) setMode('design');
+    setStatusMessage(`Removed ${sourcePart.name} from Assembly Mode`);
+  }, [assemblyScene.parts, updateAssemblyScene]);
+
+  const toggleAssemblyPartVisibility = useCallback((partId) => {
+    updateAssemblyPart(partId, (part) => ({ ...part, visible: part.visible === false }));
+  }, [updateAssemblyPart]);
+
+  const toggleAssemblyPartLock = useCallback((partId) => {
+    updateAssemblyPart(partId, (part) => ({ ...part, locked: !part.locked }));
+  }, [updateAssemblyPart]);
+
+  const dropSelectedAssemblyPartToFloor = useCallback(() => {
+    if (!selectedAssemblyPart) return;
+    if (selectedAssemblyPart.locked) {
+      setStatusMessage(`Unlock ${selectedAssemblyPart.name} before moving it`);
+      return;
+    }
+    updateAssemblyPart(selectedAssemblyPart.id, (part) => ({
+      ...part,
+      transform: createFloorAlignedTransform(part),
+    }));
+    setStatusMessage(`Dropped ${selectedAssemblyPart.name} to the floor`);
+  }, [selectedAssemblyPart, updateAssemblyPart]);
+
+  const centerSelectedAssemblyPart = useCallback(() => {
+    if (!selectedAssemblyPart) return;
+    if (selectedAssemblyPart.locked) {
+      setStatusMessage(`Unlock ${selectedAssemblyPart.name} before moving it`);
+      return;
+    }
+    updateAssemblyPart(selectedAssemblyPart.id, (part) => ({
+      ...part,
+      transform: createCenteredTransform(part),
+    }));
+    setStatusMessage(`Centered ${selectedAssemblyPart.name}`);
+  }, [selectedAssemblyPart, updateAssemblyPart]);
+
+  const handleAssemblyPositionInput = useCallback((axisIndex, value) => {
+    if (!selectedAssemblyPart || selectedAssemblyPart.locked || Number.isNaN(value)) return;
+    const nextPosition = [...selectedAssemblyPart.transform.position];
+    nextPosition[axisIndex] = value;
+    updateAssemblyPartTransform(selectedAssemblyPart.id, { position: nextPosition });
+  }, [selectedAssemblyPart, updateAssemblyPartTransform]);
+
+  const handleAssemblyRotationInput = useCallback((axisIndex, value) => {
+    if (!selectedAssemblyPart || selectedAssemblyPart.locked || Number.isNaN(value)) return;
+    const nextRotation = [...selectedAssemblyPart.transform.rotation];
+    nextRotation[axisIndex] = value;
+    updateAssemblyPartTransform(selectedAssemblyPart.id, { rotation: nextRotation });
+  }, [selectedAssemblyPart, updateAssemblyPartTransform]);
+
+  const handleImportAssemblyPart = useCallback(async (kind) => {
+    try {
+      const payload = await forgeAPI.importAssemblyPart({ kind });
+      if (!payload) return;
+      if (payload.error) {
+        setResult({ objects: [], logs: [], errors: [payload.error], warnings: [], variables: {} });
+        setActiveTab('errors');
+        setStatusMessage(`Assembly import failed: ${payload.error}`);
+        return;
+      }
+
+      const geometry = createAssemblyGeometryFromStlBytes(new Uint8Array(payload.stl));
+      addAssemblyPart({
+        name: payload.name.replace(/\.(stl|scad)$/i, ''),
+        source: payload.source,
+        geometry,
+      });
+      setStatusMessage(`Imported ${payload.name} into Assembly Mode`);
+    } catch (error) {
+      setResult({ objects: [], logs: [], errors: [error.message], warnings: [], variables: {} });
+      setActiveTab('errors');
+      setStatusMessage(`Assembly import failed: ${error.message}`);
+    }
+  }, [addAssemblyPart, forgeAPI]);
+
+  const handleSaveAssemblyScene = useCallback(async () => {
+    if (assemblyScene.parts.length === 0) {
+      setStatusMessage('Add at least one part before saving an Assembly scene');
+      return;
+    }
+
+    try {
+      const suggestedName = `${currentFileName.replace(/\.scad$/i, '') || 'assembly'}.forge3dscene.json`;
+      const saved = await forgeAPI.saveAssemblyScene({
+        content: JSON.stringify(serializeAssemblyScene(assemblyScene), null, 2),
+        filePath: assemblyScenePath,
+        suggestedName,
+      });
+      if (!saved) return;
+      setAssemblyScenePath(saved.filePath || null);
+      setStatusMessage(`Saved ${saved.name || suggestedName}`);
+    } catch (error) {
+      setStatusMessage(`Assembly save failed: ${error.message}`);
+    }
+  }, [assemblyScene, assemblyScenePath, currentFileName, forgeAPI]);
+
+  const handleOpenAssemblyScene = useCallback(async () => {
+    try {
+      const payload = await forgeAPI.openAssemblyScene();
+      if (!payload) return;
+      const parsed = JSON.parse(payload.content);
+      const nextScene = deserializeAssemblyScene(parsed);
+      replaceAssemblySceneWithoutHistory(nextScene);
+      setAssemblyMeasurement(DEFAULT_ASSEMBLY_MEASUREMENT);
+      setAssemblyScenePath(payload.filePath || null);
+      setMode('assembly');
+      setSidebarTab('assembly');
+      setSidebarOpen(true);
+      queueAssemblyFitView();
+      setStatusMessage(`Opened ${payload.name || 'assembly scene'}`);
+    } catch (error) {
+      setStatusMessage(`Assembly open failed: ${error.message}`);
+    }
+  }, [forgeAPI, queueAssemblyFitView, replaceAssemblySceneWithoutHistory]);
+
+  const handleRunBooleanOperation = useCallback((operation) => {
+    const primaryPart = selectedAssemblyPart;
+    const operandPart = assemblyScene.parts.find((part) => part.id === booleanOperandId);
+    if (!primaryPart || !operandPart) {
+      setStatusMessage('Select a part and a boolean operand first');
+      return;
+    }
+
+    try {
+      const meshA = new THREE.Mesh(primaryPart.geometry.clone(), new THREE.MeshStandardMaterial());
+      const meshB = new THREE.Mesh(operandPart.geometry.clone(), new THREE.MeshStandardMaterial());
+      meshA.position.set(...primaryPart.transform.position);
+      meshA.rotation.set(
+        THREE.MathUtils.degToRad(primaryPart.transform.rotation[0] || 0),
+        THREE.MathUtils.degToRad(primaryPart.transform.rotation[1] || 0),
+        THREE.MathUtils.degToRad(primaryPart.transform.rotation[2] || 0),
+      );
+      meshB.position.set(...operandPart.transform.position);
+      meshB.rotation.set(
+        THREE.MathUtils.degToRad(operandPart.transform.rotation[0] || 0),
+        THREE.MathUtils.degToRad(operandPart.transform.rotation[1] || 0),
+        THREE.MathUtils.degToRad(operandPart.transform.rotation[2] || 0),
+      );
+      meshA.updateMatrix();
+      meshB.updateMatrix();
+
+      const resultMesh = operation === 'union'
+        ? CSG.union(meshA, meshB)
+        : operation === 'subtract'
+          ? CSG.subtract(meshA, meshB)
+          : CSG.intersect(meshA, meshB);
+
+      resultMesh.updateMatrix();
+      const bakedGeometry = resultMesh.geometry.clone();
+      bakedGeometry.applyMatrix4(resultMesh.matrix);
+      bakedGeometry.computeVertexNormals();
+      bakedGeometry.computeBoundingBox();
+
+      const derivedPart = createAssemblyPart({
+        name: `${primaryPart.name} ${operation} ${operandPart.name}`,
+        source: { kind: 'derived', filePath: null },
+        geometry: bakedGeometry,
+        metadata: {
+          derivedFrom: [primaryPart.id, operandPart.id],
+          operation,
+        },
+      });
+
+      updateAssemblyScene((current) => ({
+        ...current,
+        parts: [
+          ...current.parts.map((part) => (
+            part.id === primaryPart.id || part.id === operandPart.id
+              ? { ...part, visible: false }
+              : part
+          )),
+          derivedPart,
+        ],
+        selectedPartId: derivedPart.id,
+      }));
+      setStatusMessage(`${operation} created ${derivedPart.name}`);
+      queueAssemblyFitView();
+    } catch (error) {
+      setResult({ objects: [], logs: [], errors: [error.message], warnings: [], variables: {} });
+      setActiveTab('errors');
+      setStatusMessage(`Boolean ${operation} failed: ${error.message}`);
+    }
+  }, [assemblyScene.parts, booleanOperandId, queueAssemblyFitView, selectedAssemblyPart, updateAssemblyScene]);
 
   const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
     if (timeoutHandle) {
@@ -341,8 +911,9 @@ export default function Forge3D() {
     setSidebarOpen(true);
     setStartState(next.startState || { search: '', kindFilter: 'all' });
     setActiveTab(next.workbenchTab || 'console');
+    resetAssemblyState();
     setStatusMessage('Started a new workspace');
-  }, [queueAutoFitView, replaceCodeWithoutHistory]);
+  }, [queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState]);
 
   const openFile = useCallback(async () => {
     try {
@@ -355,13 +926,14 @@ export default function Forge3D() {
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
+      resetAssemblyState();
       setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
       // Refresh recent files list
       forgeAPI.getRecentFiles().then(setRecentFiles).catch(() => {});
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory]);
+  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState]);
 
   const openFilePath = useCallback(async (filePath) => {
     try {
@@ -377,12 +949,13 @@ export default function Forge3D() {
       setLastSavedCode(payload.content);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
+      resetAssemblyState();
       setStatusMessage(`Opened ${payload.name || DEFAULT_FILE_NAME}`);
       forgeAPI.getRecentFiles().then(setRecentFiles).catch(() => {});
     } catch (error) {
       setStatusMessage(`Open failed: ${error.message}`);
     }
-  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory]);
+  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState]);
 
   const saveFile = useCallback(async () => {
     try {
@@ -545,22 +1118,49 @@ export default function Forge3D() {
     const onKeyDown = (event) => {
       if (event.defaultPrevented) return;
       const mod = event.metaKey || event.ctrlKey;
-      if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
-        event.preventDefault();
-        if (event.shiftKey) redoCode(); else undoCode();
-        return;
+      if (mode === 'assembly') {
+        if (event.key === 'Delete' && selectedAssemblyPart) {
+          event.preventDefault();
+          deleteAssemblyPart(selectedAssemblyPart.id);
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'd' && selectedAssemblyPart) {
+          event.preventDefault();
+          duplicateSelectedAssemblyPart(selectedAssemblyPart.id);
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
+          event.preventDefault();
+          if (event.shiftKey) redoAssemblyScene(); else undoAssemblyScene();
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'y') {
+          event.preventDefault();
+          redoAssemblyScene();
+          return;
+        }
+      } else {
+        if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
+          event.preventDefault();
+          if (event.shiftKey) redoCode(); else undoCode();
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'f') {
+          event.preventDefault();
+          editorRef.current?.openFind?.();
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'h') {
+          event.preventDefault();
+          editorRef.current?.openReplace?.();
+          return;
+        }
+        if (mod && !event.altKey && event.key.toLowerCase() === 'y') {
+          event.preventDefault();
+          redoCode();
+          return;
+        }
       }
-      if (mod && !event.altKey && event.key.toLowerCase() === 'f') {
-        event.preventDefault();
-        editorRef.current?.openFind?.();
-        return;
-      }
-      if (mod && !event.altKey && event.key.toLowerCase() === 'h') {
-        event.preventDefault();
-        editorRef.current?.openReplace?.();
-        return;
-      }
-      if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
       if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); saveFile(); }
       if (mod && event.key.toLowerCase() === 'o') { event.preventDefault(); openFile(); }
       if (mod && event.key.toLowerCase() === 'n') { event.preventDefault(); resetWorkspace(); }
@@ -580,7 +1180,7 @@ export default function Forge3D() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); removeMenu?.(); };
-  }, [openFile, openFilePath, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
+  }, [deleteAssemblyPart, duplicateSelectedAssemblyPart, mode, openFile, openFilePath, redoAssemblyScene, redoCode, resetWorkspace, runCode, saveFile, selectedAssemblyPart, undoAssemblyScene, undoCode]);
 
   useEffect(() => {
     if (!isDirty && showDiffEditor) {
@@ -656,7 +1256,21 @@ export default function Forge3D() {
   }, [ACTIVITY_RAIL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen, sidebarWidth]);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
-  const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, fitViewSignal, theme, stlGeometry);
+  const scene = useThreeRenderer({
+    canvasRef,
+    mode,
+    viewSettings,
+    resetViewSignal,
+    fitViewSignal,
+    theme,
+    stlGeometry,
+    assemblyScene,
+    selectedPartId: assemblyScene.selectedPartId,
+    measurement: assemblyMeasurement,
+    onAssemblyMeasurementPick: handleAssemblyMeasurementPick,
+    onSelectAssemblyPart: selectAssemblyPart,
+    onUpdateAssemblyPartTransform: updateAssemblyPartTransform,
+  });
 
   // ─── LSP diagnostics (Problems tab) ───────────────────────────────────
   useLSP(code, currentFilePath, setLspDiagnostics);
@@ -686,23 +1300,28 @@ export default function Forge3D() {
       setLastSavedCode(content);
       setCurrentFileName(file.name);
       setCurrentFilePath(file.path || null);
+      resetAssemblyState();
       setStatusMessage(`Opened: ${file.name}`);
     };
     reader.readAsText(file);
-  }, [queueAutoFitView, replaceCodeWithoutHistory]);
+  }, [queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState]);
 
   const handleExportSTL = useCallback(async () => {
     if (!scene) return;
-    const baseName = currentFileName.replace(/\.scad$/i, '');
+    const baseName = mode === 'assembly'
+      ? (assemblyScenePath?.split(/[\\/]/).pop()?.replace(/\.forge3dscene\.json$/i, '') || currentFileName.replace(/\.scad$/i, '') || 'assembly')
+      : currentFileName.replace(/\.scad$/i, '');
     try {
       const content = exportSceneToSTL(scene);
       const saved = await forgeAPI.saveStlFile({ content, suggestedName: `${baseName}.stl` });
       if (!saved) return;
-      setStatusMessage(`Exported ${saved.name || `${baseName}.stl`}`);
+      setStatusMessage(mode === 'assembly'
+        ? `Exported combined assembly STL as ${saved.name || `${baseName}.stl`}`
+        : `Exported ${saved.name || `${baseName}.stl`}`);
     } catch (error) {
       setStatusMessage(`STL export failed: ${error.message}`);
     }
-  }, [currentFileName, forgeAPI, scene]);
+  }, [assemblyScenePath, currentFileName, forgeAPI, mode, scene]);
 
   const jumpToLine = useCallback((lineNum) => {
     editorRef.current?.jumpToLine(lineNum);
@@ -735,6 +1354,29 @@ export default function Forge3D() {
     const files = await forgeAPI.listWorkspaceFiles();
     setWorkspaceFiles(files || []);
   }, [forgeAPI]);
+
+  const enterAssemblyMode = useCallback(() => {
+    if (assemblyScene.parts.length > 0) {
+      setMode('assembly');
+      setSidebarTab('assembly');
+      setSidebarOpen(true);
+      setStatusMessage('Assembly Mode ready');
+      return;
+    }
+
+    const part = addCurrentRenderToAssembly({ centerOnAdd: true, switchMode: true });
+    if (part) {
+      setSidebarTab('assembly');
+      setSidebarOpen(true);
+      setStatusMessage(`Entered Assembly Mode with ${part.name}`);
+    }
+  }, [addCurrentRenderToAssembly, assemblyScene.parts.length]);
+
+  const returnToDesignMode = useCallback(() => {
+    setMode('design');
+    setSidebarTab((current) => (current === 'assembly' ? 'workspace' : current));
+    setStatusMessage('Returned to Design Mode');
+  }, []);
 
   const ensureTerminalSession = useCallback(async (options = {}) => {
     const payload = await forgeAPI.spawnTerminal({
@@ -852,10 +1494,18 @@ export default function Forge3D() {
     }
   }, [applyCodeChange, code]);
 
+  const handleBuildCurrentDesign = useCallback(() => {
+    setStatusMessage('Rendering the latest design from Assembly...');
+    runCode();
+  }, [runCode]);
+
   const handleParamChange = useCallback((param, value) => {
     const nextCode = applyParamChange(code, param, value);
     applyCodeChange(nextCode);
-  }, [applyCodeChange, code]);
+    if (mode === 'assembly' && !autoRun) {
+      setStatusMessage(`Updated ${param.label || param.name}. Render the latest design to refresh current render parts.`);
+    }
+  }, [applyCodeChange, autoRun, code, mode]);
 
   const handleResetParam = useCallback((param) => {
     const originalParams = parseParams(lastSavedCode);
@@ -865,7 +1515,10 @@ export default function Forge3D() {
     if (resetValue === undefined) return;
     const nextCode = applyParamChange(code, param, resetValue);
     applyCodeChange(nextCode);
-  }, [applyCodeChange, code, lastSavedCode]);
+    if (mode === 'assembly' && !autoRun) {
+      setStatusMessage(`Reset ${param.label || param.name}. Render the latest design to refresh current render parts.`);
+    }
+  }, [applyCodeChange, autoRun, code, lastSavedCode, mode]);
 
   const handleJumpToParam = useCallback((param) => {
     const targetLine = param?.assignmentLine || param?.line;
@@ -967,32 +1620,38 @@ export default function Forge3D() {
       <ForgeToolbar
         autoRun={autoRun}
         building={building}
+        canEnterAssembly={canEnterAssembly}
         canRedo={canRedo}
         canUndo={canUndo}
         colors={colors}
+        mode={mode}
         onAutoRunChange={setAutoRun}
         onCancelBuild={cancelBuild}
+        onEnterAssemblyMode={enterAssemblyMode}
         onExportStl={handleExportSTL}
         onNewFile={resetWorkspace}
         onOpenFile={openFile}
-        onRedo={redoCode}
+        onRedo={mode === 'assembly' ? redoAssemblyScene : redoCode}
         onResetView={() => setResetViewSignal(v => v + 1)}
+        onReturnToDesignMode={returnToDesignMode}
         onRunCode={runCode}
         onSaveFile={saveFile}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-        onUndo={undoCode}
+        onUndo={mode === 'assembly' ? undoAssemblyScene : undoCode}
         theme={theme}
       />
 
       {/* ── Body ── */}
       <div ref={contentRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ width: ACTIVITY_RAIL_WIDTH, minWidth: ACTIVITY_RAIL_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0 8px', gap: '8px', flexShrink: 0 }}>
-          {[
-            { id: 'start', label: 'Start', icon: Icons.Spark },
-            { id: 'workspace', label: 'Workspace', icon: Icons.Folder },
-            { id: 'params', label: 'Params', icon: Icons.Sliders },
-            { id: 'terminal', label: 'Terminal', icon: Icons.Terminal },
-          ].map(({ id, icon: Icon, label }) => {
+          {(mode === 'assembly'
+            ? [{ id: 'assembly', label: 'Assembly', icon: Icons.Cube }]
+            : [
+                { id: 'start', label: 'Start', icon: Icons.Spark },
+                { id: 'workspace', label: 'Workspace', icon: Icons.Folder },
+                { id: 'params', label: 'Params', icon: Icons.Sliders },
+                { id: 'terminal', label: 'Terminal', icon: Icons.Terminal },
+              ]).map(({ id, icon: Icon, label }) => {
             const active = sidebarTab === id && sidebarOpen;
             return (
               <button
@@ -1047,20 +1706,47 @@ export default function Forge3D() {
           <div style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
             <div style={{ borderBottom: `1px solid ${colors.border}`, padding: '10px 12px 8px' }}>
               <div style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textMuted }}>
-                {sidebarTab === 'start' ? 'Start' : sidebarTab === 'workspace' ? 'Workspace' : sidebarTab === 'terminal' ? 'Terminal' : 'Params'}
+                {mode === 'assembly'
+                  ? 'Assembly'
+                  : sidebarTab === 'start'
+                    ? 'Start'
+                    : sidebarTab === 'workspace'
+                      ? 'Workspace'
+                      : sidebarTab === 'terminal'
+                        ? 'Terminal'
+                        : 'Params'}
               </div>
               <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '4px', lineHeight: 1.5 }}>
-                {sidebarTab === 'start'
-                  ? 'Basics, recipes, and larger templates in one learning-focused surface.'
-                  : sidebarTab === 'workspace'
-                    ? 'Project files, recent files, and local modeling setup.'
-                    : sidebarTab === 'terminal'
-                      ? 'Manage the live integrated terminal session and shell preference.'
-                      : 'Live parameters parsed from the current file.'}
+                {mode === 'assembly'
+                  ? 'Import parts, manage visibility and locks, and save or reopen assembly scenes.'
+                  : sidebarTab === 'start'
+                    ? 'Basics, recipes, and larger templates in one learning-focused surface.'
+                    : sidebarTab === 'workspace'
+                      ? 'Project files, recent files, and local modeling setup.'
+                      : sidebarTab === 'terminal'
+                        ? 'Manage the live integrated terminal session and shell preference.'
+                        : 'Live parameters parsed from the current file.'}
               </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
-              {sidebarTab === 'start' && (
+              {mode === 'assembly' ? (
+                <AssemblySidebar
+                  canAddCurrentRender={Boolean(stlGeometry)}
+                  colors={colors}
+                  onAddCurrentRender={() => addCurrentRenderToAssembly({ switchMode: true })}
+                  onDeletePart={deleteAssemblyPart}
+                  onDuplicatePart={duplicateSelectedAssemblyPart}
+                  onImportScad={() => handleImportAssemblyPart('scad')}
+                  onImportStl={() => handleImportAssemblyPart('stl')}
+                  onOpenScene={handleOpenAssemblyScene}
+                  onSaveScene={handleSaveAssemblyScene}
+                  onSelectPart={selectAssemblyPart}
+                  onToggleLock={toggleAssemblyPartLock}
+                  onToggleVisibility={toggleAssemblyPartVisibility}
+                  parts={assemblyScene.parts}
+                  selectedPartId={assemblyScene.selectedPartId}
+                />
+              ) : sidebarTab === 'start' && (
                 <StartSidebar
                   colors={colors}
                   onInsertItem={handleInsertStartItem}
@@ -1068,7 +1754,7 @@ export default function Forge3D() {
                   startState={startState}
                 />
               )}
-              {sidebarTab === 'workspace' && (
+              {mode !== 'assembly' && sidebarTab === 'workspace' && (
                 <WorkspaceSidebar
                   colors={colors}
                   currentFileName={currentFileName}
@@ -1084,7 +1770,7 @@ export default function Forge3D() {
                   workspaceFolder={workspaceFolder}
                 />
               )}
-              {sidebarTab === 'terminal' && (
+              {mode !== 'assembly' && sidebarTab === 'terminal' && (
                 <TerminalSidebar
                   availableShells={availableShells}
                   colors={colors}
@@ -1098,7 +1784,7 @@ export default function Forge3D() {
                   suggestedProjectPath={projectWorkingDirectory}
                 />
               )}
-              {sidebarTab === 'params' && (
+              {mode !== 'assembly' && sidebarTab === 'params' && (
                 <ParamsSidebar
                   colors={colors}
                   onJumpToParam={handleJumpToParam}
@@ -1127,45 +1813,96 @@ export default function Forge3D() {
         {/* Editor panel */}
         <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'relative' }}>
           <div style={{ height: '32px', minHeight: '32px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
-            <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>{currentFileName}{isDirty ? ' *' : ''}</span>
-            <span style={{ fontSize: '11px', color: canUndo || canRedo ? colors.accent : colors.textMuted, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>{history.past.length} undo · {history.future.length} redo</span>
-            <button
-              onClick={() => setShowDiffEditor((value) => !value)}
-              disabled={!isDirty}
-              title={isDirty ? 'Compare current code with last saved code' : 'Diff is available once you have unsaved changes'}
-              style={{
-                background: showDiffEditor ? `${colors.accent}22` : 'transparent',
-                border: `1px solid ${showDiffEditor ? colors.accent : colors.border}`,
-                borderRadius: '999px',
-                color: !isDirty ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
-                cursor: !isDirty ? 'not-allowed' : 'pointer',
-                padding: '3px 8px',
-                fontSize: '11px',
-                fontWeight: 700,
-              }}
-            >Diff</button>
-            <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
-              Start lives in the left rail • Ghost: Alt+/ • Tab • Ctrl+Right • Ctrl+Shift+Right
-            </span>
-            <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>{code.split("\n").length} lines</span>
-            <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
+            {mode === 'assembly' ? (
+              <>
+                <Icons.Cube /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>Assembly Inspector</span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>
+                  {assemblyScene.parts.length} part{assemblyScene.parts.length === 1 ? '' : 's'}
+                </span>
+                <span style={{ fontSize: '11px', color: canUndoAssembly || canRedoAssembly ? colors.accent : colors.textMuted, background: canUndoAssembly || canRedoAssembly ? `${colors.accent}22` : 'transparent', border: canUndoAssembly || canRedoAssembly ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>
+                  {assemblyHistory.past.length} undo · {assemblyHistory.future.length} redo
+                </span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
+                  Drag the amber handle to move • amber ring to rotate • Right drag pans
+                </span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>
+                  {selectedAssemblyPart ? selectedAssemblyPart.name : 'No selection'}
+                </span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
+              </>
+            ) : (
+              <>
+                <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>{currentFileName}{isDirty ? ' *' : ''}</span>
+                <span style={{ fontSize: '11px', color: canUndo || canRedo ? colors.accent : colors.textMuted, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>{history.past.length} undo · {history.future.length} redo</span>
+                <button
+                  onClick={() => setShowDiffEditor((value) => !value)}
+                  disabled={!isDirty}
+                  title={isDirty ? 'Compare current code with last saved code' : 'Diff is available once you have unsaved changes'}
+                  style={{
+                    background: showDiffEditor ? `${colors.accent}22` : 'transparent',
+                    border: `1px solid ${showDiffEditor ? colors.accent : colors.border}`,
+                    borderRadius: '999px',
+                    color: !isDirty ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
+                    cursor: !isDirty ? 'not-allowed' : 'pointer',
+                    padding: '3px 8px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                  }}
+                >Diff</button>
+                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
+                  Start lives in the left rail • Ghost: Alt+/ • Tab • Ctrl+Right • Ctrl+Shift+Right
+                </span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>{code.split("\n").length} lines</span>
+                <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
+              </>
+            )}
           </div>
           <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden' }}>
-            <CodeEditor
-              ref={editorRef}
-              code={code}
-              comparisonCode={lastSavedCode}
-              diagnostics={lspDiagnostics.markers}
-              onBuild={runCode}
-              onChange={applyCodeChange}
-              onOpenBuiltinDocs={setActiveDocKey}
-              onRedo={redoCode}
-              onUndo={undoCode}
-              showDiff={showDiffEditor && isDirty}
-              theme={theme}
-            />
+            {mode === 'assembly' ? (
+              <AssemblyInspector
+                autoRun={autoRun}
+                booleanOperandId={booleanOperandId}
+                booleanOperandOptions={booleanOperandOptions}
+                building={building}
+                canRefreshCurrentRender={canRefreshCurrentRender}
+                colors={colors}
+                currentFileName={currentFileName}
+                measurement={assemblyMeasurement}
+                metrics={selectedAssemblyMetrics}
+                onBooleanOperandChange={setBooleanOperandId}
+                onBooleanRun={handleRunBooleanOperation}
+                onBuildCurrentDesign={handleBuildCurrentDesign}
+                onCenterSelected={centerSelectedAssemblyPart}
+                onClearMeasurementHistory={handleClearMeasurementHistory}
+                onDropToFloor={dropSelectedAssemblyPartToFloor}
+                onMeasurementPrimaryAction={handleMeasurementPrimaryAction}
+                onParamChange={handleParamChange}
+                onPositionChange={handleAssemblyPositionInput}
+                onRefreshCurrentRender={refreshSelectedCurrentRenderPart}
+                onResetParam={handleResetParam}
+                onRotationChange={handleAssemblyRotationInput}
+                onToggleSnap={(enabled) => updateAssemblyScene((current) => ({ ...current, snap: { ...current.snap, enabled } }), { recordHistory: false })}
+                parsedParams={parsedParams}
+                part={selectedAssemblyPart}
+                snap={assemblyScene.snap}
+              />
+            ) : (
+              <CodeEditor
+                ref={editorRef}
+                code={code}
+                comparisonCode={lastSavedCode}
+                diagnostics={lspDiagnostics.markers}
+                onBuild={runCode}
+                onChange={applyCodeChange}
+                onOpenBuiltinDocs={setActiveDocKey}
+                onRedo={redoCode}
+                onUndo={undoCode}
+                showDiff={showDiffEditor && isDirty}
+                theme={theme}
+              />
+            )}
           </div>
-          {activeDocKey && (
+          {mode !== 'assembly' && activeDocKey && (
             <DocsDrawer
               colors={colors}
               docKey={activeDocKey}
@@ -1224,9 +1961,11 @@ export default function Forge3D() {
           colors={colors}
           hiddenPreviewSymbolIds={hiddenPreviewSymbolIds}
           minViewportWidth={MIN_VIEWPORT_WIDTH}
+          mode={mode}
           onCaptureRender={handleCaptureRender}
           onJumpToSymbol={handleJumpToSymbol}
           onTogglePreviewSymbol={handleTogglePreviewSymbol}
+          selectedAssemblyPart={selectedAssemblyPart}
           setViewSettings={setViewSettings}
           symbols={documentSymbols}
           theme={theme}
@@ -1243,6 +1982,7 @@ export default function Forge3D() {
         currentFileName={currentFileName}
         currentFilePath={currentFilePath}
         isDirty={isDirty}
+        mode={mode}
         theme={theme}
         zoomFactor={zoomFactor}
       />

@@ -361,6 +361,32 @@ function createWindow() {
   spawnLSP(win)
 }
 
+async function renderScadInput(inputPath, { removeInput = false, cwd = undefined } = {}) {
+  const ts = Date.now()
+  const outputPath = path.join(os.tmpdir(), `forge3d_${ts}.stl`)
+
+  try {
+    await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
+      cwd,
+      timeout: 60000,
+    })
+
+    return await fs.readFile(outputPath)
+  } finally {
+    if (removeInput) {
+      fs.unlink(inputPath).catch(() => {})
+    }
+    fs.unlink(outputPath).catch(() => {})
+  }
+}
+
+async function renderScadCode(code) {
+  const ts = Date.now()
+  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
+  await fs.writeFile(inputPath, code, 'utf8')
+  return renderScadInput(inputPath, { removeInput: true })
+}
+
 // ── File dialogs ─────────────────────────────────────────────────────────────
 function buildCaptureFileName() {
   const now = new Date()
@@ -420,6 +446,90 @@ ipcMain.handle('dialog:saveStlFile', async (_event, payload = {}) => {
   await fs.writeFile(filePath, content, 'utf8')
   addRecentFile(filePath)
   buildAppMenu()
+  return { filePath, name: path.basename(filePath) }
+})
+
+ipcMain.handle('assembly:importPart', async (_event, options = {}) => {
+  const requestedKind = options?.kind === 'stl' || options?.kind === 'scad' ? options.kind : 'any'
+  const extensions = requestedKind === 'stl'
+    ? ['stl']
+    : requestedKind === 'scad'
+      ? ['scad']
+      : ['scad', 'stl']
+
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: requestedKind === 'stl' ? 'Import STL Part' : requestedKind === 'scad' ? 'Import SCAD Part' : 'Import Assembly Part',
+    filters: [
+      { name: requestedKind === 'stl' ? 'STL files' : requestedKind === 'scad' ? 'SCAD files' : 'Assembly files', extensions },
+      { name: 'All supported files', extensions: ['scad', 'stl'] },
+    ],
+    properties: ['openFile'],
+  })
+
+  if (canceled || filePaths.length === 0) return null
+
+  const filePath = filePaths[0]
+  const extension = path.extname(filePath).toLowerCase()
+
+  try {
+    let stlBuffer = null
+    let sourceKind = 'stl-file'
+
+    if (extension === '.stl') {
+      stlBuffer = await fs.readFile(filePath)
+      sourceKind = 'stl-file'
+    } else if (extension === '.scad') {
+      stlBuffer = await renderScadInput(filePath, { cwd: path.dirname(filePath) })
+      sourceKind = 'scad-file'
+    } else {
+      return { error: `Unsupported file type: ${extension}` }
+    }
+
+    addRecentFile(filePath)
+    buildAppMenu()
+
+    return {
+      name: path.basename(filePath),
+      source: {
+        kind: sourceKind,
+        filePath,
+      },
+      stl: Array.from(stlBuffer),
+    }
+  } catch (err) {
+    return { error: err.stderr || err.stdout || err.message || String(err) }
+  }
+})
+
+ipcMain.handle('assembly:openScene', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Open Assembly Scene',
+    filters: [{ name: 'Forge3D Assembly Scene', extensions: ['json'] }],
+    properties: ['openFile'],
+  })
+
+  if (canceled || filePaths.length === 0) return null
+
+  const filePath = filePaths[0]
+  const content = await fs.readFile(filePath, 'utf8')
+  return { filePath, content, name: path.basename(filePath) }
+})
+
+ipcMain.handle('assembly:saveScene', async (_event, payload = {}) => {
+  const { content = '', filePath: existingPath, suggestedName = 'assembly.forge3dscene.json' } = payload
+  let filePath = existingPath
+
+  if (!filePath) {
+    const { canceled, filePath: chosenPath } = await dialog.showSaveDialog({
+      title: 'Save Assembly Scene',
+      defaultPath: suggestedName,
+      filters: [{ name: 'Forge3D Assembly Scene', extensions: ['json'] }],
+    })
+    if (canceled || !chosenPath) return null
+    filePath = chosenPath
+  }
+
+  await fs.writeFile(filePath, content, 'utf8')
   return { filePath, name: path.basename(filePath) }
 })
 
@@ -591,27 +701,13 @@ ipcMain.handle('workspace:listFiles', async () => {
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
 ipcMain.handle('openscad:render', async (_event, { code }) => {
-  const ts = Date.now()
-  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
-  const outputPath = path.join(os.tmpdir(), `forge3d_${ts}.stl`)
-
   try {
-    await fs.writeFile(inputPath, code, 'utf8')
-
-    await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
-      timeout: 60000,
-    })
-
-    const stlBuffer = await fs.readFile(outputPath)
+    const stlBuffer = await renderScadCode(code)
     // Return as a plain array so it survives IPC serialization
     return { stl: Array.from(stlBuffer) }
   } catch (err) {
     const msg = err.stderr || err.stdout || err.message || String(err)
     return { error: msg }
-  } finally {
-    // Clean up temp files (best-effort)
-    fs.unlink(inputPath).catch(() => {})
-    fs.unlink(outputPath).catch(() => {})
   }
 })
 
