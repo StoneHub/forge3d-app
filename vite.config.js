@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const enableSourceMaps = process.env.FORGE3D_SOURCEMAP === 'true'
+
 export default defineConfig({
   plugins: [react()],
   base: './',
@@ -9,6 +11,15 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: enableSourceMaps,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/monaco-editor')) {
+            return 'monaco'
+          }
+        },
+      },
+    },
   },
 })
