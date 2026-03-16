@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
-import { EXAMPLE_LIBRARY } from "./forge3d/examples.js";
 import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
 import { CodeEditor } from "./forge3d/editor.jsx";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
@@ -12,7 +11,6 @@ import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
 import { requireForgeAPI } from "./forge3d/forge-api.js";
 import ForgeToolbar from "./forge3d/toolbar.jsx";
 import StatusBar from "./forge3d/status-bar.jsx";
-import ExamplesSidebar from "./forge3d/examples-sidebar.jsx";
 import WorkspaceSidebar from "./forge3d/workspace-sidebar.jsx";
 import ParamsSidebar from "./forge3d/params-sidebar.jsx";
 import BottomPane from "./forge3d/bottom-pane.jsx";
@@ -48,6 +46,7 @@ function buildTemplateStatus(templateName, mode, stats = {}) {
 
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
+  const ACTIVITY_RAIL_WIDTH = 52;
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
   const initialPanelLayout = initialWorkspace.panelLayout || {};
   const [history, setHistory] = useState(() => createHistoryState(initialWorkspace.code));
@@ -56,7 +55,7 @@ export default function Forge3D() {
   const [activeTab, setActiveTab] = useState('console');
   const [viewSettings, setViewSettings] = useState(initialWorkspace.viewSettings);
   const [sidebarOpen, setSidebarOpen] = useState(initialPanelLayout.sidebarOpen ?? true);
-  const [sidebarTab, setSidebarTab] = useState('examples');
+  const [sidebarTab, setSidebarTab] = useState('workspace');
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [buildTime, setBuildTime] = useState(0);
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
@@ -87,24 +86,6 @@ export default function Forge3D() {
   const [workspaceFolder, setWorkspaceFolder] = useState(null);
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [parsedParams, setParsedParams] = useState([]);
-  const [exampleSearch, setExampleSearch] = useState('');
-
-  const filteredExamples = useMemo(() => {
-    const q = exampleSearch.trim().toLowerCase();
-    if (!q) return EXAMPLE_LIBRARY;
-    return EXAMPLE_LIBRARY.filter(({ name, category, summary }) =>
-      [name, category, summary].some(v => v.toLowerCase().includes(q))
-    );
-  }, [exampleSearch]);
-
-  const groupedExamples = useMemo(() => {
-    return filteredExamples.reduce((acc, item) => {
-      const group = item.category || 'Other';
-      if (!acc[group]) acc[group] = [];
-      acc[group].push(item);
-      return acc;
-    }, {});
-  }, [filteredExamples]);
 
   // ─── Resizable panels ───────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState(initialPanelLayout.sidebarWidth ?? 240);
@@ -450,7 +431,7 @@ export default function Forge3D() {
 
       const contentWidth = getContentWidth();
       const appHeight = getAppHeight();
-      const sidebarFootprint = sidebarOpen ? dragStartRef.current.sidebarWidth + 6 + 20 : 20;
+      const sidebarFootprint = ACTIVITY_RAIL_WIDTH + (sidebarOpen ? dragStartRef.current.sidebarWidth + 6 : 0);
 
       if (resizingRef.current === 'bottom') {
         const delta = dragStartRef.current.y - e.clientY;
@@ -467,7 +448,7 @@ export default function Forge3D() {
         const delta = e.clientX - dragStartRef.current.x;
         const maxSidebarWidth = Math.max(
           MIN_SIDEBAR_WIDTH,
-          Math.min(MAX_SIDEBAR_WIDTH, contentWidth - 20 - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
+          Math.min(MAX_SIDEBAR_WIDTH, contentWidth - ACTIVITY_RAIL_WIDTH - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
         );
         setSidebarWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth, dragStartRef.current.sidebarWidth + delta)));
       }
@@ -480,20 +461,20 @@ export default function Forge3D() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); };
-  }, [MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen]);
+  }, [ACTIVITY_RAIL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen]);
 
   useEffect(() => {
     const clampLayout = () => {
       const contentWidth = contentRef.current?.clientWidth || window.innerWidth;
       const appHeight = appRef.current?.clientHeight || window.innerHeight;
-      const openSidebarFootprint = sidebarOpen ? sidebarWidth + 6 + 20 : 20;
+      const openSidebarFootprint = ACTIVITY_RAIL_WIDTH + (sidebarOpen ? sidebarWidth + 6 : 0);
       const maxEditorWidth = Math.max(
         MIN_EDITOR_WIDTH,
         contentWidth - openSidebarFootprint - 6 - MIN_VIEWPORT_WIDTH,
       );
       const maxSidebarWidth = Math.max(
         MIN_SIDEBAR_WIDTH,
-        Math.min(MAX_SIDEBAR_WIDTH, contentWidth - 20 - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
+        Math.min(MAX_SIDEBAR_WIDTH, contentWidth - ACTIVITY_RAIL_WIDTH - 6 - 6 - MIN_EDITOR_WIDTH - MIN_VIEWPORT_WIDTH),
       );
       const maxBottomHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(520, appHeight - 220));
 
@@ -505,7 +486,7 @@ export default function Forge3D() {
     clampLayout();
     window.addEventListener('resize', clampLayout);
     return () => window.removeEventListener('resize', clampLayout);
-  }, [MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen, sidebarWidth]);
+  }, [ACTIVITY_RAIL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_BOTTOM_PANEL_HEIGHT, MIN_EDITOR_WIDTH, MIN_SIDEBAR_WIDTH, MIN_VIEWPORT_WIDTH, sidebarOpen, sidebarWidth]);
 
   // ─── Three.js scene ───────────────────────────────────────────────────
   const scene = useThreeRenderer(canvasRef, result.objects, viewSettings, resetViewSignal, fitViewSignal, theme, stlGeometry);
@@ -560,11 +541,17 @@ export default function Forge3D() {
   }, []);
 
   const handleSidebarTabChange = useCallback((nextTab) => {
-    setSidebarTab(nextTab);
+    if (sidebarTab === nextTab) {
+      setSidebarOpen((open) => !open);
+    } else {
+      setSidebarTab(nextTab);
+      setSidebarOpen(true);
+    }
+
     if (nextTab === 'workspace' && workspaceFolder) {
       forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
     }
-  }, [forgeAPI, workspaceFolder]);
+  }, [forgeAPI, sidebarTab, workspaceFolder]);
 
   const handleChooseWorkspaceFolder = useCallback(async () => {
     const folder = await forgeAPI.setWorkspaceFolder();
@@ -573,15 +560,6 @@ export default function Forge3D() {
     const files = await forgeAPI.listWorkspaceFiles();
     setWorkspaceFiles(files || []);
   }, [forgeAPI]);
-
-  const handleLoadExample = useCallback((name, exampleCode) => {
-    queueAutoFitView();
-    replaceCodeWithoutHistory(exampleCode);
-    setLastSavedCode(exampleCode);
-    setCurrentFileName(`${name.toLowerCase().replace(/\s+/g, '-')}.scad`);
-    setCurrentFilePath(null);
-    setStatusMessage(`Loaded example: ${name}`);
-  }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
   const handleInsertTemplate = useCallback((template, mode = templateInsertMode) => {
     const insertion = prepareTemplateInsertion(template, code, mode);
@@ -708,35 +686,86 @@ export default function Forge3D() {
 
       {/* ── Body ── */}
       <div ref={contentRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar */}
+        <div style={{ width: ACTIVITY_RAIL_WIDTH, minWidth: ACTIVITY_RAIL_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0 8px', gap: '8px', flexShrink: 0 }}>
+          {[
+            { id: 'workspace', label: 'Workspace', icon: Icons.Folder },
+            { id: 'params', label: 'Params', icon: Icons.Sliders },
+          ].map(({ id, icon: Icon, label }) => {
+            const active = sidebarTab === id && sidebarOpen;
+            return (
+              <button
+                key={id}
+                onClick={() => handleSidebarTabChange(id)}
+                title={label}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  border: `1px solid ${active ? colors.accent : 'transparent'}`,
+                  background: active ? `${colors.accent}22` : 'transparent',
+                  color: active ? colors.accent : colors.textMuted,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                }}
+              >
+                {active && <span style={{ position: 'absolute', left: '-11px', top: '8px', bottom: '8px', width: '3px', borderRadius: '999px', background: colors.accent }} />}
+                <Icon />
+              </button>
+            );
+          })}
+
+          <div style={{ flex: 1 }} />
+
+          <button
+            onClick={() => setSidebarOpen((open) => !open)}
+            title={sidebarOpen ? 'Collapse sidebar panel' : 'Expand sidebar panel'}
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              border: `1px solid ${colors.border}`,
+              background: colors.bgDarker,
+              color: colors.textMuted,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span style={{ display: 'inline-flex', transform: sidebarOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+              <Icons.ChevRight />
+            </span>
+          </button>
+        </div>
+
         {sidebarOpen && (
           <div style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, background: colors.bgDark, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-            <div style={{ display: 'flex', borderBottom: `1px solid ${colors.border}` }}>
-              {[{ id: 'examples', label: '📂 Examples' }, { id: 'workspace', label: '📁 Workspace' }, { id: 'params', label: '⚙ Params' }].map(({ id, label }) => (
-                <button key={id} onClick={() => handleSidebarTabChange(id)}
-                  style={{ flex: 1, padding: '6px 2px', background: sidebarTab === id ? colors.bgPanel : 'transparent', border: 'none', borderBottom: sidebarTab === id ? `2px solid ${colors.accent}` : '2px solid transparent', color: sidebarTab === id ? colors.accent : colors.textMuted, cursor: 'pointer', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}
-                >{label}</button>
-              ))}
+            <div style={{ borderBottom: `1px solid ${colors.border}`, padding: '10px 12px 8px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: colors.textFaint }}>
+                {sidebarTab === 'workspace' ? 'Workspace' : 'Params'}
+              </div>
+              <div style={{ fontSize: '11px', color: colors.textMuted, marginTop: '3px' }}>
+                {sidebarTab === 'workspace'
+                  ? 'Project files, recent files, and local modeling setup.'
+                  : 'Live parameters parsed from the current file.'}
+              </div>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
-              {sidebarTab === 'examples' && (
-                <ExamplesSidebar
-                  colors={colors}
-                  exampleSearch={exampleSearch}
-                  filteredExamples={filteredExamples}
-                  groupedExamples={groupedExamples}
-                  onClearRecentFiles={handleClearRecentFiles}
-                  onExampleSearchChange={setExampleSearch}
-                  onLoadExample={handleLoadExample}
-                  onOpenRecentFile={openFilePath}
-                  recentFiles={recentFiles}
-                />
-              )}
+            <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
               {sidebarTab === 'workspace' && (
                 <WorkspaceSidebar
                   colors={colors}
+                  currentFileName={currentFileName}
+                  currentFilePath={currentFilePath}
                   onChooseWorkspaceFolder={handleChooseWorkspaceFolder}
+                  onClearRecentFiles={handleClearRecentFiles}
+                  onNewFile={resetWorkspace}
+                  onOpenFile={openFile}
+                  onOpenRecentFile={openFilePath}
                   onOpenWorkspaceFile={openFilePath}
+                  recentFiles={recentFiles}
                   workspaceFiles={workspaceFiles}
                   workspaceFolder={workspaceFolder}
                 />
@@ -766,12 +795,6 @@ export default function Forge3D() {
             <div style={{ position: 'absolute', top: '50%', left: '1px', right: '1px', height: '34px', transform: 'translateY(-50%)', borderRadius: '999px', background: `${colors.borderHover}66` }} />
           </div>
         )}
-
-        <button
-          onClick={() => setSidebarOpen(o => !o)}
-          title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-          style={{ width: '20px', minWidth: '20px', background: colors.bgDarker, border: 'none', borderRight: `1px solid ${colors.border}`, color: colors.textFaint, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: '10px' }}
-        >{sidebarOpen ? '◀' : '▶'}</button>
 
         {/* Editor panel */}
         <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'relative' }}>

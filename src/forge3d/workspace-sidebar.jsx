@@ -1,34 +1,173 @@
 import Icons from './icons.jsx';
 
-export default function WorkspaceSidebar({ colors, onChooseWorkspaceFolder, onOpenWorkspaceFile, workspaceFiles, workspaceFolder }) {
+function renderActionButton(colors, Icon, label, onClick, title, accent = false) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      {workspaceFolder ? (
-        <>
-          <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span title={workspaceFolder}>📁 {workspaceFolder.split(/[\\/]/).pop()}</span>
-            <button onClick={onChooseWorkspaceFolder} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Change folder">📂</button>
-          </div>
-          {workspaceFiles.length === 0 ? (
-            <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px', textAlign: 'center' }}>No .scad files found</div>
-          ) : (
-            workspaceFiles.map((file) => (
-              <button key={file.fullPath} onClick={() => onOpenWorkspaceFile(file.fullPath)} title={file.relativePath}
-                style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.15s' }}
-                onMouseEnter={(event) => Object.assign(event.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
-                onMouseLeave={(event) => Object.assign(event.currentTarget.style, { background: colors.bgPanel, borderColor: colors.border })}
-              ><Icons.File /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.relativePath}</span></button>
-            ))
-          )}
-        </>
-      ) : (
-        <div style={{ textAlign: 'center', padding: '16px 8px' }}>
-          <div style={{ color: colors.textFaint, fontSize: '11px', marginBottom: '10px' }}>Set a workspace folder to browse .scad files</div>
-          <button onClick={onChooseWorkspaceFolder}
-            style={{ background: `${colors.accent}22`, border: `1px solid ${colors.accent}`, color: colors.accent, padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
-          >📁 Set Workspace Folder</button>
+    <button
+      onClick={onClick}
+      title={title || label}
+      style={{
+        background: accent ? `${colors.accent}22` : colors.bgPanel,
+        border: `1px solid ${accent ? colors.accent : colors.border}`,
+        borderRadius: '8px',
+        color: accent ? colors.accent : colors.text,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '11px',
+        fontWeight: 600,
+        justifyContent: 'center',
+        padding: '8px 10px',
+      }}
+    >
+      <Icon />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+export default function WorkspaceSidebar({
+  colors,
+  currentFileName,
+  currentFilePath,
+  onChooseWorkspaceFolder,
+  onClearRecentFiles,
+  onNewFile,
+  onOpenFile,
+  onOpenRecentFile,
+  onOpenWorkspaceFile,
+  recentFiles,
+  workspaceFiles,
+  workspaceFolder,
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+        {renderActionButton(colors, Icons.File, 'New File', onNewFile, 'Start a new workspace')}
+        {renderActionButton(colors, Icons.File, 'Open File', onOpenFile, 'Open a .scad file')}
+      </div>
+
+      <div>
+        {renderActionButton(colors, Icons.Folder, workspaceFolder ? 'Change Folder' : 'Set Folder', onChooseWorkspaceFolder, 'Choose a workspace folder', true)}
+      </div>
+
+      <div style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '10px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colors.textFaint, marginBottom: '8px' }}>
+          Current File
         </div>
-      )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: colors.text, fontSize: '12px' }}>
+          <Icons.File />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentFileName}
+            </div>
+            <div style={{ color: colors.textMuted, fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentFilePath || 'Unsaved workspace file'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: colors.bgPanel, border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '10px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colors.textFaint, marginBottom: '8px' }}>
+          Modeling Flow
+        </div>
+        <div style={{ color: colors.textMuted, fontSize: '11px', lineHeight: 1.5 }}>
+          Use the toolbar Templates menu for larger starters and the editor Quick Start button for small building blocks like cube, sphere, plane, and offset.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Recent Files</span>
+          {recentFiles.length > 0 && (
+            <button onClick={onClearRecentFiles} style={{ background: 'none', border: 'none', color: colors.textFaint, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title="Clear recent files">
+              Clear
+            </button>
+          )}
+        </div>
+        {recentFiles.length === 0 ? (
+          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '6px 2px' }}>Recent .scad files will appear here.</div>
+        ) : (
+          recentFiles.slice(0, 8).map((filePath) => {
+            const fileName = filePath.split(/[\\/]/).pop();
+            const isActive = currentFilePath === filePath;
+            return (
+              <button
+                key={filePath}
+                onClick={() => onOpenRecentFile(filePath)}
+                title={filePath}
+                style={{
+                  background: isActive ? `${colors.accent}16` : colors.bgPanel,
+                  border: `1px solid ${isActive ? colors.accent : colors.border}`,
+                  color: isActive ? colors.accent : colors.text,
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(event) => Object.assign(event.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
+                onMouseLeave={(event) => Object.assign(event.currentTarget.style, { background: isActive ? `${colors.accent}16` : colors.bgPanel, borderColor: isActive ? colors.accent : colors.border })}
+              >
+                <Icons.File />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileName}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: colors.textFaint, padding: '2px', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{workspaceFolder ? workspaceFolder.split(/[\\/]/).pop() : 'Workspace Folder'}</span>
+          <button onClick={onChooseWorkspaceFolder} style={{ background: 'none', border: 'none', color: colors.accent, cursor: 'pointer', fontSize: '10px', padding: '2px 4px' }} title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}>
+            Browse
+          </button>
+        </div>
+
+        {!workspaceFolder ? (
+          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px 2px', lineHeight: 1.45 }}>
+            Set a workspace folder to browse local `.scad` files like a project explorer.
+          </div>
+        ) : workspaceFiles.length === 0 ? (
+          <div style={{ color: colors.textFaint, fontSize: '11px', padding: '8px 2px', textAlign: 'center' }}>No .scad files found</div>
+        ) : (
+          workspaceFiles.map((file) => {
+            const isActive = currentFilePath === file.fullPath;
+            return (
+              <button
+                key={file.fullPath}
+                onClick={() => onOpenWorkspaceFile(file.fullPath)}
+                title={file.relativePath}
+                style={{
+                  background: isActive ? `${colors.accent}16` : colors.bgPanel,
+                  border: `1px solid ${isActive ? colors.accent : colors.border}`,
+                  color: isActive ? colors.accent : colors.text,
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(event) => Object.assign(event.currentTarget.style, { background: colors.btnHover, borderColor: colors.accent })}
+                onMouseLeave={(event) => Object.assign(event.currentTarget.style, { background: isActive ? `${colors.accent}16` : colors.bgPanel, borderColor: isActive ? colors.accent : colors.border })}
+              >
+                <Icons.File />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.relativePath}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

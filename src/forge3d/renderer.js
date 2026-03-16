@@ -28,6 +28,56 @@ function createViewportBackgroundTexture(theme) {
   return texture;
 }
 
+function applyGridOpacity(grid, opacity) {
+  const materials = Array.isArray(grid.material) ? grid.material : [grid.material];
+  for (const material of materials) {
+    material.transparent = true;
+    material.opacity = opacity;
+    material.depthWrite = false;
+  }
+}
+
+function createInfiniteGrid(theme) {
+  const group = new THREE.Group();
+  const fineGrid = new THREE.GridHelper(
+    800,
+    80,
+    theme === 'dark' ? 0x243242 : 0xd7e0ea,
+    theme === 'dark' ? 0x243242 : 0xd7e0ea,
+  );
+  const majorGrid = new THREE.GridHelper(
+    800,
+    16,
+    theme === 'dark' ? 0x49627c : 0xa8bacd,
+    theme === 'dark' ? 0x49627c : 0xa8bacd,
+  );
+
+  applyGridOpacity(fineGrid, theme === 'dark' ? 0.2 : 0.32);
+  applyGridOpacity(majorGrid, theme === 'dark' ? 0.42 : 0.5);
+
+  fineGrid.position.y = -0.02;
+  majorGrid.position.y = -0.01;
+
+  group.add(fineGrid);
+  group.add(majorGrid);
+  group.userData = {
+    fineGrid,
+    majorGrid,
+    fineStep: 10,
+    majorStep: 50,
+  };
+  return group;
+}
+
+function updateInfiniteGridPosition(gridGroup, targetX, targetZ) {
+  if (!gridGroup?.userData) return;
+  const { fineGrid, majorGrid, fineStep, majorStep } = gridGroup.userData;
+  fineGrid.position.x = Math.round(targetX / fineStep) * fineStep;
+  fineGrid.position.z = Math.round(targetZ / fineStep) * fineStep;
+  majorGrid.position.x = Math.round(targetX / majorStep) * majorStep;
+  majorGrid.position.z = Math.round(targetZ / majorStep) * majorStep;
+}
+
 // ── Dimension Brackets Helper ───────────────────────────────────────────────
 function createDimensionBracket(start, end, offset, label, color = 0x4fc3f7) {
   const group = new THREE.Group();
@@ -198,10 +248,11 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
 
     newScene.add(new THREE.AmbientLight(0xffffff, theme === 'dark' ? 0.08 : 0.06));
 
+    let infiniteGrid = null;
     if (viewSettings.grid) {
-      const gridColor = theme === 'dark' ? 0x333355 : 0xccccdd;
-      const gridColor2 = theme === 'dark' ? 0x222244 : 0xddddee;
-      newScene.add(new THREE.GridHelper(100, 20, gridColor, gridColor2));
+      infiniteGrid = createInfiniteGrid(theme);
+      updateInfiniteGridPosition(infiniteGrid, m.panX, m.panZ);
+      newScene.add(infiniteGrid);
     }
     if (viewSettings.axes) newScene.add(new THREE.AxesHelper(15));
 
@@ -401,7 +452,13 @@ function useThreeRenderer(canvasRef, objects, viewSettings, resetViewSignal = 0,
       }
     }
 
-    function animate() { frameRef.current = requestAnimationFrame(animate); renderer.render(newScene, camera); }
+    function animate() {
+      frameRef.current = requestAnimationFrame(animate);
+      if (infiniteGrid) {
+        updateInfiniteGridPosition(infiniteGrid, m.panX, m.panZ);
+      }
+      renderer.render(newScene, camera);
+    }
     animate();
 
     // ── Controls ──────────────────────────────────────────────────────
