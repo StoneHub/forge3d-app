@@ -1,4 +1,6 @@
-# Forge3D Workflow Design — Design Mode ↔ Print Mode
+# Forge3D Workflow Design — Future Print Mode Guidance
+
+> Status: future-facing reference only. Assembly Mode is now the active post-build workflow priority; this document should not be treated as the current implementation target.
 
 ## Overview
 
@@ -275,7 +277,7 @@ Three.js mesh                        PrusaSlicer CLI
 
 ## IMPLEMENTATION PHASES
 
-### Phase 1: Print Mode UI Shell (CURRENT PRIORITY)
+### Phase 1: Print Mode UI Shell (Future Stage)
 - [ ] Add `mode` state: `'design' | 'print'`
 - [ ] Create `src/forge3d/PrintBed.jsx` — print bed viewport component
 - [ ] Create `src/forge3d/PrintSettings.jsx` — settings form component

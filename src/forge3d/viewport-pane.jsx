@@ -6,9 +6,11 @@ export default function ViewportPane({
   colors,
   hiddenPreviewSymbolIds,
   minViewportWidth,
+  mode = 'design',
   onCaptureRender,
   onJumpToSymbol,
   onTogglePreviewSymbol,
+  selectedAssemblyPart,
   setViewSettings,
   symbols,
   theme,
@@ -46,16 +48,26 @@ export default function ViewportPane({
         <button title="Capture Render" onClick={() => onCaptureRender?.()} style={buttonStyle(false)}><Icons.Camera /></button>
       </div>
 
-      <ViewportTree
-        colors={colors}
-        hiddenIds={hiddenPreviewSymbolIds}
-        onJumpToSymbol={onJumpToSymbol}
-        onToggleSymbol={onTogglePreviewSymbol}
-        symbols={symbols}
-      />
+      {mode !== 'assembly' && (
+        <ViewportTree
+          colors={colors}
+          hiddenIds={hiddenPreviewSymbolIds}
+          onJumpToSymbol={onJumpToSymbol}
+          onToggleSymbol={onTogglePreviewSymbol}
+          symbols={symbols}
+        />
+      )}
 
       <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: colors.surfaceOverlay || `${colors.bg}dd`, borderRadius: '10px', padding: '8px 11px', fontSize: '11px', color: colors.textMuted, fontWeight: 700, backdropFilter: 'blur(10px)', border: `1px solid ${colors.borderHover}`, boxShadow: theme === 'dark' ? '0 8px 24px rgba(0,0,0,0.24)' : '0 8px 20px rgba(64,80,96,0.14)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span><span>Zoom: Ctrl+= / - / 0</span>
+        {mode === 'assembly' ? (
+          <>
+            <span>Orbit: LMB</span><span>Pan: RMB</span><span>Move: Amber handle</span><span>Rotate: Amber ring</span><span>Undo: Ctrl+Z</span><span>{selectedAssemblyPart ? `Selected: ${selectedAssemblyPart.name}` : 'Select a part to edit'}</span>
+          </>
+        ) : (
+          <>
+            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span><span>Zoom: Ctrl+= / - / 0</span>
+          </>
+        )}
       </div>
 
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />

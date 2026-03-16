@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   readFileSnapshot: (filePath) => ipcRenderer.invoke('file:readSnapshot', filePath),
   watchFile: (filePath) => ipcRenderer.invoke('file:watch', filePath),
   unwatchFile: () => ipcRenderer.invoke('file:unwatch'),
+  importAssemblyPart: (options) => ipcRenderer.invoke('assembly:importPart', options),
+  openAssemblyScene: () => ipcRenderer.invoke('assembly:openScene'),
+  saveAssemblyScene: (payload) => ipcRenderer.invoke('assembly:saveScene', payload),
 
   // Zoom controls
   getZoomFactor: () => ipcRenderer.invoke('zoom:get'),

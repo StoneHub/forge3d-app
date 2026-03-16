@@ -16,7 +16,7 @@ _Last updated: 2026-03-15 — Electron-native v3.0_
 - Native OpenSCAD IPC render (`openscad.com` via `execFile`)
 - `openscad-lsp` bundled + Problems tab with real-time diagnostics
 - Three.js viewport (orbit, pan, zoom, HDRI, shadows, grid, axes)
-- CodeMirror-style editor (syntax highlight, auto-close, undo/redo)
+- Monaco-based editor (syntax highlight, auto-close, undo/redo)
 - File open/save (native dialogs), drag-and-drop
 - STL export
 - MIT license, public GitHub repo
@@ -84,7 +84,7 @@ Forge3D should grow beyond a single-model editor into a lightweight assembly wor
 
 See also: `docs/assembly-mode-plan.md` for the recommended split between Assembly Mode and later Print Mode, plus the first-pass UX based on Microsoft 3D Builder patterns.
 
-**Immediate Phase 2A goal:** add a "reference parts" workflow first. Users should be able to load a second template or `.scad` file beside the current model on the same scene/build plate without mutating the working file just to compare fit, spacing, gaps, or intersections.
+**Immediate Phase 2A goal ("Reference Parts First"):** add a reference-parts workflow first. Users should be able to load a second template or `.scad` file beside the current model on the same scene/build plate without mutating the working file just to compare fit, spacing, gaps, or intersections.
 
 **Why this matters:**
 - Makes kitbashing and print prep much faster

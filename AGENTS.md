@@ -16,7 +16,7 @@ src/
   main.jsx              # React entry
   Forge3D.jsx           # Main app component (all UI state lives here)
   forge3d/
-    editor.jsx          # CodeMirror-style editor component
+    editor.jsx          # Monaco-based editor component
     examples.js         # Built-in .scad example gallery
     exporter.js         # STL export (Three.js scene → STL text)
     icons.jsx           # 18 SVG icon components
