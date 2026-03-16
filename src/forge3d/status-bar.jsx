@@ -1,4 +1,6 @@
-export default function StatusBar({ allErrors, building, code, colors, currentFileName, currentFilePath, isDirty, theme }) {
+export default function StatusBar({ allErrors, building, code, colors, currentFileName, currentFilePath, isDirty, theme, zoomFactor = 1 }) {
+  const zoomPercent = `${Math.round((zoomFactor || 1) * 100)}%`;
+
   return (
     <div style={{ position: 'relative', height: '24px', minHeight: '24px' }}>
       <style>{`@keyframes forge-build-sweep { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }`}</style>
@@ -11,6 +13,7 @@ export default function StatusBar({ allErrors, building, code, colors, currentFi
       <div style={{ height: '24px', minHeight: '24px', background: building ? (theme === 'dark' ? '#2a5270' : '#1976d2') : (allErrors.length > 0 ? colors.error : colors.accent), display: 'flex', alignItems: 'center', padding: '0 12px', gap: '16px', fontSize: '11px', color: theme === 'dark' ? '#111' : '#fff', fontWeight: 500, transition: 'background 0.3s' }}>
         <span>{building ? 'Rendering in progress...' : allErrors.length === 0 ? (isDirty ? '● Unsaved changes' : '✓ Saved / synced') : `✗ ${allErrors.length} error(s)`}</span>
         <span>{code.split('\n').length} lines</span>
+        <span>Zoom {zoomPercent}</span>
         <span>{currentFilePath ? currentFilePath : currentFileName}</span>
         <span style={{ marginLeft: 'auto' }}>Forge3D — OpenSCAD Modeling</span>
       </div>

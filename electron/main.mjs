@@ -20,6 +20,9 @@ const OPENSCAD_BIN = 'C:\\Program Files\\OpenSCAD\\openscad.com'
 // ── Config (userData JSON) ──────────────────────────────────────────────────
 const CONFIG_PATH = path.join(app.getPath('userData'), 'forge3d-config.json')
 const MAX_RECENT_FILES = 10
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 2.5
+const ZOOM_STEP = 0.1
 
 function loadConfig() {
   try {
@@ -27,7 +30,7 @@ function loadConfig() {
       return JSON.parse(fsSync.readFileSync(CONFIG_PATH, 'utf8'))
     }
   } catch (_) {}
-  return { recentFiles: [], workspaceFolder: null }
+  return { recentFiles: [], workspaceFolder: null, zoomFactor: 1 }
 }
 
 function saveConfig(config) {
@@ -44,6 +47,46 @@ function addRecentFile(filePath) {
   config.recentFiles = [filePath, ...config.recentFiles.filter(f => f !== filePath)].slice(0, MAX_RECENT_FILES)
   saveConfig(config)
   return config.recentFiles
+}
+
+function clampZoomFactor(value) {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100))
+}
+
+function getSavedZoomFactor() {
+  return clampZoomFactor(loadConfig().zoomFactor ?? 1)
+}
+
+function getWindowZoomFactor(win) {
+  if (!win?.webContents) return getSavedZoomFactor()
+  return clampZoomFactor(win.webContents.getZoomFactor())
+}
+
+function persistZoomFactor(zoomFactor) {
+  const config = loadConfig()
+  config.zoomFactor = clampZoomFactor(zoomFactor)
+  saveConfig(config)
+  return config.zoomFactor
+}
+
+function notifyZoomChange(win, zoomFactor = getWindowZoomFactor(win)) {
+  if (!win?.webContents || win.isDestroyed()) return
+  win.webContents.send('zoom:changed', clampZoomFactor(zoomFactor))
+}
+
+function setWindowZoomFactor(win, zoomFactor, { persist = true, notify = true } = {}) {
+  const nextZoom = clampZoomFactor(zoomFactor)
+  if (win?.webContents && !win.isDestroyed()) {
+    win.webContents.setZoomFactor(nextZoom)
+  }
+  if (persist) persistZoomFactor(nextZoom)
+  if (notify) notifyZoomChange(win, nextZoom)
+  return nextZoom
+}
+
+function adjustWindowZoomFactor(win, delta, options) {
+  return setWindowZoomFactor(win, getWindowZoomFactor(win) + delta, options)
 }
 
 // ── LSP process ────────────────────────────────────────────────────────────
@@ -177,9 +220,9 @@ function buildAppMenu() {
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setWindowZoomFactor(mainWin, 1) },
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => adjustWindowZoomFactor(mainWin, ZOOM_STEP) },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => adjustWindowZoomFactor(mainWin, -ZOOM_STEP) },
         { role: 'togglefullscreen' },
       ],
     },
@@ -189,6 +232,7 @@ function buildAppMenu() {
 
 // ── Window ──────────────────────────────────────────────────────────────────
 function createWindow() {
+  const initialZoom = getSavedZoomFactor()
   const windowIcon = getWindowIconPath()
   const win = new BrowserWindow({
     width: 1400,
@@ -207,6 +251,7 @@ function createWindow() {
 
   mainWin = win
   buildAppMenu()
+  setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
 
   if (isDev) {
     win.loadURL('http://localhost:5173')
@@ -214,6 +259,35 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+
+  win.webContents.on('did-finish-load', () => {
+    notifyZoomChange(win, getWindowZoomFactor(win))
+  })
+
+  win.webContents.on('before-input-event', (event, input) => {
+    const modifier = input.control || input.meta
+    if (!modifier || input.alt || input.type !== 'keyDown') return
+
+    const code = input.code || ''
+    const key = input.key || ''
+
+    if (key === '0' || code === 'Digit0' || code === 'Numpad0') {
+      event.preventDefault()
+      setWindowZoomFactor(win, 1)
+      return
+    }
+
+    if (key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract') {
+      event.preventDefault()
+      adjustWindowZoomFactor(win, -ZOOM_STEP)
+      return
+    }
+
+    if (key === '+' || key === '=' || code === 'Equal' || code === 'NumpadAdd') {
+      event.preventDefault()
+      adjustWindowZoomFactor(win, ZOOM_STEP)
+    }
+  })
 
   spawnLSP(win)
 }
@@ -309,6 +383,22 @@ ipcMain.handle('recentFiles:clear', () => {
   saveConfig(config)
   buildAppMenu()
   return []
+})
+
+// ── Zoom IPC ────────────────────────────────────────────────────────────────
+ipcMain.handle('zoom:get', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return getWindowZoomFactor(win)
+})
+
+ipcMain.handle('zoom:set', (event, zoomFactor) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return setWindowZoomFactor(win, zoomFactor)
+})
+
+ipcMain.handle('zoom:adjust', (event, delta = 0) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return adjustWindowZoomFactor(win, Number(delta) || 0)
 })
 
 // ── Workspace folder IPC ────────────────────────────────────────────────────

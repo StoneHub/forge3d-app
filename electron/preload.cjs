@@ -12,6 +12,16 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   saveStlFile: (payload) => ipcRenderer.invoke('dialog:saveStlFile', payload),
   openFilePath: (filePath) => ipcRenderer.invoke('file:openPath', filePath),
 
+  // Zoom controls
+  getZoomFactor: () => ipcRenderer.invoke('zoom:get'),
+  setZoomFactor: (factor) => ipcRenderer.invoke('zoom:set', factor),
+  adjustZoomFactor: (delta) => ipcRenderer.invoke('zoom:adjust', delta),
+  onZoomChanged: (cb) => {
+    const handler = (_event, zoomFactor) => cb(zoomFactor)
+    ipcRenderer.on('zoom:changed', handler)
+    return () => ipcRenderer.removeListener('zoom:changed', handler)
+  },
+
   // Recent files
   getRecentFiles: () => ipcRenderer.invoke('recentFiles:get'),
   addRecentFile: (filePath) => ipcRenderer.invoke('recentFiles:add', filePath),

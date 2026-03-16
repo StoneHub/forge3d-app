@@ -252,6 +252,24 @@ ipcMain.handle('slicer:openInPS', (_e, { stlPath }) => {
 
 ## Phase 3 — Editor Upgrades
 
+### Editor UX Follow-Up Batch
+This batch addresses the "make Forge3D feel like a real IDE" layer without changing the core native OpenSCAD architecture.
+
+**Scope:**
+- IDE-style zoom with `Ctrl+=`, `Ctrl+-`, and `Ctrl+0`, plus a visible zoom indicator and persisted zoom level
+- A **Quick Start** surface for simple starter snippets: cube, sphere, cylinder, square/plane, offset, hull, union/difference, transforms, and module/function skeletons
+- Smarter template insertion that preserves existing generated parameters instead of clobbering them
+- Adaptive parameter slider ranges based on explicit `@param` metadata first, then file-scale heuristics
+- A document outline for modules, functions, top-level vars, and template blocks, which can later grow into a lightweight scene/build tree
+- Built-in snapshot + diff history so users are not limited to undo/redo
+
+**Recommended implementation order:**
+1. IDE-style zoom + Quick Start panel
+2. Template merge/preserve flow + adaptive param ranges
+3. Outline/symbol navigation
+4. Snapshot history + diff preview/restore
+5. Inline completions / AI prediction once the editor surface can support ghost text cleanly
+
 ### 3A. LSP Inline Squiggles
 The LSP is running, sending diagnostics. Wire them into the editor as visual underlines.
 
@@ -291,6 +309,7 @@ Make the editor and viewport feel connected, similar to how the Params panel alr
    - Show a small inspector with source line, transform, dimensions, and material/color
 3. **Build tree / scene tree**
    - Show a hierarchical list of generated parts or operations
+   - Place the first version in the **View / viewport panel** so visibility toggles live next to the model, not in the Params tab
    - Selecting a tree node isolates/highlights that geometry in the viewport
 4. **Step-through construction mode**
    - Let users scrub through unions, differences, hulls, and extrusions in order
@@ -302,6 +321,27 @@ Make the editor and viewport feel connected, similar to how the Params panel alr
    - Allow agents to inspect code, geometry, and render state together instead of guessing from text alone
 
 **Practical note:** because Forge3D renders through native OpenSCAD, the most realistic first version is a lightweight scene/build tree plus editor jump/highlight links, not perfect AST-level mapping for every triangle.
+
+### 3F. Inline Completions & AI Prediction
+Support both standard code completion and optional AI "ghost text" without coupling Forge3D to any one provider.
+
+**Phase 1: LSP-backed completions**
+- Extend the existing OpenSCAD language-server bridge beyond diagnostics
+- Request regular completions and document symbols from the bundled server
+- Reuse those results for completion lists, jump-to-symbol, and an outline/sidebar tree
+
+**Phase 2: AI inline prediction**
+- Add a provider abstraction in Electron: `none`, user API key, local OpenAI-compatible endpoint, or experimental local CLI adapter
+- Recommended first-party path: user-owned API keys in `userData/config.json` so Forge3D stays offline-friendly and serverless
+- Treat Codex CLI / Claude Code session integration as **explicit experimental adapters**, not as a dependency on scraping an arbitrary live terminal session
+
+**UX guidance borrowed from other IDEs:**
+- Keep language-server completions and AI ghost text as separate layers
+- Let `Tab` accept a prediction when there is no conflict; use a modifier/subtle mode when a completion menu is already open
+- Support "accept next word" and "accept next line" for multi-line predictions
+- Make predictions easy to disable per language or globally
+
+**Practical note:** the current textarea + overlay editor is fine for find, jump, and light squiggles, but robust ghost text, diff review, symbol trees, and rich completion UX may justify migrating the editor surface to Monaco or CodeMirror 6 before going deep on AI completions.
 
 ---
 

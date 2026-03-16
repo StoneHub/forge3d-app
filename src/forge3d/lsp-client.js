@@ -11,7 +11,7 @@ function nextId() { return _msgId++; }
  * useLSP — React hook
  * @param {string} code — current editor content
  * @param {string|null} filePath — current file path (used as document URI)
- * @param {function} onDiagnostics — called with { errors: string[], warnings: string[] }
+ * @param {function} onDiagnostics — called with { errors: string[], warnings: string[], markers: object[] }
  */
 export function useLSP(code, filePath, onDiagnostics) {
   const forgeAPI = requireForgeAPI();
@@ -64,14 +64,28 @@ export function useLSP(code, filePath, onDiagnostics) {
           const diags = msg.params?.diagnostics ?? [];
           const errors = [];
           const warnings = [];
+          const markers = [];
           for (const d of diags) {
             // severity: 1=Error, 2=Warning, 3=Info, 4=Hint
-            const line = (d.range?.start?.line ?? 0) + 1; // 1-based
-            const text = `[line ${line}] ${d.message}`;
+            const startLineNumber = (d.range?.start?.line ?? 0) + 1;
+            const startColumn = (d.range?.start?.character ?? 0) + 1;
+            const endLineNumber = (d.range?.end?.line ?? d.range?.start?.line ?? 0) + 1;
+            const endColumn = (d.range?.end?.character ?? d.range?.start?.character ?? 0) + 1;
+            const text = `[line ${startLineNumber}] ${d.message}`;
+
+            markers.push({
+              message: d.message,
+              severity: d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info',
+              startLineNumber,
+              startColumn,
+              endLineNumber,
+              endColumn: Math.max(startColumn + 1, endColumn),
+            });
+
             if (d.severity === 1) errors.push(text);
             else warnings.push(text);
           }
-          onDiagnostics({ errors, warnings });
+          onDiagnostics({ errors, warnings, markers });
         }
       } catch (_) {}
     });

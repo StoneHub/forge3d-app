@@ -17,6 +17,8 @@ import WorkspaceSidebar from "./forge3d/workspace-sidebar.jsx";
 import ParamsSidebar from "./forge3d/params-sidebar.jsx";
 import BottomPane from "./forge3d/bottom-pane.jsx";
 import ViewportPane from "./forge3d/viewport-pane.jsx";
+import QuickStartPanel from "./forge3d/quickstart-panel.jsx";
+import { prepareTemplateInsertion } from "./forge3d/template-merge.js";
 import { getThemeColors } from "./forge3d/theme.js";
 
 // ─── HISTORY ────────────────────────────────────────────────────────
@@ -24,10 +26,24 @@ function createHistoryState(initialCode) {
   return { past: [], present: initialCode, future: [] };
 }
 
-function buildTemplateAppendBlock(template) {
-  return `// --- Forge3D Template: ${template.name} ---
-${template.code.trim()}
-// --- End Forge3D Template: ${template.name} ---`;
+function buildTemplateStatus(templateName, mode, stats = {}) {
+  const actionLabel = mode === 'replace' ? 'Merged template' : mode === 'cursor' ? 'Inserted template' : 'Added template';
+  const details = [];
+
+  if (stats.reusedParamCount > 0) {
+    details.push(`kept ${stats.reusedParamCount} existing param${stats.reusedParamCount === 1 ? '' : 's'}`);
+  }
+
+  if (stats.addedParamCount > 0) {
+    details.push(`added ${stats.addedParamCount} new param${stats.addedParamCount === 1 ? '' : 's'}`);
+  }
+
+  if (stats.reusedSpecialCount > 0) {
+    details.push(`reused ${stats.reusedSpecialCount} render setting${stats.reusedSpecialCount === 1 ? '' : 's'}`);
+  }
+
+  if (details.length === 0) return `${actionLabel}: ${templateName}`;
+  return `${actionLabel}: ${templateName} (${details.join(', ')})`;
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────
@@ -47,6 +63,7 @@ export default function Forge3D() {
   const [currentFilePath, setCurrentFilePath] = useState(null);
   const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.code);
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
+  const [zoomFactor, setZoomFactor] = useState(1);
   const [resetViewSignal, setResetViewSignal] = useState(0);
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
@@ -56,10 +73,13 @@ export default function Forge3D() {
   const canvasRef = useRef(null);
   const timerRef = useRef(null);
   const editorRef = useRef(null);
+  const quickStartButtonRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [stlGeometry, setStlGeometry] = useState(null);
   const [building, setBuilding] = useState(false);
-  const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [] });
+  const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
+  const [showDiffEditor, setShowDiffEditor] = useState(false);
+  const [showQuickStart, setShowQuickStart] = useState(false);
   const forgeAPI = requireForgeAPI();
 
   // ─── Phase 1 state ──────────────────────────────────────────────────
@@ -344,6 +364,16 @@ export default function Forge3D() {
         forgeAPI.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => {});
       }
     }).catch(() => {});
+
+    forgeAPI.getZoomFactor?.().then((value) => {
+      if (Number.isFinite(value)) setZoomFactor(value);
+    }).catch(() => {});
+
+    const removeZoomListener = forgeAPI.onZoomChanged?.((value) => {
+      if (Number.isFinite(value)) setZoomFactor(value);
+    });
+
+    return () => removeZoomListener?.();
   }, [forgeAPI]);
 
   // ─── Parse @param annotations on code change ─────────────────────────
@@ -359,6 +389,7 @@ export default function Forge3D() {
   // ─── Global keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (event) => {
+      if (event.defaultPrevented) return;
       const mod = event.metaKey || event.ctrlKey;
       if (mod && !event.altKey && event.key.toLowerCase() === 'z') {
         event.preventDefault();
@@ -368,6 +399,11 @@ export default function Forge3D() {
       if (mod && !event.altKey && event.key.toLowerCase() === 'f') {
         event.preventDefault();
         editorRef.current?.openFind?.();
+        return;
+      }
+      if (mod && !event.altKey && event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        editorRef.current?.openReplace?.();
         return;
       }
       if (mod && !event.altKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redoCode(); return; }
@@ -391,6 +427,18 @@ export default function Forge3D() {
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); removeMenu?.(); };
   }, [openFile, openFilePath, redoCode, resetWorkspace, runCode, saveFile, undoCode]);
+
+  useEffect(() => {
+    if (!isDirty && showDiffEditor) {
+      setShowDiffEditor(false);
+    }
+  }, [isDirty, showDiffEditor]);
+
+  useEffect(() => {
+    if (showDiffEditor && showQuickStart) {
+      setShowQuickStart(false);
+    }
+  }, [showDiffEditor, showQuickStart]);
 
   // ─── Panel resize mouse handlers ──────────────────────────────────────
   useEffect(() => {
@@ -536,29 +584,49 @@ export default function Forge3D() {
   }, [queueAutoFitView, replaceCodeWithoutHistory]);
 
   const handleInsertTemplate = useCallback((template, mode = templateInsertMode) => {
-    if (!template?.code) return;
+    const insertion = prepareTemplateInsertion(template, code, mode);
+    if (!insertion) return;
 
-    if (mode === 'replace') {
-      applyCodeChange(template.code);
-      setStatusMessage(`Loaded template: ${template.name}`);
+    if (insertion.insertText) {
+      const inserted = editorRef.current?.insertText?.(insertion.insertText, { selectInserted: true });
+      if (inserted) {
+        setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+        return;
+      }
+      if (insertion.fallbackNextCode) {
+        applyCodeChange(insertion.fallbackNextCode);
+        setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+      }
       return;
     }
 
-    if (mode === 'cursor') {
-      const inserted = editorRef.current?.insertText?.(template.code, { selectInserted: true });
-      if (inserted) {
-        setStatusMessage(`Inserted template at cursor: ${template.name}`);
-        return;
-      }
+    if (insertion.nextCode) {
+      applyCodeChange(insertion.nextCode);
+      setStatusMessage(buildTemplateStatus(template.name, mode, insertion.stats));
+    }
+  }, [applyCodeChange, code, templateInsertMode]);
+
+  const handleInsertQuickStart = useCallback((starter) => {
+    if (!starter?.code) return;
+
+    if (!code.trim()) {
+      applyCodeChange(`${starter.code.trimEnd()}\n`);
+      setStatusMessage(`Quick Start: ${starter.name}`);
+      setShowQuickStart(false);
+      return;
     }
 
-    const block = buildTemplateAppendBlock(template);
-    const nextCode = code.trim()
-      ? `${code.replace(/\s+$/, '')}\n\n${block}\n`
-      : `${block}\n`;
-    applyCodeChange(nextCode);
-    setStatusMessage(`Appended template block: ${template.name}`);
-  }, [applyCodeChange, code, templateInsertMode]);
+    const inserted = editorRef.current?.insertText?.(starter.code, { selectInserted: true });
+    if (inserted) {
+      setStatusMessage(`Quick Start inserted: ${starter.name}`);
+      setShowQuickStart(false);
+      return;
+    }
+
+    applyCodeChange(`${code.replace(/\s+$/, '')}\n\n${starter.code.trim()}\n`);
+    setStatusMessage(`Quick Start added: ${starter.name}`);
+    setShowQuickStart(false);
+  }, [applyCodeChange, code]);
 
   const handleParamChange = useCallback((param, value) => {
     const nextCode = applyParamChange(code, param, value);
@@ -706,15 +774,67 @@ export default function Forge3D() {
         >{sidebarOpen ? '◀' : '▶'}</button>
 
         {/* Editor panel */}
-        <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ width: editorWidth, minWidth: MIN_EDITOR_WIDTH, display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'relative' }}>
           <div style={{ height: '30px', minHeight: '30px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted }}>{currentFileName}{isDirty ? ' *' : ''}</span>
             <span style={{ fontSize: '10px', color: canUndo || canRedo ? colors.accent : colors.borderHover, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : '1px solid transparent', borderRadius: '999px', padding: '2px 6px' }}>{history.past.length} undo · {history.future.length} redo</span>
+            <button
+              ref={quickStartButtonRef}
+              onClick={() => setShowQuickStart((value) => !value)}
+              title="Insert small starter code blocks like cube, sphere, offset, or module"
+              style={{
+                background: showQuickStart ? `${colors.accent}22` : 'transparent',
+                border: `1px solid ${showQuickStart ? colors.accent : colors.border}`,
+                borderRadius: '999px',
+                color: showQuickStart ? colors.accent : colors.textMuted,
+                cursor: 'pointer',
+                padding: '2px 8px',
+                fontSize: '10px',
+                fontWeight: 700,
+              }}
+            >Quick Start</button>
+            <button
+              onClick={() => setShowDiffEditor((value) => !value)}
+              disabled={!isDirty}
+              title={isDirty ? 'Compare current code with last saved code' : 'Diff is available once you have unsaved changes'}
+              style={{
+                background: showDiffEditor ? `${colors.accent}22` : 'transparent',
+                border: `1px solid ${showDiffEditor ? colors.accent : colors.border}`,
+                borderRadius: '999px',
+                color: !isDirty ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
+                cursor: !isDirty ? 'not-allowed' : 'pointer',
+                padding: '2px 8px',
+                fontSize: '10px',
+                fontWeight: 700,
+              }}
+            >Diff</button>
+            <span style={{ fontSize: '10px', color: colors.textFaint, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '2px 8px' }}>
+              Ghost: Alt+/ trigger · Tab accept · Ctrl+Right word · Ctrl+Shift+Right line
+            </span>
             <span style={{ fontSize: '10px', color: colors.borderHover, marginLeft: 'auto' }}>{code.split("\n").length} lines</span>
             <span style={{ fontSize: '10px', color: colors.textFaint }}>{Math.round(editorWidth)}px</span>
           </div>
+          {showQuickStart && (
+            <QuickStartPanel
+              anchorRef={quickStartButtonRef}
+              colors={colors}
+              onClose={() => setShowQuickStart(false)}
+              onInsert={handleInsertQuickStart}
+            />
+          )}
           <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden' }}>
-            <CodeEditor ref={editorRef} code={code} onChange={applyCodeChange} onUndo={undoCode} onRedo={redoCode} canUndo={canUndo} canRedo={canRedo} theme={theme} onBuild={runCode} />
+            <CodeEditor
+              ref={editorRef}
+              code={code}
+              comparisonCode={lastSavedCode}
+              diagnostics={lspDiagnostics.markers}
+              onBuild={runCode}
+              onChange={applyCodeChange}
+              onRedo={redoCode}
+              onUndo={undoCode}
+              showDiff={showDiffEditor && isDirty}
+              theme={theme}
+            />
           </div>
 
           {/* Bottom panel drag handle */}
@@ -776,6 +896,7 @@ export default function Forge3D() {
         currentFilePath={currentFilePath}
         isDirty={isDirty}
         theme={theme}
+        zoomFactor={zoomFactor}
       />
     </div>
   );

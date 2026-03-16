@@ -175,7 +175,132 @@ export const TEMPLATES = {
 
 ---
 
-## 5. Implementation Priority
+## 5. IDE UX Follow-Up Batch
+
+### 5.1 IDE-Style Zoom
+
+### Goal
+Let Forge3D scale like a real desktop IDE instead of forcing users to live with a single fixed UI size.
+
+### Plan
+- Support `Ctrl+=`, `Ctrl+-`, and `Ctrl+0`
+- Optionally support `Ctrl+MouseWheel` over the editor/viewport
+- Persist app zoom in workspace or user config
+- Show current zoom percentage in the status bar or toolbar
+
+### Note
+- Electron already exposes menu zoom roles, but Forge3D does not currently surface or persist zoom as part of the product UX
+- Optional follow-up: separate `editorFontSize` from global app zoom for users who only want larger code text
+
+### 5.2 Quick Start Panel
+
+### Goal
+Bridge the gap between "full example" and "large template" with small insertable starters that help users begin common modeling tasks fast.
+
+### Plan
+- Add a **Quick Start** surface in the editor area or sidebar for:
+  - cube / sphere / cylinder / square / circle
+  - `offset`, `hull`, `minkowski`
+  - `union`, `difference`, `intersection`
+  - `translate`, `rotate`, `scale`
+  - module/function skeletons
+  - starter param header blocks
+- Treat these as **starters/snippets**, not full examples
+- Use smart landing rules:
+  - blank file → replace
+  - active selection/cursor → insert there
+  - non-empty file with existing params → append/merge safely
+
+### Recommendation
+Keep **Examples** for teaching and **Templates** for multi-part working code. Use **Quick Start** for tiny building blocks and starter scaffolds.
+
+### 5.3 Inline Completions
+
+### Goal
+Support both standard code completions and optional AI inline predictions.
+
+### Plan
+- Step 1: extend the existing OpenSCAD LSP bridge to request completions and document symbols
+- Step 2: add an AI completion provider layer with:
+  - user OpenAI/Anthropic API key
+  - local OpenAI-compatible endpoint / Ollama
+  - experimental Codex CLI / Claude Code adapters
+- Keep provider integration explicit; do **not** depend on reading or scraping an arbitrary live terminal session
+
+### Recommendation
+For the current custom textarea editor, ship normal completion lists first. If we want robust ghost text, accept-next-word/line, richer diff review, and symbol decorations, plan an editor-surface upgrade to Monaco or CodeMirror 6 before investing heavily in AI prediction.
+
+### 5.4 Template Insertions Should Preserve Existing Params
+
+### Goal
+Fix the current "insert template and lose previously generated parameters" problem.
+
+### Plan
+- Replace raw string insertion with a smart merge path
+- Split templates into conceptual sections:
+  - `params`
+  - `helpers`
+  - `body`
+- On insert:
+  - keep existing param assignments and values
+  - add only missing params from the inserted starter/template
+  - avoid duplicating helper modules/functions where possible
+  - reserve destructive replace behavior for blank buffers or explicit user choice
+
+### 5.5 Smarter Parameter Slider Scaling
+
+### Goal
+Make the Params tab feel calibrated to the actual model instead of defaulting to giant ranges.
+
+### Current Problem
+- Auto-generated numeric ranges are often too large because the heuristics default to values like `value * 5` or `200`
+
+### Plan
+- Priority 1: explicit `// @param min/max/step` always wins
+- Priority 2: infer file scale from nearby numeric literals and common geometry calls
+- Priority 3: choose a tighter default slider window around the current value instead of a giant absolute max
+- Add a low-friction way to widen the range when the auto-fit guess is wrong
+
+### 5.6 Params + Symbols + Tree Navigation
+
+### Goal
+Turn the Params sidebar into the start of a real source navigator.
+
+### Plan
+- Add clickable sections for:
+  - modules
+  - functions
+  - top-level variables
+  - inserted template blocks
+- Build an outline/tree view from LSP document symbols when available
+- Fall back to lightweight parsing for module/function discovery if symbols are unavailable
+- Later connect the code outline to viewport/build-tree highlighting
+
+### Recommendation
+Start with a **document outline** first. A true object tree from rendered geometry is harder because the native OpenSCAD flow currently returns STL geometry, not a semantic scene graph.
+When the object tree arrives, mount it in the **viewport/View area** so visibility toggles and isolate/show-hide actions stay close to the rendered model.
+
+### 5.7 Built-In Diff History
+
+### Goal
+Give users a safer memory than undo/redo.
+
+### Plan
+- Auto-snapshot on:
+  - save
+  - timed idle interval
+  - before destructive replace/template/AI operations
+  - before opening another file
+- Show a **History** timeline in the sidebar
+- Add diff preview and restore
+- Add manual checkpoints/bookmarks for important revisions
+
+### Recommendation
+Start with Forge3D-owned snapshots in `.forge3d/snapshots/`. Git integration can come later.
+
+---
+
+## 6. Implementation Priority
 
 1. ✅ **UI Polish** (DONE: removed clutter, improved colors, reset buttons)
 2. ✅ **Resizable Panels** (DONE: sidebar, editor, and console layout persistence)
@@ -187,12 +312,15 @@ export const TEMPLATES = {
    - Move/rotate/scale each part visually
    - Support union/subtract/intersect per part
    - Use this as the foundation for a future print-bed stage
-6. 🔎 **Code ↔ Geometry Explorer** - MEDIUM/HIGH
+6. ✨ **IDE UX Follow-Up** - PARALLEL TRACK
+   - IDE-style zoom, Quick Start starters, smarter template merge, and adaptive params are all isolated enough to land incrementally
+   - Completion UX and richer diff review may become the forcing function for a Monaco/CodeMirror editor upgrade
+7. 🔎 **Code ↔ Geometry Explorer** - MEDIUM/HIGH
    - Jump from params or picked geometry back to source lines
    - Highlight/isolate sub-parts in the viewport from a build tree
    - Add a step-through construction mode for debugging unions/differences
    - Add an agent-facing API/MCP layer for screenshots, model stats, scene tree, and source links
-7. ⏱ **File History** - LOWER (nice-to-have, but impactful)
+8. ⏱ **File History** - LOWER (nice-to-have, but impactful)
 
 ---
 

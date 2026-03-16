@@ -31,6 +31,61 @@ function parseLiteralValue(rawValue) {
   return { value: trimmed, type: 'string' };
 }
 
+function quantile(sortedValues, ratio) {
+  if (!sortedValues.length) return 0;
+  const index = (sortedValues.length - 1) * ratio;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sortedValues[lower];
+  const weight = index - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+function buildNumericStats(code) {
+  const sanitized = code
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/.*$/gm, ' ')
+    .replace(/"(?:\\.|[^"\\])*"/g, ' ')
+    .replace(/'(?:\\.|[^'\\])*'/g, ' ');
+
+  const values = Array.from(sanitized.matchAll(/-?(?:\d+\.\d+|\d+|\.\d+)(?:e[+-]?\d+)?/gi))
+    .map((match) => Math.abs(parseFloat(match[0])))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  return {
+    count: values.length,
+    medianPositive: quantile(values, 0.5),
+    p75: quantile(values, 0.75),
+    max: values[values.length - 1] || 0,
+  };
+}
+
+function niceCeil(value) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
+}
+
+function niceFloor(value) {
+  if (!Number.isFinite(value) || value >= 0) return 0;
+  return -niceCeil(Math.abs(value));
+}
+
+function defaultStepForValue(value, mode = 'default') {
+  const absValue = Math.abs(value);
+
+  if (mode === 'integer') return 1;
+  if (mode === 'scale') return absValue < 2 ? 0.01 : 0.05;
+  if (mode === 'fine') return absValue < 1 ? 0.01 : absValue < 10 ? 0.05 : 0.1;
+  if (absValue < 1) return 0.01;
+  if (absValue < 10) return 0.1;
+  if (absValue < 100) return 0.5;
+  return 1;
+}
+
 function buildLineContexts(code) {
   const lines = code.split('\n');
   const depthAtLineStart = [];
@@ -136,6 +191,7 @@ function buildLineContexts(code) {
 export function parseParams(code) {
   const params = [];
   const { lines, sectionByLine } = buildLineContexts(code);
+  const numericStats = buildNumericStats(code);
 
   // Match: // @param name = value   // optional metadata
   const paramRegex = /^\/\/\s*@param\s+(\w+)\s*=\s*(.+?)(?:\s*\/\/\s*(.*))?$/;
@@ -206,6 +262,8 @@ export function parseParams(code) {
       }
     }
 
+    const inferredMeta = inferMetadataFromName(name, value, type, numericStats);
+
     params.push({
       id: createParamId(name, assignmentLine >= 0 ? assignmentLine + 1 : i + 1),
       name,
@@ -216,16 +274,16 @@ export function parseParams(code) {
       assignmentLine: assignmentLine >= 0 ? assignmentLine + 1 : i + 1,
       section: sectionByLine[assignmentLine >= 0 ? assignmentLine : i] || null,
       ...(meta.label && { label: meta.label }),
-      ...(meta.min !== undefined && { min: meta.min }),
-      ...(meta.max !== undefined && { max: meta.max }),
-      ...(meta.step !== undefined && { step: meta.step }),
+      ...((meta.min !== undefined ? { min: meta.min } : inferredMeta.min !== undefined ? { min: inferredMeta.min } : {})),
+      ...((meta.max !== undefined ? { max: meta.max } : inferredMeta.max !== undefined ? { max: inferredMeta.max } : {})),
+      ...((meta.step !== undefined ? { step: meta.step } : inferredMeta.step !== undefined ? { step: inferredMeta.step } : {})),
       ...(meta.options && { options: meta.options }),
     });
   }
 
   // ─── Auto-detect top-level variables ──────────────────────────────────────
   // Look for variable assignments before first function/module or large comment block
-  const autoParams = autoDetectVariables(code, params);
+  const autoParams = autoDetectVariables(code, params, numericStats);
   params.push(...autoParams);
 
   return params;
@@ -239,7 +297,7 @@ export function parseParams(code) {
  * @param {Array} existingParams - Already parsed @param annotations to avoid duplicates
  * @returns {Array} Auto-detected parameters
  */
-function autoDetectVariables(code, existingParams) {
+function autoDetectVariables(code, existingParams, numericStats) {
   const autoParams = [];
   const { lines, depthAtLineStart, sectionByLine } = buildLineContexts(code);
   const existingNames = new Set(existingParams.map(p => p.name));
@@ -280,7 +338,7 @@ function autoDetectVariables(code, existingParams) {
 
     // Smart defaults based on naming patterns
     const meta = {
-      ...inferMetadataFromName(name, value, type),
+      ...inferMetadataFromName(name, value, type, numericStats),
       ...inferInlineMetadata(type, inlineComment),
     };
 
@@ -308,50 +366,75 @@ function autoDetectVariables(code, existingParams) {
  * @param {string} type - Detected type
  * @returns {Object} Metadata object with min, max, step
  */
-function inferMetadataFromName(name, value, type) {
+function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (type !== 'number') return {};
 
   const lowerName = name.toLowerCase();
-  const meta = {};
+  const absValue = Math.abs(value);
+  const fileScale = numericStats?.p75 || numericStats?.medianPositive || absValue || 1;
+  const signedFloor = value < 0 ? niceFloor(Math.max(absValue * 2, 1)) : 0;
 
-  // Count/levels - typically 1-100
   if (lowerName.match(/^(count|levels?|steps?|segments?|num|n)(_|$)/)) {
-    meta.min = 1;
-    meta.max = Math.max(value * 3, 50);
-    meta.step = 1;
-  }
-  // Size/dimension values - typically 0-200
-  else if (lowerName.match(/(size|width|height|depth|length|radius|diameter|thickness|dist|offset)/)) {
-    meta.min = 0;
-    meta.max = Math.max(value * 5, 200);
-    meta.step = value < 1 ? 0.01 : value < 10 ? 0.1 : 1;
-  }
-  // Angles - 0-360
-  else if (lowerName.match(/(angle|rotation|rot|deg)/)) {
-    meta.min = 0;
-    meta.max = 360;
-    meta.step = 1;
-  }
-  // Multipliers/scales - 0-5
-  else if (lowerName.match(/(scale|factor|mult|ratio|shrink|grow)/)) {
-    meta.min = 0;
-    meta.max = 5;
-    meta.step = 0.01;
-  }
-  // Gaps/spacing - 0-20
-  else if (lowerName.match(/(gap|spacing|padding|margin)/)) {
-    meta.min = 0;
-    meta.max = 20;
-    meta.step = 0.1;
-  }
-  // Default for other numbers
-  else {
-    meta.min = 0;
-    meta.max = Math.max(value * 3, 100);
-    meta.step = value < 1 ? 0.01 : value < 10 ? 0.1 : 1;
+    return {
+      min: 1,
+      max: niceCeil(Math.max(absValue * 2, 12)),
+      step: defaultStepForValue(value, 'integer'),
+    };
   }
 
-  return meta;
+  if (lowerName.match(/(angle|rotation|rot|deg)/)) {
+    return {
+      min: value < 0 ? -360 : 0,
+      max: 360,
+      step: defaultStepForValue(value, 'integer'),
+    };
+  }
+
+  if (lowerName.match(/(scale|factor|mult|ratio|shrink|grow)/)) {
+    return {
+      min: value < 0 ? niceFloor(Math.max(absValue * 2, 1)) : 0,
+      max: niceCeil(Math.max(absValue * 2, 2)),
+      step: defaultStepForValue(value, 'scale'),
+    };
+  }
+
+  if (lowerName.match(/(thickness|clearance|gap|spacing|padding|margin|fillet|chamfer|bevel|tolerance|kerf|lip)/)) {
+    return {
+      min: signedFloor,
+      max: niceCeil(Math.max(absValue * 3, Math.min(fileScale * 0.35, absValue * 6, 20), 1)),
+      step: defaultStepForValue(value, 'fine'),
+    };
+  }
+
+  if (lowerName.match(/(radius|diameter|corner)/)) {
+    return {
+      min: signedFloor,
+      max: niceCeil(Math.max(absValue * 3, Math.min(fileScale, absValue * 5, 60), 2)),
+      step: defaultStepForValue(value, 'fine'),
+    };
+  }
+
+  if (lowerName.match(/(offset|translate|shift|move|origin|position|center|dist)/)) {
+    return {
+      min: signedFloor,
+      max: niceCeil(Math.max(absValue * 2, Math.min(fileScale, absValue * 5, 100), 1)),
+      step: defaultStepForValue(value),
+    };
+  }
+
+  if (lowerName.match(/(size|width|height|depth|length|span|distance)/)) {
+    return {
+      min: signedFloor,
+      max: niceCeil(Math.max(absValue * 2, Math.min(fileScale * 1.5, absValue * 4, 150), 5)),
+      step: defaultStepForValue(value),
+    };
+  }
+
+  return {
+    min: signedFloor,
+    max: niceCeil(Math.max(absValue * 2, Math.min(fileScale * 1.25, absValue * 5, 100), 1)),
+    step: defaultStepForValue(value),
+  };
 }
 
 function inferInlineMetadata(type, inlineComment) {

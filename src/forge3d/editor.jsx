@@ -1,52 +1,32 @@
-import { useRef, useMemo, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { KEYWORDS, BUILTINS, TOKEN_COLORS } from './interpreter.js';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import MonacoEditor, { DiffEditor, loader } from '@monaco-editor/react';
+import * as monacoApi from 'monaco-editor';
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import { configureMonacoOpenScad, ensureForge3DThemes, extractOpenScadSymbols, OPENSCAD_LANGUAGE_ID } from './editor-language.js';
 
-// ─── SYNTAX HIGHLIGHTER ─────────────────────────────────────────────
-function HighlightedCode({ code }) {
-  return useMemo(() => {
-    const result = [];
-    let i = 0, key = 0;
-    const len = code.length;
-    while (i < len) {
-      const ch = code[i];
-      if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
-        let s = i; while (i < len && /[\s]/.test(code[i])) i++;
-        result.push(<span key={key++}>{code.slice(s, i)}</span>); continue;
-      }
-      if (ch === '/' && code[i + 1] === '/') {
-        let s = i; while (i < len && code[i] !== '\n') i++;
-        result.push(<span key={key++} style={{ color: TOKEN_COLORS.comment }}>{code.slice(s, i)}</span>); continue;
-      }
-      if (ch === '/' && code[i + 1] === '*') {
-        let s = i; i += 2; while (i < len - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++; i += 2;
-        result.push(<span key={key++} style={{ color: TOKEN_COLORS.comment }}>{code.slice(s, i)}</span>); continue;
-      }
-      if (ch === '"') {
-        let s = i; i++; while (i < len && code[i] !== '"') { if (code[i] === '\\') i++; i++; } i++;
-        result.push(<span key={key++} style={{ color: TOKEN_COLORS.string }}>{code.slice(s, i)}</span>); continue;
-      }
-      if (/[a-zA-Z_$]/.test(ch)) {
-        let s = i; i++; while (i < len && /[a-zA-Z0-9_]/.test(code[i])) i++;
-        const w = code.slice(s, i);
-        const c = KEYWORDS.has(w) ? TOKEN_COLORS.keyword : BUILTINS.has(w) ? TOKEN_COLORS.builtin : TOKEN_COLORS.ident;
-        result.push(<span key={key++} style={{ color: c }}>{w}</span>); continue;
-      }
-      if (/[0-9]/.test(ch) || (ch === '.' && i + 1 < len && /[0-9]/.test(code[i + 1]))) {
-        let s = i; while (i < len && /[0-9.eE\-+]/.test(code[i])) i++;
-        result.push(<span key={key++} style={{ color: TOKEN_COLORS.number }}>{code.slice(s, i)}</span>); continue;
-      }
-      result.push(<span key={key++} style={{ color: TOKEN_COLORS.punct }}>{ch}</span>); i++;
-    }
-    return result;
-  }, [code]);
+const INLINE_ACCEPT_ID = 'editor.action.inlineSuggest.commit';
+const INLINE_ACCEPT_WORD_ID = 'editor.action.inlineSuggest.acceptNextWord';
+const INLINE_ACCEPT_LINE_ID = 'editor.action.inlineSuggest.acceptNextLine';
+const INLINE_TRIGGER_ID = 'editor.action.inlineSuggest.trigger';
+const FIND_ACTION_ID = 'actions.find';
+const REPLACE_ACTION_ID = 'editor.action.startFindReplaceAction';
+
+if (typeof globalThis !== 'undefined' && !globalThis.MonacoEnvironment) {
+  globalThis.MonacoEnvironment = {
+    getWorker() {
+      return new editorWorker();
+    },
+  };
 }
 
-const AUTO_CLOSE = { '{': '}', '(': ')', '[': ']', '"': '"' };
+loader.config({ monaco: monacoApi });
 
 function prepareBlockInsertion(source, start, end, text) {
   if (!source.trim()) {
     return {
-      nextCode: text,
+      rangeStart: 0,
+      rangeEnd: source.length,
+      insertedText: text,
       selectionStart: 0,
       selectionEnd: text.length,
     };
@@ -54,7 +34,9 @@ function prepareBlockInsertion(source, start, end, text) {
 
   if (start !== end) {
     return {
-      nextCode: source.slice(0, start) + text + source.slice(end),
+      rangeStart: start,
+      rangeEnd: end,
+      insertedText: text,
       selectionStart: start,
       selectionEnd: start + text.length,
     };
@@ -66,359 +48,366 @@ function prepareBlockInsertion(source, start, end, text) {
   const leadingNewlines = after.match(/^\n*/)?.[0].length ?? 0;
   const prefix = before.length === 0 ? '' : '\n'.repeat(Math.max(0, 2 - trailingNewlines));
   const suffix = after.length === 0 ? '' : '\n'.repeat(Math.max(0, 2 - leadingNewlines));
-  const insertionStart = start + prefix.length;
 
   return {
-    nextCode: before + prefix + text + suffix + after,
-    selectionStart: insertionStart,
-    selectionEnd: insertionStart + text.length,
+    rangeStart: start,
+    rangeEnd: end,
+    insertedText: `${prefix}${text}${suffix}`,
+    selectionStart: start + prefix.length,
+    selectionEnd: start + prefix.length + text.length,
   };
 }
 
-// ─── CODE EDITOR COMPONENT ───────────────────────────────────────────
-export const CodeEditor = forwardRef(function CodeEditor({ code, onChange, onUndo, onRedo, canUndo, canRedo, onBuild, theme }, ref) {
-  const textareaRef = useRef(null);
-  const highlightRef = useRef(null);
-  const lineRef = useRef(null);
-  const findInputRef = useRef(null);
-  const [findOpen, setFindOpen] = useState(false);
-  const [findQuery, setFindQuery] = useState('');
-  const [findMatches, setFindMatches] = useState([]);
-  const [activeFindIndex, setActiveFindIndex] = useState(0);
+function getEditorTheme(theme) {
+  return theme === 'light' ? 'forge3d-light' : 'forge3d-dark';
+}
 
-  const scrollSelectionIntoView = useCallback((start, end, focusEditor = false) => {
-    const ta = textareaRef.current;
-    if (!ta) return;
+function createSymbolDecorations(monaco, code) {
+  return extractOpenScadSymbols(code).map((symbol) => {
+    const decorationClass =
+      symbol.kind === 'module'
+        ? 'forge3d-symbol-module'
+        : symbol.kind === 'function'
+          ? 'forge3d-symbol-function'
+          : symbol.kind === 'template'
+            ? 'forge3d-symbol-template'
+            : 'forge3d-symbol-variable';
 
-    if (focusEditor) ta.focus();
-    ta.setSelectionRange(start, end);
+    const color =
+      symbol.kind === 'module'
+        ? '#4fc3f7'
+        : symbol.kind === 'function'
+          ? '#81c784'
+          : symbol.kind === 'template'
+            ? '#ffb74d'
+            : '#8a8baa';
 
-    const lineNumber = code.slice(0, start).split('\n').length;
-    const scrollTop = Math.max(0, (lineNumber - 4) * 20);
-    if (highlightRef.current) highlightRef.current.scrollTop = scrollTop;
-    if (lineRef.current) lineRef.current.scrollTop = scrollTop;
-    ta.scrollTop = scrollTop;
-  }, [code]);
+    return {
+      range: new monaco.Range(symbol.startLine, 1, symbol.startLine, 1),
+      options: {
+        isWholeLine: true,
+        linesDecorationsClassName: decorationClass,
+        overviewRuler: {
+          color,
+          position: monaco.editor.OverviewRulerLane.Left,
+        },
+        hoverMessage: [
+          {
+            value: `$(symbol-${symbol.kind === 'variable' ? 'variable' : symbol.kind}) ${symbol.name}`,
+          },
+        ],
+      },
+    };
+  });
+}
 
-  const openFind = useCallback(() => {
-    const ta = textareaRef.current;
-    const selected = ta && ta.selectionStart !== ta.selectionEnd
-      ? ta.value.slice(ta.selectionStart, ta.selectionEnd)
-      : '';
+function convertDiagnosticsToMarkers(monaco, diagnostics = []) {
+  return diagnostics.map((diagnostic) => ({
+    ...diagnostic,
+    severity:
+      diagnostic.severity === 'error'
+        ? monaco.MarkerSeverity.Error
+        : diagnostic.severity === 'warning'
+          ? monaco.MarkerSeverity.Warning
+          : monaco.MarkerSeverity.Info,
+  }));
+}
 
-    setFindOpen(true);
-    if (selected && !selected.includes('\n')) {
-      setFindQuery(selected);
-    }
+function getBaseEditorOptions(theme, readOnly = false) {
+  return {
+    automaticLayout: true,
+    bracketPairColorization: { enabled: true },
+    cursorBlinking: 'smooth',
+    cursorSmoothCaretAnimation: 'on',
+    fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
+    fontLigatures: true,
+    fontSize: 13,
+    glyphMargin: false,
+    guides: {
+      bracketPairs: 'active',
+      indentation: true,
+    },
+    inlineSuggest: {
+      enabled: true,
+      fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
+      mode: 'subwordSmart',
+      showToolbar: 'always',
+      suppressSuggestions: false,
+    },
+    lineDecorationsWidth: 12,
+    lineHeight: 20,
+    lineNumbersMinChars: 3,
+    matchBrackets: 'always',
+    minimap: { enabled: false },
+    overviewRulerBorder: false,
+    padding: { top: 12, bottom: 12 },
+    quickSuggestions: { other: true, comments: false, strings: false },
+    readOnly,
+    renderFinalNewline: 'on',
+    renderValidationDecorations: 'on',
+    roundedSelection: true,
+    scrollBeyondLastLine: false,
+    smoothScrolling: true,
+    suggest: {
+      preview: true,
+      selectionMode: 'always',
+      showStatusBar: true,
+    },
+    tabCompletion: 'on',
+    theme: getEditorTheme(theme),
+    wordBasedSuggestions: 'currentDocument',
+  };
+}
 
-    setTimeout(() => {
-      findInputRef.current?.focus();
-      findInputRef.current?.select();
-    }, 0);
-  }, []);
+export const CodeEditor = forwardRef(function CodeEditor({
+  code,
+  comparisonCode,
+  diagnostics = [],
+  onBuild,
+  onChange,
+  onRedo,
+  onUndo,
+  showDiff = false,
+  theme,
+}, ref) {
+  const editorRef = useRef(null);
+  const diffEditorRef = useRef(null);
+  const modifiedEditorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const decorationIdsRef = useRef([]);
 
-  const closeFind = useCallback(() => {
-    setFindOpen(false);
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  }, []);
+  const editorTheme = useMemo(() => getEditorTheme(theme), [theme]);
+
+  const getActiveEditor = useCallback(() => modifiedEditorRef.current || editorRef.current, []);
+
+  const applyEditorEnhancements = useCallback((editor, monaco) => {
+    editor.addAction({
+      id: 'forge3d-build-model',
+      label: 'Build Model',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+      run: () => onBuild?.(),
+    });
+
+    editor.addAction({
+      id: 'forge3d-inline-accept-line',
+      label: 'Accept Next Inline Suggestion Line',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.RightArrow],
+      run: () => editor.trigger('keyboard', INLINE_ACCEPT_LINE_ID, null),
+    });
+
+    editor.addAction({
+      id: 'forge3d-inline-trigger',
+      label: 'Trigger Inline Suggestion',
+      keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.Slash],
+      run: () => editor.trigger('keyboard', INLINE_TRIGGER_ID, { explicit: true }),
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ, () => onUndo?.());
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ, () => onRedo?.());
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY, () => onRedo?.());
+  }, [onBuild, onRedo, onUndo]);
+
+  const refreshDecorationsAndMarkers = useCallback(() => {
+    const editor = getActiveEditor();
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    monaco.editor.setModelMarkers(model, 'forge3d-lsp', convertDiagnosticsToMarkers(monaco, diagnostics));
+    decorationIdsRef.current = editor.deltaDecorations(
+      decorationIdsRef.current,
+      createSymbolDecorations(monaco, model.getValue()),
+    );
+  }, [diagnostics, getActiveEditor]);
+
+  const focusEditor = useCallback(() => {
+    getActiveEditor()?.focus();
+  }, [getActiveEditor]);
+
+  const runEditorAction = useCallback((actionId) => {
+    const editor = getActiveEditor();
+    if (!editor) return;
+    editor.focus();
+    editor.getAction(actionId)?.run();
+  }, [getActiveEditor]);
+
+  const jumpToLine = useCallback((lineNumber) => {
+    const editor = getActiveEditor();
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+
+    const safeLine = Math.max(1, Math.min(lineNumber, model.getLineCount()));
+    const maxColumn = model.getLineMaxColumn(safeLine);
+    const selection = new monacoApi.Selection(safeLine, 1, safeLine, maxColumn);
+
+    editor.focus();
+    editor.setSelection(selection);
+    editor.revealLineInCenter(safeLine);
+  }, [getActiveEditor]);
 
   const insertText = useCallback((text, options = {}) => {
-    const ta = textareaRef.current;
-    if (!ta) return false;
+    const editor = getActiveEditor();
+    const model = editor?.getModel();
+    const monaco = monacoRef.current;
+    if (!editor || !model || !monaco) return false;
 
-    const { selectionStart = code.length, selectionEnd = code.length } = ta;
-    const insertion = prepareBlockInsertion(code, selectionStart, selectionEnd, text);
+    const selection = editor.getSelection();
+    if (!selection) return false;
+
+    const source = model.getValue();
+    const startOffset = model.getOffsetAt(selection.getStartPosition());
+    const endOffset = model.getOffsetAt(selection.getEndPosition());
+    const insertion = prepareBlockInsertion(source, startOffset, endOffset, text);
+    const range = new monaco.Range(
+      model.getPositionAt(insertion.rangeStart).lineNumber,
+      model.getPositionAt(insertion.rangeStart).column,
+      model.getPositionAt(insertion.rangeEnd).lineNumber,
+      model.getPositionAt(insertion.rangeEnd).column,
+    );
+
+    editor.pushUndoStop();
+    editor.executeEdits('forge3d.insert', [{
+      range,
+      text: insertion.insertedText,
+      forceMoveMarkers: true,
+    }]);
+    editor.pushUndoStop();
+
     const shouldSelectInserted = options.selectInserted ?? true;
-
-    onChange(insertion.nextCode);
-
-    requestAnimationFrame(() => {
-      const nextTextarea = textareaRef.current;
-      if (!nextTextarea) return;
-      nextTextarea.focus();
-      if (shouldSelectInserted) {
-        nextTextarea.setSelectionRange(insertion.selectionStart, insertion.selectionEnd);
-      } else {
-        nextTextarea.setSelectionRange(insertion.selectionEnd, insertion.selectionEnd);
-      }
-    });
-
+    const selectionStart = model.getPositionAt(shouldSelectInserted ? insertion.selectionStart : insertion.selectionEnd);
+    const selectionEnd = model.getPositionAt(shouldSelectInserted ? insertion.selectionEnd : insertion.selectionEnd);
+    const nextSelection = new monaco.Selection(
+      selectionStart.lineNumber,
+      selectionStart.column,
+      selectionEnd.lineNumber,
+      selectionEnd.column,
+    );
+    editor.setSelection(nextSelection);
+    editor.revealPositionInCenter(selectionStart);
+    editor.focus();
     return true;
-  }, [code, onChange]);
+  }, [getActiveEditor]);
 
-  // Expose imperative jumpToLine for error click navigation
   useImperativeHandle(ref, () => ({
-    jumpToLine(lineNumber) {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const lines = ta.value.split('\n');
-      let pos = 0;
-      for (let i = 0; i < Math.min(lineNumber - 1, lines.length); i++) {
-        pos += lines[i].length + 1;
-      }
-      ta.focus();
-      ta.setSelectionRange(pos, pos + (lines[lineNumber - 1]?.length ?? 0));
-      // Scroll the line into view
-      const lineHeight = 20;
-      const scrollTop = (lineNumber - 4) * lineHeight;
-      if (highlightRef.current) highlightRef.current.scrollTop = scrollTop;
-      if (lineRef.current) lineRef.current.scrollTop = scrollTop;
-      ta.scrollTop = scrollTop;
+    focus: focusEditor,
+    getDocumentSymbols() {
+      const editor = getActiveEditor();
+      const model = editor?.getModel();
+      return extractOpenScadSymbols(model?.getValue() || code);
     },
     insertText,
-    openFind,
-  }), [insertText, openFind]);
-
-  const lines = code.split('\n');
-  const isDark = theme !== 'light';
-
-  useEffect(() => {
-    if (!findOpen || !findQuery) {
-      setFindMatches([]);
-      setActiveFindIndex(0);
-      return;
-    }
-
-    const haystack = code.toLowerCase();
-    const needle = findQuery.toLowerCase();
-    const matches = [];
-    let cursor = 0;
-
-    while (cursor <= haystack.length) {
-      const start = haystack.indexOf(needle, cursor);
-      if (start === -1) break;
-      matches.push({ start, end: start + needle.length });
-      cursor = start + Math.max(needle.length, 1);
-    }
-
-    setFindMatches(matches);
-    setActiveFindIndex((current) => (matches.length === 0 ? 0 : Math.min(current, matches.length - 1)));
-  }, [code, findOpen, findQuery]);
+    jumpToLine,
+    openFind() {
+      runEditorAction(FIND_ACTION_ID);
+    },
+    openReplace() {
+      runEditorAction(REPLACE_ACTION_ID);
+    },
+    triggerInlineSuggestion() {
+      const editor = getActiveEditor();
+      editor?.trigger('keyboard', INLINE_TRIGGER_ID, { explicit: true });
+    },
+    acceptInlineSuggestion() {
+      const editor = getActiveEditor();
+      editor?.trigger('keyboard', INLINE_ACCEPT_ID, null);
+    },
+    acceptNextInlineWord() {
+      const editor = getActiveEditor();
+      editor?.trigger('keyboard', INLINE_ACCEPT_WORD_ID, null);
+    },
+    acceptNextInlineLine() {
+      const editor = getActiveEditor();
+      editor?.trigger('keyboard', INLINE_ACCEPT_LINE_ID, null);
+    },
+  }), [code, focusEditor, getActiveEditor, insertText, jumpToLine, runEditorAction]);
 
   useEffect(() => {
-    if (!findOpen || findMatches.length === 0) return;
-    const currentMatch = findMatches[Math.min(activeFindIndex, findMatches.length - 1)];
-    scrollSelectionIntoView(currentMatch.start, currentMatch.end, false);
-  }, [activeFindIndex, findMatches, findOpen, scrollSelectionIntoView]);
+    refreshDecorationsAndMarkers();
+  }, [code, diagnostics, showDiff, refreshDecorationsAndMarkers]);
 
-  const goToFindMatch = useCallback((direction) => {
-    if (findMatches.length === 0) return;
-    setActiveFindIndex((current) => {
-      const next = (current + direction + findMatches.length) % findMatches.length;
-      const match = findMatches[next];
-      requestAnimationFrame(() => scrollSelectionIntoView(match.start, match.end, false));
-      return next;
-    });
-  }, [findMatches, scrollSelectionIntoView]);
+  useEffect(() => {
+    const editor = getActiveEditor();
+    editor?.updateOptions({ theme: editorTheme });
+  }, [editorTheme, getActiveEditor]);
 
-  const handleScroll = (e) => {
-    if (highlightRef.current) { highlightRef.current.scrollTop = e.target.scrollTop; highlightRef.current.scrollLeft = e.target.scrollLeft; }
-    if (lineRef.current) { lineRef.current.scrollTop = e.target.scrollTop; }
-  };
+  const handleBeforeMount = useCallback((monaco) => {
+    monacoRef.current = monaco;
+    configureMonacoOpenScad(monaco);
+    ensureForge3DThemes(monaco);
+  }, []);
 
-  const handleKeyDown = (e) => {
-    const mod = e.metaKey || e.ctrlKey;
+  const handleMount = useCallback((editor, monaco) => {
+    monacoRef.current = monaco;
+    editorRef.current = editor;
+    modifiedEditorRef.current = null;
+    applyEditorEnhancements(editor, monaco);
+    refreshDecorationsAndMarkers();
+  }, [applyEditorEnhancements, refreshDecorationsAndMarkers]);
 
-    // Undo / Redo
-    if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
-      e.preventDefault();
-      if (e.shiftKey) onRedo?.();
-      else onUndo?.();
-      return;
-    }
-    if (mod && !e.altKey && e.key.toLowerCase() === 'f') {
-      e.preventDefault();
-      openFind();
-      return;
-    }
-    if (mod && !e.altKey && e.key.toLowerCase() === 'y') {
-      e.preventDefault();
-      onRedo?.();
-      return;
-    }
+  const handleDiffMount = useCallback((editor, monaco) => {
+    monacoRef.current = monaco;
+    diffEditorRef.current = editor;
+    modifiedEditorRef.current = editor.getModifiedEditor();
+    applyEditorEnhancements(modifiedEditorRef.current, monaco);
+    refreshDecorationsAndMarkers();
+  }, [applyEditorEnhancements, refreshDecorationsAndMarkers]);
 
-    // ── Shift+Enter → Build ──
-    if (e.shiftKey && e.key === 'Enter') {
-      e.preventDefault();
-      onBuild?.();
-      return;
-    }
-
-    // Tab → 2-space indent
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const ta = textareaRef.current;
-      const start = ta.selectionStart, end = ta.selectionEnd;
-      const nc = code.substring(0, start) + '  ' + code.substring(end);
-      onChange(nc);
-      setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + 2; }, 0);
-      return;
-    }
-
-    // ── Auto-close brackets & quotes ──
-    if (AUTO_CLOSE[e.key]) {
-      e.preventDefault();
-      const ta = textareaRef.current;
-      const start = ta.selectionStart, end = ta.selectionEnd;
-      const closing = AUTO_CLOSE[e.key];
-      // If selection exists, wrap it
-      if (start !== end) {
-        const selected = code.substring(start, end);
-        const nc = code.substring(0, start) + e.key + selected + closing + code.substring(end);
-        onChange(nc);
-        setTimeout(() => { ta.selectionStart = start + 1; ta.selectionEnd = end + 1; }, 0);
-      } else {
-        // Insert pair and place cursor in between
-        const nc = code.substring(0, start) + e.key + closing + code.substring(end);
-        onChange(nc);
-        setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + 1; }, 0);
-      }
-      return;
-    }
-
-    // Smart closing: skip over existing closing char if it's already there
-    if (['}', ')', ']', '"'].includes(e.key)) {
-      const ta = textareaRef.current;
-      const start = ta.selectionStart;
-      if (code[start] === e.key) {
-        e.preventDefault();
-        setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + 1; }, 0);
-        return;
-      }
-    }
-
-    // Auto-indent after '{'
-    if (e.key === 'Enter') {
-      const ta = textareaRef.current;
-      const start = ta.selectionStart;
-      const lineStart = code.lastIndexOf('\n', start - 1) + 1;
-      const lineText = code.slice(lineStart, start);
-      const indent = lineText.match(/^(\s*)/)[1];
-      const prevChar = code[start - 1];
-      const nextChar = code[start];
-      if (prevChar === '{' && nextChar === '}') {
-        // Expand block: put closing brace on its own line
-        e.preventDefault();
-        const ins = '\n' + indent + '  \n' + indent;
-        const nc = code.substring(0, start) + ins + code.substring(start);
-        onChange(nc);
-        setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + indent.length + 3; }, 0);
-        return;
-      }
-      if (prevChar === '{') {
-        e.preventDefault();
-        const ins = '\n' + indent + '  ';
-        const nc = code.substring(0, start) + ins + code.substring(start);
-        onChange(nc);
-        setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + ins.length; }, 0);
-        return;
-      }
-    }
-  };
-
-  const font = "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace";
-  const lineNumBg = isDark ? '#1e1f2e' : '#f0f2f5';
-  const lineNumColor = isDark ? '#4a4b6a' : '#aaaacc';
-  const lineNumBorder = isDark ? '#2a2b3d' : '#e0e0e0';
+  const baseOptions = useMemo(() => getBaseEditorOptions(theme), [theme]);
+  const diffOptions = useMemo(() => ({
+    ...getBaseEditorOptions(theme),
+    originalEditable: false,
+    renderSideBySide: true,
+  }), [theme]);
 
   return (
-    <div style={{ display: 'flex', height: '100%', position: 'relative', fontFamily: font, fontSize: '13px', lineHeight: '20px' }}>
-      {findOpen && (
-        <div style={{
-          position: 'absolute',
-          top: '10px',
-          right: '12px',
-          zIndex: 5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '6px 8px',
-          borderRadius: '8px',
-          border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
-          background: isDark ? '#1a1b2ef2' : '#fffffff2',
-          backdropFilter: 'blur(8px)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-        }}>
-          <input
-            ref={findInputRef}
-            value={findQuery}
-            onChange={(e) => setFindQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                goToFindMatch(e.shiftKey ? -1 : 1);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                closeFind();
-              }
-            }}
-            placeholder='Find in file'
-            style={{
-              width: '180px',
-              background: isDark ? '#11121c' : '#ffffff',
-              color: isDark ? '#e5e7eb' : '#222222',
-              border: `1px solid ${isDark ? '#2a2b3d' : '#cccccc'}`,
-              borderRadius: '6px',
-              padding: '6px 8px',
-              outline: 'none',
-              fontFamily: 'inherit',
-              fontSize: '12px',
-            }}
-          />
-          <span style={{ minWidth: '44px', textAlign: 'center', color: isDark ? '#9ca3af' : '#666666', fontSize: '11px' }}>
-            {findQuery ? (findMatches.length ? `${activeFindIndex + 1}/${findMatches.length}` : '0/0') : '--'}
-          </span>
-          <button
-            onClick={() => goToFindMatch(-1)}
-            disabled={findMatches.length === 0}
-            style={{
-              background: 'transparent',
-              border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
-              color: findMatches.length === 0 ? (isDark ? '#5c5d7a' : '#aaaaaa') : (isDark ? '#e5e7eb' : '#222222'),
-              borderRadius: '6px',
-              padding: '4px 7px',
-              cursor: findMatches.length === 0 ? 'not-allowed' : 'pointer',
-              fontSize: '12px',
-            }}
-          >↑</button>
-          <button
-            onClick={() => goToFindMatch(1)}
-            disabled={findMatches.length === 0}
-            style={{
-              background: 'transparent',
-              border: `1px solid ${isDark ? '#3a3b55' : '#d0d0d0'}`,
-              color: findMatches.length === 0 ? (isDark ? '#5c5d7a' : '#aaaaaa') : (isDark ? '#e5e7eb' : '#222222'),
-              borderRadius: '6px',
-              padding: '4px 7px',
-              cursor: findMatches.length === 0 ? 'not-allowed' : 'pointer',
-              fontSize: '12px',
-            }}
-          >↓</button>
-          <button
-            onClick={closeFind}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: isDark ? '#9ca3af' : '#666666',
-              padding: '2px 4px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              lineHeight: 1,
-            }}
-          >×</button>
-        </div>
-      )}
-      <div ref={lineRef} style={{ width: '48px', minWidth: '48px', background: lineNumBg, color: lineNumColor, textAlign: 'right', padding: '12px 8px 12px 0', overflow: 'hidden', userSelect: 'none', borderRight: `1px solid ${lineNumBorder}` }}>
-        {lines.map((_, i) => <div key={i} style={{ height: '20px' }}>{i + 1}</div>)}
-      </div>
-      <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-        <pre ref={highlightRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, margin: 0, padding: '12px', overflow: 'hidden', pointerEvents: 'none', color: '#abb2bf', whiteSpace: 'pre', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit' }}>
-          <HighlightedCode code={code} />
-        </pre>
-        <textarea ref={textareaRef} value={code} onChange={e => onChange(e.target.value)} onScroll={handleScroll} onKeyDown={handleKeyDown} spellCheck={false}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', margin: 0, padding: '12px', background: 'transparent', color: 'transparent', caretColor: '#61afef', border: 'none', outline: 'none', resize: 'none', fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 'inherit', whiteSpace: 'pre', overflow: 'auto' }}
+    <div style={{ position: 'relative', height: '100%' }}>
+      <style>{`
+        .forge3d-symbol-module {
+          border-left: 3px solid #4fc3f7;
+          margin-left: 6px;
+        }
+        .forge3d-symbol-function {
+          border-left: 3px solid #81c784;
+          margin-left: 6px;
+        }
+        .forge3d-symbol-template {
+          border-left: 3px solid #ffb74d;
+          margin-left: 6px;
+        }
+        .forge3d-symbol-variable {
+          border-left: 3px solid #8a8baa;
+          margin-left: 6px;
+        }
+      `}</style>
+
+      {showDiff ? (
+        <DiffEditor
+          beforeMount={handleBeforeMount}
+          height="100%"
+          language={OPENSCAD_LANGUAGE_ID}
+          modified={code}
+          onChange={(value) => {
+            if (typeof value === 'string' && value !== code) onChange(value);
+          }}
+          onMount={handleDiffMount}
+          options={diffOptions}
+          original={comparisonCode || ''}
+          theme={editorTheme}
         />
-      </div>
+      ) : (
+        <MonacoEditor
+          beforeMount={handleBeforeMount}
+          height="100%"
+          language={OPENSCAD_LANGUAGE_ID}
+          onChange={(value) => {
+            if (typeof value === 'string' && value !== code) onChange(value);
+          }}
+          onMount={handleMount}
+          options={baseOptions}
+          theme={editorTheme}
+          value={code}
+        />
+      )}
     </div>
   );
 });
