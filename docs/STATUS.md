@@ -136,4 +136,6 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 
 **Medium-term:** Add a dedicated assembly layer for multi-part move/rotate/scale and union/subtract/intersect, then connect it to print-bed arrangement and PrusaSlicer CLI
 
+Planning note: see `docs/assembly-mode-plan.md` for the current recommendation to separate Assembly Mode from printer-specific Print Mode.
+
 **Long-term:** AI code generation (natural language → OpenSCAD)

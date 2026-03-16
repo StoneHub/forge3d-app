@@ -82,6 +82,8 @@ Forge3D should grow beyond a single-model editor into a lightweight assembly wor
 
 **Goal:** Load multiple rendered parts into one scene, position them visually, and combine them with simple boolean operations without overloading the main `.scad` editor.
 
+See also: `docs/assembly-mode-plan.md` for the recommended split between Assembly Mode and later Print Mode, plus the first-pass UX based on Microsoft 3D Builder patterns.
+
 **Immediate Phase 2A goal:** add a "reference parts" workflow first. Users should be able to load a second template or `.scad` file beside the current model on the same scene/build plate without mutating the working file just to compare fit, spacing, gaps, or intersections.
 
 **Why this matters:**

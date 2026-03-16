@@ -45,8 +45,16 @@ npm run dist         # Package desktop app / installer
 ### Rendering: Native OpenSCAD via Electron IPC
 Forge3D renders by shelling out to the locally installed `openscad.com` binary from the Electron main process. Do NOT invest time improving the legacy custom interpreter beyond tokenizer support for the editor.
 
-### Two-Mode UI: Design Mode ↔ Print Mode
-See `docs/WORKFLOW.md` for the full specification.
+### Evolving Workflow: Design → Assembly → Print
+Forge3D is moving toward a three-stage workflow:
+- `Design Mode` for OpenSCAD authoring
+- `Assembly Mode` for mesh placement, measurement, and booleans
+- `Print Mode` for printer-bed and slicer workflows
+
+See:
+- `docs/WORKFLOW.md` for the existing design/print draft
+- `docs/assembly-mode-plan.md` for the recommended Assembly Mode split
+- `docs/agent-ops.md` for practical Codex/Tavily operating notes
 
 ### Slicing: PrusaSlicer CLI
 Desktop builds will shell out to the locally installed PrusaSlicer for slicing.
