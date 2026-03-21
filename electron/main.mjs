@@ -379,6 +379,7 @@ function buildRenderCommand(inputPath, outputPath) {
 
 async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined } = {}) {
   let execResult = { stdout: '', stderr: '' }
+  let renderSucceeded = false
 
   try {
     execResult = await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
@@ -386,13 +387,15 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
       timeout: 60000,
     })
 
+    renderSucceeded = true
+
     return {
       stlBuffer: await fs.readFile(outputPath),
       stdout: execResult.stdout || '',
       stderr: execResult.stderr || '',
     }
   } finally {
-    if (removeInput) {
+    if (removeInput && renderSucceeded) {
       fs.unlink(inputPath).catch(() => {})
     }
     fs.unlink(outputPath).catch(() => {})

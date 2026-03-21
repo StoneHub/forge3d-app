@@ -168,6 +168,65 @@ function parseOpenScadOutput(output, sourceCode) {
   return { errors, warnings, logs: groupedIssues.length > 0 ? looseLines : [] };
 }
 
+function buildRenderLifecycleLogEntries(response = {}, { includeStreams = true } = {}) {
+  return [
+    response.command ? `OpenSCAD command: ${response.command}` : null,
+    Number.isInteger(response.exitCode) ? `Exit code: ${response.exitCode}` : null,
+    Number.isInteger(response.elapsedMs) ? `OpenSCAD render time: ${response.elapsedMs}ms` : null,
+    response.debugSourcePath ? `Debug source: ${response.debugSourcePath}` : null,
+    includeStreams && response.stdout ? `stdout:\n${response.stdout}` : null,
+    includeStreams && response.stderr ? `stderr:\n${response.stderr}` : null,
+  ].filter(Boolean);
+}
+
+function appendIssueDetail(issue, detail) {
+  if (!detail) return issue;
+  return {
+    ...issue,
+    detail: [issue.detail, detail].filter(Boolean).join('\n\n'),
+  };
+}
+
+function buildRenderDiagnostics(response, sourceCode) {
+  const diagnostics = parseOpenScadOutput(
+    [response?.stderr, response?.stdout, response?.error].filter(Boolean).join('\n'),
+    sourceCode,
+  );
+  const renderDetail = [
+    response?.command ? `Command:\n${response.command}` : null,
+    Number.isInteger(response?.exitCode) ? `Exit code: ${response.exitCode}` : null,
+    Number.isInteger(response?.elapsedMs) ? `Render time: ${response.elapsedMs}ms` : null,
+    response?.debugSourcePath ? `Debug source:\n${response.debugSourcePath}` : null,
+  ].filter(Boolean).join('\n\n');
+
+  if (diagnostics.errors.length === 0 && diagnostics.warnings.length === 0) {
+    const fallbackMessage = response?.error || 'OpenSCAD render failed.';
+    const lineNumber = extractDiagnosticLineNumber(fallbackMessage);
+    return {
+      errors: [{
+        severity: 'error',
+        message: fallbackMessage,
+        raw: fallbackMessage,
+        detail: [
+          renderDetail,
+          response?.stdout ? `stdout:\n${response.stdout}` : null,
+          response?.stderr ? `stderr:\n${response.stderr}` : null,
+        ].filter(Boolean).join('\n\n'),
+        lineNumber,
+        excerpt: buildCodeExcerpt(sourceCode, lineNumber),
+      }],
+      warnings: [],
+      logs: diagnostics.logs,
+    };
+  }
+
+  return {
+    errors: diagnostics.errors.map((entry, index) => index === 0 ? appendIssueDetail(entry, renderDetail) : entry),
+    warnings: diagnostics.warnings.map((entry, index) => index === 0 && diagnostics.errors.length === 0 ? appendIssueDetail(entry, renderDetail) : entry),
+    logs: diagnostics.logs,
+  };
+}
+
 function formatDiagnosticForPrompt(entry) {
   if (typeof entry === 'string') return entry;
   if (!entry || typeof entry !== 'object') return String(entry);
@@ -972,17 +1031,10 @@ export default function Forge3D() {
 
       if (response.error) {
         setStlGeometry(null);
-        const diagnostics = parseOpenScadOutput(
-          [response.error, response.stderr, response.stdout].filter(Boolean).join('\n'),
-          previewCode,
-        );
+        const diagnostics = buildRenderDiagnostics(response, previewCode);
         const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
         const lifecycleLogs = [
-          response.command ? `OpenSCAD command: ${response.command}` : null,
-          Number.isInteger(response.exitCode) ? `Exit code: ${response.exitCode}` : null,
-          response.debugSourcePath ? `Debug source: ${response.debugSourcePath}` : null,
-          response.stdout ? `stdout:\n${response.stdout}` : null,
-          response.stderr ? `stderr:\n${response.stderr}` : null,
+          ...buildRenderLifecycleLogEntries(response),
           ...diagnostics.logs,
         ].filter(Boolean);
         setResult({ objects: [], logs: lifecycleLogs, errors: diagnostics.errors, warnings: diagnostics.warnings, variables: {} });
@@ -990,26 +1042,46 @@ export default function Forge3D() {
         setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
       } else {
         loadStlBytes(new Uint8Array(response.stl), elapsed);
+        const diagnostics = buildRenderDiagnostics(response, previewCode);
         setResult((current) => ({
           ...current,
           logs: [
             ...current.logs,
-            ...[
-              response.command ? `OpenSCAD command: ${response.command}` : null,
-              Number.isInteger(response.elapsedMs) ? `OpenSCAD render time: ${response.elapsedMs}ms` : null,
-              response.stdout ? `stdout:\n${response.stdout}` : null,
-            ].filter(Boolean),
+            ...buildRenderLifecycleLogEntries(response),
+            ...diagnostics.logs,
           ],
+          errors: diagnostics.errors,
+          warnings: diagnostics.warnings,
         }));
+        setStatusMessage(
+          diagnostics.warnings.length > 0
+            ? `Render completed with ${diagnostics.warnings.length} warning${diagnostics.warnings.length === 1 ? '' : 's'}`
+            : 'Render complete',
+        );
       }
     } catch (err) {
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      const diagnostics = parseOpenScadOutput(`ERROR: ${err.message}`, previewCode);
+      const failureResponse = {
+        error: err.message || 'OpenSCAD render failed.',
+        stdout: err.stdout || '',
+        stderr: err.stderr || '',
+        command: err.command || null,
+        exitCode: Number.isInteger(err.code) ? err.code : null,
+        debugSourcePath: err.debugSourcePath || null,
+        elapsedMs: err.elapsedMs || null,
+      };
+      const diagnostics = buildRenderDiagnostics(failureResponse, previewCode);
       const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
-      setResult({ objects: [], logs: diagnostics.logs, errors: diagnostics.errors, warnings: diagnostics.warnings, variables: {} });
+      setResult({
+        objects: [],
+        logs: [...buildRenderLifecycleLogEntries(failureResponse), ...diagnostics.logs],
+        errors: diagnostics.errors,
+        warnings: diagnostics.warnings,
+        variables: {},
+      });
       setActiveTab('errors');
       setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
     }
