@@ -187,6 +187,23 @@ function appendIssueDetail(issue, detail) {
   };
 }
 
+function appendStageDetailToDiagnostics(diagnostics, detail) {
+  if (!detail) return diagnostics;
+  if (diagnostics.errors.length > 0) {
+    return {
+      ...diagnostics,
+      errors: diagnostics.errors.map((entry, index) => index === 0 ? appendIssueDetail(entry, detail) : entry),
+    };
+  }
+  if (diagnostics.warnings.length > 0) {
+    return {
+      ...diagnostics,
+      warnings: diagnostics.warnings.map((entry, index) => index === 0 ? appendIssueDetail(entry, detail) : entry),
+    };
+  }
+  return diagnostics;
+}
+
 function buildRenderDiagnostics(response, sourceCode) {
   const diagnostics = parseOpenScadOutput(
     [response?.stderr, response?.stdout, response?.error].filter(Boolean).join('\n'),
@@ -225,6 +242,22 @@ function buildRenderDiagnostics(response, sourceCode) {
     warnings: diagnostics.warnings.map((entry, index) => index === 0 && diagnostics.errors.length === 0 ? appendIssueDetail(entry, renderDetail) : entry),
     logs: diagnostics.logs,
   };
+}
+
+function createRenderStageError(stageLabel, error, response, sourceCode) {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown render pipeline failure.');
+  const stageDetail = [
+    `Pipeline stage:\n${stageLabel}`,
+    Array.isArray(response?.stl) ? `STL bytes:\n${response.stl.length}` : null,
+  ].filter(Boolean).join('\n\n');
+
+  return appendStageDetailToDiagnostics(
+    buildRenderDiagnostics({
+      ...response,
+      error: `Forge3D ${stageLabel.toLowerCase()} failed: ${message}`,
+    }, sourceCode),
+    stageDetail,
+  );
 }
 
 function formatDiagnosticForPrompt(entry) {
@@ -535,11 +568,39 @@ export default function Forge3D() {
 
   // ─── STL loader helper ───────────────────────────────────────────────
   const loadStlBytes = useCallback((bytes, elapsed) => {
-    const parsed = parseSTL(bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes));
+    const stlBytes = bytes instanceof Uint8Array
+      ? bytes
+      : (bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : new Uint8Array(bytes));
+
+    if (stlBytes.byteLength < 84) {
+      throw new Error(`STL output is too small to parse (${stlBytes.byteLength} bytes).`);
+    }
+
+    const parsed = parseSTL(stlBytes);
+    if (!Number.isFinite(parsed.triangleCount) || parsed.triangleCount <= 0 || parsed.vertices.length === 0) {
+      throw new Error('STL output contained no triangles.');
+    }
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(parsed.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(parsed.normals, 3));
     geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+
+    const bounds = geometry.boundingBox;
+    const sphere = geometry.boundingSphere;
+    const boundsAreFinite = bounds
+      && Number.isFinite(bounds.min.x)
+      && Number.isFinite(bounds.min.y)
+      && Number.isFinite(bounds.min.z)
+      && Number.isFinite(bounds.max.x)
+      && Number.isFinite(bounds.max.y)
+      && Number.isFinite(bounds.max.z);
+
+    if (!boundsAreFinite || !sphere || !Number.isFinite(sphere.radius) || sphere.radius <= 0) {
+      throw new Error('STL geometry parsed, but produced invalid bounds for viewport rendering.');
+    }
+
     setStlGeometry(geometry);
     setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`], errors: [], warnings: [], variables: {} });
   }, []);
@@ -1041,7 +1102,23 @@ export default function Forge3D() {
         setActiveTab('errors');
         setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
       } else {
-        loadStlBytes(new Uint8Array(response.stl), elapsed);
+        try {
+          loadStlBytes(new Uint8Array(response.stl), elapsed);
+        } catch (loadError) {
+          setStlGeometry(null);
+          const diagnostics = createRenderStageError('STL ingest', loadError, response, previewCode);
+          const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
+          setResult({
+            objects: [],
+            logs: [...buildRenderLifecycleLogEntries(response), ...diagnostics.logs],
+            errors: diagnostics.errors,
+            warnings: diagnostics.warnings,
+            variables: {},
+          });
+          setActiveTab('errors');
+          setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed during STL ingest. See Problems for details.');
+          return;
+        }
         const diagnostics = buildRenderDiagnostics(response, previewCode);
         setResult((current) => ({
           ...current,
