@@ -361,17 +361,36 @@ function createWindow() {
   spawnLSP(win)
 }
 
-async function renderScadInput(inputPath, { removeInput = false, cwd = undefined } = {}) {
+function buildRenderPaths(sourcePath) {
   const ts = Date.now()
-  const outputPath = path.join(os.tmpdir(), `forge3d_${ts}.stl`)
+  const preferredDir = sourcePath && !String(sourcePath).includes('.asar')
+    ? path.dirname(sourcePath)
+    : os.tmpdir()
+
+  return {
+    inputPath: path.join(preferredDir, `.forge3d-preview-${ts}.scad`),
+    outputPath: path.join(os.tmpdir(), `forge3d_${ts}.stl`),
+  }
+}
+
+function buildRenderCommand(inputPath, outputPath) {
+  return `"${OPENSCAD_BIN}" -o "${outputPath}" "${inputPath}"`
+}
+
+async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined } = {}) {
+  let execResult = { stdout: '', stderr: '' }
 
   try {
-    await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
+    execResult = await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
       cwd,
       timeout: 60000,
     })
 
-    return await fs.readFile(outputPath)
+    return {
+      stlBuffer: await fs.readFile(outputPath),
+      stdout: execResult.stdout || '',
+      stderr: execResult.stderr || '',
+    }
   } finally {
     if (removeInput) {
       fs.unlink(inputPath).catch(() => {})
@@ -398,14 +417,28 @@ function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } =
   return [...new Set(parts)].join('\n') || 'OpenSCAD render failed.'
 }
 
-async function renderScadCode(code, { sourceName = 'Current buffer' } = {}) {
-  const ts = Date.now()
-  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
+async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null } = {}) {
+  const { inputPath, outputPath } = buildRenderPaths(sourcePath)
+  const cwd = sourcePath && !String(sourcePath).includes('.asar')
+    ? path.dirname(sourcePath)
+    : undefined
+  const startedAt = Date.now()
+
   try {
     await fs.writeFile(inputPath, code, 'utf8')
-    return await renderScadInput(inputPath, { removeInput: true })
+    const result = await renderScadInput(inputPath, outputPath, { removeInput: true, cwd })
+    return {
+      ...result,
+      command: buildRenderCommand(inputPath, outputPath),
+      elapsedMs: Date.now() - startedAt,
+      debugSourcePath: null,
+      sourceName,
+    }
   } catch (err) {
     err.forgeMessage = formatRenderFailure(err, { inputPath, sourceName })
+    err.command = buildRenderCommand(inputPath, outputPath)
+    err.debugSourcePath = inputPath
+    err.elapsedMs = Date.now() - startedAt
     throw err
   }
 }
@@ -722,14 +755,28 @@ ipcMain.handle('workspace:listFiles', async () => {
 })
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
-ipcMain.handle('openscad:render', async (_event, { code, sourceName } = {}) => {
+ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath } = {}) => {
   try {
-    const stlBuffer = await renderScadCode(code, { sourceName })
+    const renderResult = await renderScadCode(code, { sourceName, sourcePath })
     // Return as a plain array so it survives IPC serialization
-    return { stl: Array.from(stlBuffer) }
+    return {
+      stl: Array.from(renderResult.stlBuffer),
+      stdout: renderResult.stdout,
+      stderr: renderResult.stderr,
+      command: renderResult.command,
+      elapsedMs: renderResult.elapsedMs,
+    }
   } catch (err) {
     const msg = err.forgeMessage || formatRenderFailure(err, { sourceName })
-    return { error: msg }
+    return {
+      error: msg,
+      stdout: err.stdout || '',
+      stderr: err.stderr || '',
+      command: err.command || null,
+      exitCode: Number.isInteger(err.code) ? err.code : null,
+      debugSourcePath: err.debugSourcePath || null,
+      elapsedMs: err.elapsedMs || null,
+    }
   }
 })
 
