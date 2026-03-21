@@ -483,7 +483,7 @@ export default function Forge3D() {
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const buildTimeoutRef = useRef(null);
-  const BUILD_TIMEOUT = 60000;
+  const BUILD_TIMEOUT = 5 * 60 * 1000;
 
   const colors = getThemeColors(theme);
   const projectWorkingDirectory = useMemo(() => workspaceFolder || getParentDirectory(currentFilePath), [workspaceFolder, currentFilePath]);

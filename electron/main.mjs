@@ -16,6 +16,7 @@ const isDev = !app.isPackaged
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_BIN = 'C:\\Program Files\\OpenSCAD\\openscad.com'
+const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
 
 // ── Config (userData JSON) ──────────────────────────────────────────────────
 const CONFIG_PATH = path.join(app.getPath('userData'), 'forge3d-config.json')
@@ -23,6 +24,47 @@ const MAX_RECENT_FILES = 10
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.5
 const ZOOM_STEP = 0.1
+
+function buildStableChildProcessEnv(overrides = {}) {
+  const userProfile = process.env.USERPROFILE || os.homedir()
+  const appData = process.env.APPDATA || (userProfile ? path.join(userProfile, 'AppData', 'Roaming') : undefined)
+  const localAppData = process.env.LOCALAPPDATA || (userProfile ? path.join(userProfile, 'AppData', 'Local') : undefined)
+  const tempDir = process.env.TEMP || process.env.TMP || (localAppData ? path.join(localAppData, 'Temp') : os.tmpdir())
+  const homeDrive = process.env.HOMEDRIVE || (userProfile ? path.parse(userProfile).root.replace(/[\\\/]+$/, '') : undefined)
+  const homePath = process.env.HOMEPATH || (userProfile && homeDrive && userProfile.startsWith(`${homeDrive}\\`) ? userProfile.slice(homeDrive.length) : undefined)
+
+  return {
+    ...process.env,
+    USERPROFILE: userProfile,
+    HOME: process.env.HOME || userProfile,
+    APPDATA: appData,
+    LOCALAPPDATA: localAppData,
+    TEMP: tempDir,
+    TMP: tempDir,
+    HOMEDRIVE: homeDrive,
+    HOMEPATH: homePath,
+    ...overrides,
+  }
+}
+
+function getPreferredDocumentsPath(env = process.env) {
+  const userProfile = env.USERPROFILE || process.env.USERPROFILE || os.homedir()
+  return userProfile ? path.join(userProfile, 'Documents') : null
+}
+
+async function ensureNativeToolUserFolders(env = process.env) {
+  const candidateDirs = [
+    getPreferredDocumentsPath(env),
+    env.APPDATA,
+    env.LOCALAPPDATA,
+    env.TEMP,
+    env.TMP,
+  ].filter(Boolean)
+
+  await Promise.all(
+    [...new Set(candidateDirs)].map((dirPath) => fs.mkdir(dirPath, { recursive: true }).catch(() => {})),
+  )
+}
 
 function loadConfig() {
   try {
@@ -124,7 +166,10 @@ function spawnLSP(win) {
   }
 
   try {
-    lspProcess = spawn(lspBin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    lspProcess = spawn(lspBin, [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildStableChildProcessEnv(),
+    })
 
     let buf = ''
     lspProcess.stdout.on('data', (chunk) => {
@@ -380,11 +425,14 @@ function buildRenderCommand(inputPath, outputPath) {
 async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined } = {}) {
   let execResult = { stdout: '', stderr: '' }
   let renderSucceeded = false
+  const env = buildStableChildProcessEnv()
 
   try {
+    await ensureNativeToolUserFolders(env)
     execResult = await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
       cwd,
-      timeout: 60000,
+      timeout: OPENSCAD_RENDER_TIMEOUT_MS,
+      env,
     })
 
     renderSucceeded = true
@@ -929,7 +977,7 @@ async function spawnTerminalSession(options = {}) {
       cols: 80,
       rows: 24,
       cwd: workingDir,
-      env: process.env,
+      env: buildStableChildProcessEnv(),
     })
 
     terminalState = {
