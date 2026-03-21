@@ -188,6 +188,24 @@ function formatBuildElapsed(ms) {
     : `${seconds}s`;
 }
 
+function getRenderProfileConfig(profile) {
+  if (profile === 'final') {
+    return {
+      id: 'final',
+      label: 'Final',
+      defineOverrides: [],
+      statusSuffix: 'full detail',
+    };
+  }
+
+  return {
+    id: 'quick',
+    label: 'Quick',
+    defineOverrides: ['$fn=28', '$fa=14', '$fs=1.5'],
+    statusSuffix: 'reduced detail',
+  };
+}
+
 function appendIssueDetail(issue, detail) {
   if (!detail) return issue;
   return {
@@ -430,6 +448,7 @@ export default function Forge3D() {
   const [sidebarOpen, setSidebarOpen] = useState(initialPanelLayout.sidebarOpen ?? true);
   const [sidebarTab, setSidebarTab] = useState(initialWorkspace.activeActivity || (initialWorkspace.code.trim() ? 'workspace' : 'start'));
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
+  const [renderProfile, setRenderProfile] = useState(initialWorkspace.renderProfile || 'quick');
   const [buildTime, setBuildTime] = useState(0);
   const [buildElapsedMs, setBuildElapsedMs] = useState(0);
   const [buildStatusDetail, setBuildStatusDetail] = useState('');
@@ -499,6 +518,7 @@ export default function Forge3D() {
   const BUILD_TIMEOUT = 5 * 60 * 1000;
 
   const colors = getThemeColors(theme);
+  const activeRenderProfile = useMemo(() => getRenderProfileConfig(renderProfile), [renderProfile]);
   const projectWorkingDirectory = useMemo(() => workspaceFolder || getParentDirectory(currentFilePath), [workspaceFolder, currentFilePath]);
   const documentSymbols = useMemo(() => extractOpenScadSymbols(code), [code]);
   const previewCode = code;
@@ -1093,7 +1113,7 @@ export default function Forge3D() {
     setBuilding(true);
     setBuildElapsedMs(0);
     setBuildStatusDetail('Preparing render...');
-    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME}...`);
+    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME} (${activeRenderProfile.label})...`);
     setResult((current) => ({
       ...current,
       logs: [],
@@ -1125,6 +1145,7 @@ export default function Forge3D() {
         sourceName: currentFileName || DEFAULT_FILE_NAME,
         sourcePath: currentFilePath || null,
         requestId,
+        defineOverrides: activeRenderProfile.defineOverrides,
       });
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
@@ -1215,7 +1236,7 @@ export default function Forge3D() {
       setBuildStatusDetail(err.message === 'OpenSCAD render cancelled.' ? 'Render cancelled' : 'Render failed');
       setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
     }
-  }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode]);
+  }, [BUILD_TIMEOUT, activeRenderProfile, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode]);
 
   const cancelBuild = useCallback(async () => {
     buildIdRef.current += 1;
@@ -1258,6 +1279,7 @@ export default function Forge3D() {
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
     setAutoRun(next.autoRun);
+    setRenderProfile(next.renderProfile || 'quick');
     setSidebarTab(next.activeActivity || 'start');
     setSidebarOpen(true);
     setStartState(next.startState || { search: '', sectionFilter: 'all' });
@@ -1361,8 +1383,9 @@ export default function Forge3D() {
 
     if (payload.phase === 'started') {
       const introLogs = [
-        `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME}`,
+        `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME} (${activeRenderProfile.label})`,
         payload.command ? `OpenSCAD command: ${payload.command}` : null,
+        payload.defineOverrides?.length ? `Render overrides: ${payload.defineOverrides.join(', ')}` : null,
         payload.inputPath ? `Debug source: ${payload.inputPath}` : null,
         payload.cwd ? `Working directory: ${payload.cwd}` : null,
       ].filter(Boolean);
@@ -1398,7 +1421,7 @@ export default function Forge3D() {
     if (payload.phase === 'exited') {
       setBuildStatusDetail(`OpenSCAD exited after ${formatBuildElapsed(payload.elapsedMs || 0)}`);
     }
-  }), [currentFileName, forgeAPI, replaceRenderLogs]);
+  }), [activeRenderProfile.label, currentFileName, forgeAPI, replaceRenderLogs]);
 
   useEffect(() => {
     if (!stlGeometry || !shouldAutoFitViewRef.current) return;
@@ -1424,6 +1447,7 @@ export default function Forge3D() {
         preferredShellId,
       },
       terminalManagerState,
+      renderProfile,
       panelLayout: {
         sidebarOpen,
         sidebarWidth,
@@ -1431,7 +1455,7 @@ export default function Forge3D() {
         bottomPanelHeight,
       },
     }));
-  }, [activeTab, autoRun, bottomPanelHeight, code, comparisonCode, currentFileName, currentFilePath, editorWidth, preferredShellId, savedCode, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
+  }, [activeTab, autoRun, bottomPanelHeight, code, comparisonCode, currentFileName, currentFilePath, editorWidth, preferredShellId, renderProfile, savedCode, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
@@ -2055,12 +2079,14 @@ export default function Forge3D() {
         onNewFile={resetWorkspace}
         onOpenFile={openFile}
         onRedo={mode === 'assembly' ? redoAssemblyScene : redoCode}
+        onRenderProfileChange={setRenderProfile}
         onResetView={() => setResetViewSignal(v => v + 1)}
         onReturnToDesignMode={returnToDesignMode}
         onRunCode={runCode}
         onSaveFile={saveFile}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         onUndo={mode === 'assembly' ? undoAssemblyScene : undoCode}
+        renderProfile={renderProfile}
         theme={theme}
       />
 

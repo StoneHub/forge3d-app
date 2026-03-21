@@ -416,8 +416,20 @@ function buildRenderPaths(sourcePath) {
   }
 }
 
-function buildRenderCommand(inputPath, outputPath) {
-  return `"${OPENSCAD_BIN}" -o "${outputPath}" "${inputPath}"`
+function buildRenderArgs(inputPath, outputPath, defineOverrides = []) {
+  return [
+    ...defineOverrides.flatMap((entry) => ['-D', entry]),
+    '-o',
+    outputPath,
+    inputPath,
+  ]
+}
+
+function buildRenderCommand(inputPath, outputPath, defineOverrides = []) {
+  const renderedArgs = buildRenderArgs(inputPath, outputPath, defineOverrides)
+    .map((entry) => `"${entry}"`)
+    .join(' ')
+  return `"${OPENSCAD_BIN}" ${renderedArgs}`
 }
 
 function emitOpenScadProgress(webContents, payload) {
@@ -429,7 +441,7 @@ function emitOpenScadProgress(webContents, payload) {
   }
 }
 
-async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined, requestId = null, webContents = null } = {}) {
+async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined, requestId = null, webContents = null, defineOverrides = [] } = {}) {
   const env = buildStableChildProcessEnv()
   let stdout = ''
   let stderr = ''
@@ -444,11 +456,11 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
 
   try {
     await ensureNativeToolUserFolders(env)
-    const command = buildRenderCommand(inputPath, outputPath)
+    const command = buildRenderCommand(inputPath, outputPath, defineOverrides)
     const startedAt = Date.now()
 
     return await new Promise((resolve, reject) => {
-      const child = spawn(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
+      const child = spawn(OPENSCAD_BIN, buildRenderArgs(inputPath, outputPath, defineOverrides), {
         cwd,
         env,
         windowsHide: true,
@@ -498,6 +510,7 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
         requestId,
         phase: 'started',
         command,
+        defineOverrides,
         inputPath,
         outputPath,
         cwd: cwd || null,
@@ -611,7 +624,7 @@ function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } =
   return [...new Set(parts)].join('\n') || 'OpenSCAD render failed.'
 }
 
-async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null, requestId = null, webContents = null } = {}) {
+async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null, requestId = null, webContents = null, defineOverrides = [] } = {}) {
   const { inputPath, outputPath } = buildRenderPaths(sourcePath)
   const cwd = sourcePath && !String(sourcePath).includes('.asar')
     ? path.dirname(sourcePath)
@@ -625,17 +638,18 @@ async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath 
       cwd,
       requestId,
       webContents,
+      defineOverrides,
     })
     return {
       ...result,
-      command: buildRenderCommand(inputPath, outputPath),
+      command: buildRenderCommand(inputPath, outputPath, defineOverrides),
       elapsedMs: Date.now() - startedAt,
       debugSourcePath: null,
       sourceName,
     }
   } catch (err) {
     err.forgeMessage = formatRenderFailure(err, { inputPath, sourceName })
-    err.command = buildRenderCommand(inputPath, outputPath)
+    err.command = buildRenderCommand(inputPath, outputPath, defineOverrides)
     err.debugSourcePath = inputPath
     err.elapsedMs = Date.now() - startedAt
     throw err
@@ -954,13 +968,14 @@ ipcMain.handle('workspace:listFiles', async () => {
 })
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
-ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath, requestId } = {}) => {
+ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath, requestId, defineOverrides } = {}) => {
   try {
     const renderResult = await renderScadCode(code, {
       sourceName,
       sourcePath,
       requestId: requestId || null,
       webContents: _event.sender,
+      defineOverrides: Array.isArray(defineOverrides) ? defineOverrides.filter(Boolean) : [],
     })
     // Return as a plain array so it survives IPC serialization
     return {
