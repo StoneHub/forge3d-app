@@ -117,7 +117,7 @@ function createOpenScadIssue(lines, sourceCode, fallbackSeverity = 'error') {
   };
 }
 
-function parseOpenScadOutput(output, sourceCode) {
+function parseOpenScadOutput(output, sourceCode, { treatLooseLinesAsIssues = true } = {}) {
   const normalizedLines = String(output || '')
     .replace(/\r\n/g, '\n')
     .split('\n')
@@ -149,7 +149,7 @@ function parseOpenScadOutput(output, sourceCode) {
 
   if (currentIssue) groupedIssues.push(currentIssue);
 
-  if (groupedIssues.length === 0 && looseLines.length > 0) {
+  if (treatLooseLinesAsIssues && groupedIssues.length === 0 && looseLines.length > 0) {
     groupedIssues.push({ severity: 'error', lines: looseLines });
   }
 
@@ -165,7 +165,7 @@ function parseOpenScadOutput(output, sourceCode) {
     }
   });
 
-  return { errors, warnings, logs: groupedIssues.length > 0 ? looseLines : [] };
+  return { errors, warnings, logs: looseLines };
 }
 
 function buildRenderLifecycleLogEntries(response = {}, { includeStreams = true } = {}) {
@@ -232,9 +232,11 @@ function appendStageDetailToDiagnostics(diagnostics, detail) {
 }
 
 function buildRenderDiagnostics(response, sourceCode) {
+  const hasExplicitFailure = Boolean(response?.error);
   const diagnostics = parseOpenScadOutput(
     [response?.stderr, response?.stdout, response?.error].filter(Boolean).join('\n'),
     sourceCode,
+    { treatLooseLinesAsIssues: hasExplicitFailure },
   );
   const renderDetail = [
     response?.command ? `Command:\n${response.command}` : null,
@@ -242,6 +244,10 @@ function buildRenderDiagnostics(response, sourceCode) {
     Number.isInteger(response?.elapsedMs) ? `Render time: ${response.elapsedMs}ms` : null,
     response?.debugSourcePath ? `Debug source:\n${response.debugSourcePath}` : null,
   ].filter(Boolean).join('\n\n');
+
+  if (!hasExplicitFailure) {
+    return diagnostics;
+  }
 
   if (diagnostics.errors.length === 0 && diagnostics.warnings.length === 0) {
     const fallbackMessage = response?.error || 'OpenSCAD render failed.';
@@ -2427,6 +2433,9 @@ export default function Forge3D() {
         </div>
         {/* 3D viewport */}
         <ViewportPane
+          buildElapsedMs={buildElapsedMs}
+          buildStatusText={buildStatusDetail}
+          building={building}
           canvasRef={canvasRef}
           colors={colors}
           minViewportWidth={MIN_VIEWPORT_WIDTH}

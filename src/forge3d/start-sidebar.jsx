@@ -174,6 +174,7 @@ export default function StartSidebar({ colors, onInsertItem, onOpenExternal, onS
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
+                  cursor: 'pointer',
                 }}
               >
                 {renderPreview(colors, item)}

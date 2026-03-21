@@ -404,15 +404,20 @@ function createWindow() {
   spawnLSP(win)
 }
 
-function buildRenderPaths(sourcePath) {
+function getRenderScratchDir() {
+  const baseDir = app?.isReady?.() ? app.getPath('temp') : os.tmpdir()
+  const scratchDir = path.join(baseDir, 'forge3d-render-cache')
+  fsSync.mkdirSync(scratchDir, { recursive: true })
+  return scratchDir
+}
+
+function buildRenderPaths() {
   const ts = Date.now()
-  const preferredDir = sourcePath && !String(sourcePath).includes('.asar')
-    ? path.dirname(sourcePath)
-    : os.tmpdir()
+  const scratchDir = getRenderScratchDir()
 
   return {
-    inputPath: path.join(preferredDir, `.forge3d-preview-${ts}.scad`),
-    outputPath: path.join(os.tmpdir(), `forge3d_${ts}.stl`),
+    inputPath: path.join(scratchDir, `.forge3d-preview-${ts}.scad`),
+    outputPath: path.join(scratchDir, `forge3d_${ts}.stl`),
   }
 }
 
@@ -625,7 +630,7 @@ function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } =
 }
 
 async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null, requestId = null, webContents = null, defineOverrides = [] } = {}) {
-  const { inputPath, outputPath } = buildRenderPaths(sourcePath)
+  const { inputPath, outputPath } = buildRenderPaths()
   const cwd = sourcePath && !String(sourcePath).includes('.asar')
     ? path.dirname(sourcePath)
     : undefined
