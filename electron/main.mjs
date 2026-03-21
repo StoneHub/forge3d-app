@@ -4,18 +4,16 @@ import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
-import { spawn, execFile, spawnSync } from 'child_process'
-import { promisify } from 'util'
+import { spawn, spawnSync } from 'child_process'
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
-
-const execFileAsync = promisify(execFile)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_BIN = 'C:\\Program Files\\OpenSCAD\\openscad.com'
+const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
 
 // ── Config (userData JSON) ──────────────────────────────────────────────────
 const CONFIG_PATH = path.join(app.getPath('userData'), 'forge3d-config.json')
@@ -23,6 +21,47 @@ const MAX_RECENT_FILES = 10
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.5
 const ZOOM_STEP = 0.1
+
+function buildStableChildProcessEnv(overrides = {}) {
+  const userProfile = process.env.USERPROFILE || os.homedir()
+  const appData = process.env.APPDATA || (userProfile ? path.join(userProfile, 'AppData', 'Roaming') : undefined)
+  const localAppData = process.env.LOCALAPPDATA || (userProfile ? path.join(userProfile, 'AppData', 'Local') : undefined)
+  const tempDir = process.env.TEMP || process.env.TMP || (localAppData ? path.join(localAppData, 'Temp') : os.tmpdir())
+  const homeDrive = process.env.HOMEDRIVE || (userProfile ? path.parse(userProfile).root.replace(/[\\\/]+$/, '') : undefined)
+  const homePath = process.env.HOMEPATH || (userProfile && homeDrive && userProfile.startsWith(`${homeDrive}\\`) ? userProfile.slice(homeDrive.length) : undefined)
+
+  return {
+    ...process.env,
+    USERPROFILE: userProfile,
+    HOME: process.env.HOME || userProfile,
+    APPDATA: appData,
+    LOCALAPPDATA: localAppData,
+    TEMP: tempDir,
+    TMP: tempDir,
+    HOMEDRIVE: homeDrive,
+    HOMEPATH: homePath,
+    ...overrides,
+  }
+}
+
+function getPreferredDocumentsPath(env = process.env) {
+  const userProfile = env.USERPROFILE || process.env.USERPROFILE || os.homedir()
+  return userProfile ? path.join(userProfile, 'Documents') : null
+}
+
+async function ensureNativeToolUserFolders(env = process.env) {
+  const candidateDirs = [
+    getPreferredDocumentsPath(env),
+    env.APPDATA,
+    env.LOCALAPPDATA,
+    env.TEMP,
+    env.TMP,
+  ].filter(Boolean)
+
+  await Promise.all(
+    [...new Set(candidateDirs)].map((dirPath) => fs.mkdir(dirPath, { recursive: true }).catch(() => {})),
+  )
+}
 
 function loadConfig() {
   try {
@@ -124,7 +163,10 @@ function spawnLSP(win) {
   }
 
   try {
-    lspProcess = spawn(lspBin, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    lspProcess = spawn(lspBin, [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildStableChildProcessEnv(),
+    })
 
     let buf = ''
     lspProcess.stdout.on('data', (chunk) => {
@@ -171,6 +213,7 @@ let mainWin = null
 let activeFileWatcher = null
 let activeWatchedFilePath = null
 let activeFileWatchTimer = null
+let activeOpenScadRender = null
 
 function getWindowIconPath() {
   const iconName = process.platform === 'linux' ? 'icon.png' : 'icon.ico'
@@ -361,32 +404,262 @@ function createWindow() {
   spawnLSP(win)
 }
 
-async function renderScadInput(inputPath, { removeInput = false, cwd = undefined } = {}) {
+function getRenderScratchDir() {
+  const baseDir = app?.isReady?.() ? app.getPath('temp') : os.tmpdir()
+  const scratchDir = path.join(baseDir, 'forge3d-render-cache')
+  fsSync.mkdirSync(scratchDir, { recursive: true })
+  return scratchDir
+}
+
+function buildRenderPaths() {
   const ts = Date.now()
-  const outputPath = path.join(os.tmpdir(), `forge3d_${ts}.stl`)
+  const scratchDir = getRenderScratchDir()
 
-  try {
-    await execFileAsync(OPENSCAD_BIN, ['-o', outputPath, inputPath], {
-      cwd,
-      timeout: 60000,
-    })
-
-    return await fs.readFile(outputPath)
-  } finally {
-    if (removeInput) {
-      fs.unlink(inputPath).catch(() => {})
-    }
-    fs.unlink(outputPath).catch(() => {})
+  return {
+    inputPath: path.join(scratchDir, `.forge3d-preview-${ts}.scad`),
+    outputPath: path.join(scratchDir, `forge3d_${ts}.stl`),
   }
 }
 
-async function renderScadCode(code) {
-  const ts = Date.now()
-  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
-  await fs.writeFile(inputPath, code, 'utf8')
-  return renderScadInput(inputPath, { removeInput: true })
+function buildRenderArgs(inputPath, outputPath, defineOverrides = []) {
+  return [
+    ...defineOverrides.flatMap((entry) => ['-D', entry]),
+    '-o',
+    outputPath,
+    inputPath,
+  ]
 }
 
+function buildRenderCommand(inputPath, outputPath, defineOverrides = []) {
+  const renderedArgs = buildRenderArgs(inputPath, outputPath, defineOverrides)
+    .map((entry) => `"${entry}"`)
+    .join(' ')
+  return `"${OPENSCAD_BIN}" ${renderedArgs}`
+}
+
+function emitOpenScadProgress(webContents, payload) {
+  if (!webContents || webContents.isDestroyed()) return
+  try {
+    webContents.send('openscad:progress', payload)
+  } catch (err) {
+    console.warn('[OpenSCAD] Failed to send progress event:', err.message)
+  }
+}
+
+async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined, requestId = null, webContents = null, defineOverrides = [] } = {}) {
+  const env = buildStableChildProcessEnv()
+  let stdout = ''
+  let stderr = ''
+  let renderSucceeded = false
+
+  const cleanupArtifacts = async () => {
+    if (removeInput && renderSucceeded) {
+      await fs.unlink(inputPath).catch(() => {})
+    }
+    await fs.unlink(outputPath).catch(() => {})
+  }
+
+  try {
+    await ensureNativeToolUserFolders(env)
+    const command = buildRenderCommand(inputPath, outputPath, defineOverrides)
+    const startedAt = Date.now()
+
+    return await new Promise((resolve, reject) => {
+      const child = spawn(OPENSCAD_BIN, buildRenderArgs(inputPath, outputPath, defineOverrides), {
+        cwd,
+        env,
+        windowsHide: true,
+      })
+
+      const renderSession = {
+        requestId,
+        child,
+        cancelled: false,
+        cancelReason: null,
+      }
+      activeOpenScadRender = renderSession
+
+      const finish = async (handler) => {
+        if (activeOpenScadRender === renderSession) {
+          activeOpenScadRender = null
+        }
+        try {
+          await handler()
+        } catch (err) {
+          reject(err)
+        }
+      }
+
+      const attachProcessOutput = (chunk, stream) => {
+        const text = chunk.toString()
+        if (!text) return
+        if (stream === 'stdout') stdout += text
+        else stderr += text
+        emitOpenScadProgress(webContents, {
+          requestId,
+          phase: stream,
+          text,
+          elapsedMs: Date.now() - startedAt,
+        })
+      }
+
+      const killTimer = setTimeout(() => {
+        renderSession.cancelled = true
+        renderSession.cancelReason = 'timeout'
+        try {
+          child.kill()
+        } catch (_) {}
+      }, OPENSCAD_RENDER_TIMEOUT_MS)
+
+      emitOpenScadProgress(webContents, {
+        requestId,
+        phase: 'started',
+        command,
+        defineOverrides,
+        inputPath,
+        outputPath,
+        cwd: cwd || null,
+        elapsedMs: 0,
+      })
+
+      child.stdout.on('data', (chunk) => attachProcessOutput(chunk, 'stdout'))
+      child.stderr.on('data', (chunk) => attachProcessOutput(chunk, 'stderr'))
+
+      child.on('error', (err) => {
+        clearTimeout(killTimer)
+        finish(async () => {
+          err.stdout = stdout
+          err.stderr = stderr
+          err.command = command
+          err.debugSourcePath = inputPath
+          err.elapsedMs = Date.now() - startedAt
+          await cleanupArtifacts()
+          reject(err)
+        })
+      })
+
+      child.on('close', (code, signal) => {
+        clearTimeout(killTimer)
+        finish(async () => {
+          if (renderSession.cancelled) {
+            const cancelledByUser = renderSession.cancelReason === 'user'
+            const err = new Error(
+              cancelledByUser
+                ? 'OpenSCAD render cancelled.'
+                : `OpenSCAD render timed out after ${Math.round(OPENSCAD_RENDER_TIMEOUT_MS / 1000)}s.`,
+            )
+            err.code = Number.isInteger(code) ? code : null
+            err.signal = signal || null
+            err.stdout = stdout
+            err.stderr = stderr
+            err.command = command
+            err.debugSourcePath = inputPath
+            err.elapsedMs = Date.now() - startedAt
+            emitOpenScadProgress(webContents, {
+              requestId,
+              phase: cancelledByUser ? 'cancelled' : 'timed_out',
+              elapsedMs: err.elapsedMs,
+            })
+            await cleanupArtifacts()
+            reject(err)
+            return
+          }
+
+          if (code !== 0) {
+            const err = new Error(`OpenSCAD exited with code ${code}${signal ? ` (${signal})` : ''}.`)
+            err.code = Number.isInteger(code) ? code : null
+            err.signal = signal || null
+            err.stdout = stdout
+            err.stderr = stderr
+            err.command = command
+            err.debugSourcePath = inputPath
+            err.elapsedMs = Date.now() - startedAt
+            emitOpenScadProgress(webContents, {
+              requestId,
+              phase: 'exited',
+              exitCode: err.code,
+              signal: err.signal,
+              elapsedMs: err.elapsedMs,
+            })
+            await cleanupArtifacts()
+            reject(err)
+            return
+          }
+
+          const stlBuffer = await fs.readFile(outputPath)
+          renderSucceeded = true
+          emitOpenScadProgress(webContents, {
+            requestId,
+            phase: 'finished',
+            elapsedMs: Date.now() - startedAt,
+            stlBytes: stlBuffer.length,
+          })
+          await cleanupArtifacts()
+          resolve({
+            stlBuffer,
+            stdout,
+            stderr,
+          })
+        })
+      })
+    })
+  } catch (err) {
+    if (activeOpenScadRender?.requestId === requestId) {
+      activeOpenScadRender = null
+    }
+    throw err
+  }
+}
+
+function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } = {}) {
+  const replaceInputPath = (value) => {
+    if (!value) return ''
+    let next = String(value)
+    if (inputPath) {
+      next = next.split(inputPath).join(sourceName)
+      next = next.split(path.basename(inputPath)).join(sourceName)
+    }
+    return next.trim()
+  }
+
+  const parts = [err?.stderr, err?.stdout, err?.message]
+    .map(replaceInputPath)
+    .filter(Boolean)
+
+  return [...new Set(parts)].join('\n') || 'OpenSCAD render failed.'
+}
+
+async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null, requestId = null, webContents = null, defineOverrides = [] } = {}) {
+  const { inputPath, outputPath } = buildRenderPaths()
+  const cwd = sourcePath && !String(sourcePath).includes('.asar')
+    ? path.dirname(sourcePath)
+    : undefined
+  const startedAt = Date.now()
+
+  try {
+    await fs.writeFile(inputPath, code, 'utf8')
+    const result = await renderScadInput(inputPath, outputPath, {
+      removeInput: true,
+      cwd,
+      requestId,
+      webContents,
+      defineOverrides,
+    })
+    return {
+      ...result,
+      command: buildRenderCommand(inputPath, outputPath, defineOverrides),
+      elapsedMs: Date.now() - startedAt,
+      debugSourcePath: null,
+      sourceName,
+    }
+  } catch (err) {
+    err.forgeMessage = formatRenderFailure(err, { inputPath, sourceName })
+    err.command = buildRenderCommand(inputPath, outputPath, defineOverrides)
+    err.debugSourcePath = inputPath
+    err.elapsedMs = Date.now() - startedAt
+    throw err
+  }
+}
 // ── File dialogs ─────────────────────────────────────────────────────────────
 function buildCaptureFileName() {
   const now = new Date()
@@ -700,14 +973,50 @@ ipcMain.handle('workspace:listFiles', async () => {
 })
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
-ipcMain.handle('openscad:render', async (_event, { code }) => {
+ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath, requestId, defineOverrides } = {}) => {
   try {
-    const stlBuffer = await renderScadCode(code)
+    const renderResult = await renderScadCode(code, {
+      sourceName,
+      sourcePath,
+      requestId: requestId || null,
+      webContents: _event.sender,
+      defineOverrides: Array.isArray(defineOverrides) ? defineOverrides.filter(Boolean) : [],
+    })
     // Return as a plain array so it survives IPC serialization
-    return { stl: Array.from(stlBuffer) }
+    return {
+      stl: Array.from(renderResult.stlBuffer),
+      stdout: renderResult.stdout,
+      stderr: renderResult.stderr,
+      command: renderResult.command,
+      elapsedMs: renderResult.elapsedMs,
+    }
   } catch (err) {
-    const msg = err.stderr || err.stdout || err.message || String(err)
-    return { error: msg }
+    const msg = err.forgeMessage || formatRenderFailure(err, { sourceName })
+    return {
+      error: msg,
+      stdout: err.stdout || '',
+      stderr: err.stderr || '',
+      command: err.command || null,
+      exitCode: Number.isInteger(err.code) ? err.code : null,
+      debugSourcePath: err.debugSourcePath || null,
+      elapsedMs: err.elapsedMs || null,
+    }
+  }
+})
+
+ipcMain.handle('openscad:cancel', async (_event, { requestId } = {}) => {
+  if (!activeOpenScadRender) return { cancelled: false, reason: 'no-active-render' }
+  if (requestId && activeOpenScadRender.requestId && activeOpenScadRender.requestId !== requestId) {
+    return { cancelled: false, reason: 'request-mismatch' }
+  }
+
+  activeOpenScadRender.cancelled = true
+  activeOpenScadRender.cancelReason = 'user'
+  try {
+    activeOpenScadRender.child.kill()
+    return { cancelled: true }
+  } catch (err) {
+    return { cancelled: false, reason: err.message }
   }
 })
 
@@ -857,7 +1166,7 @@ async function spawnTerminalSession(options = {}) {
       cols: 80,
       rows: 24,
       cwd: workingDir,
-      env: process.env,
+      env: buildStableChildProcessEnv(),
     })
 
     terminalState = {

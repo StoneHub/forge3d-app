@@ -1,5 +1,39 @@
+import { useRef } from 'react';
 import Icons from './icons.jsx';
 import TerminalPane from './terminal.jsx';
+
+function getIssueMessage(entry) {
+  if (typeof entry === 'string') return entry;
+  return entry?.message ?? JSON.stringify(entry);
+}
+
+function getIssueLineNumber(entry) {
+  if (entry && typeof entry === 'object' && Number.isInteger(entry.lineNumber)) {
+    return entry.lineNumber;
+  }
+
+  const message = getIssueMessage(entry);
+  const lineMatch = String(message).match(/\bline\s+(\d+)\b/i);
+  return lineMatch ? Number.parseInt(lineMatch[1], 10) : null;
+}
+
+function getIssueDetail(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  const parts = [];
+
+  if (entry.detail) {
+    parts.push(entry.detail);
+  }
+
+  if (entry.excerpt?.lines?.length) {
+    const excerpt = entry.excerpt.lines
+      .map(({ number, text }) => `${String(number).padStart(4, ' ')} | ${text}`)
+      .join('\n');
+    parts.push(`Code excerpt:\n${excerpt}`);
+  }
+
+  return parts.join('\n\n');
+}
 
 export default function BottomPane({
   activeTab,
@@ -18,6 +52,8 @@ export default function BottomPane({
   terminalResetToken,
   terminalState,
 }) {
+  const terminalPaneRef = useRef(null);
+
   const panelStyle = (visible, extra = {}) => ({
     position: 'absolute',
     inset: 0,
@@ -29,6 +65,7 @@ export default function BottomPane({
     fontFamily: "'JetBrains Mono',monospace",
     fontSize: '11px',
     lineHeight: '18px',
+    userSelect: visible ? 'text' : 'none',
   });
 
   return (
@@ -79,48 +116,66 @@ export default function BottomPane({
 
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <div style={panelStyle(activeTab === 'console')}>
-          {result.logs.length === 0 && <div style={{ color: colors.textMuted, marginBottom: '6px' }}>{statusMessage}</div>}
+          {result.logs.length === 0 && <div style={{ color: colors.textMuted, marginBottom: '6px', whiteSpace: 'pre-wrap' }}>{statusMessage}</div>}
           {result.logs.length === 0 && <div style={{ color: colors.textFaint }}>// Console output appears here...</div>}
           {result.logs.map((log, index) => (
             <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '2px 0', color: colors.success }}>
               <span style={{ color: colors.textMuted, minWidth: '16px' }}><Icons.ChevRight /></span>
-              <span>{log}</span>
+              <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{log}</span>
             </div>
           ))}
         </div>
 
         <div style={panelStyle(activeTab === 'errors')}>
           <>
-            {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>✓ No problems detected</div>}
+            {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>No problems detected</div>}
             {allErrors.map((rawError, index) => {
-              const message = typeof rawError === 'string' ? rawError : (rawError?.message ?? JSON.stringify(rawError));
-              const lineMatch = message.match(/line (\d+)/);
-              const lineNumber = lineMatch ? parseInt(lineMatch[1], 10) : null;
+              const message = getIssueMessage(rawError);
+              const detail = getIssueDetail(rawError);
+              const lineNumber = getIssueLineNumber(rawError);
               return (
-                <div key={`error-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
+                <div key={`error-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '6px 0', borderBottom: `1px solid ${colors.border}22` }}>
                   <span style={{ color: colors.error, flexShrink: 0, marginTop: '1px' }}><Icons.Err /></span>
-                  <span style={{ color: colors.error, flex: 1 }}>{message.replace(/ \(line \d+\)/, '')}</span>
-                  {lineNumber && (
-                    <button onClick={() => jumpToLine(lineNumber)} style={{ background: `${colors.error}22`, border: `1px solid ${colors.error}44`, borderRadius: '4px', color: colors.error, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                      line {lineNumber} ↗
-                    </button>
-                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: colors.error, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message.replace(/ \(line \d+\)/, '')}</div>
+                    {detail && (
+                      <pre style={{ margin: '6px 0 0', padding: '8px', background: `${colors.error}12`, border: `1px solid ${colors.error}22`, borderRadius: '8px', color: colors.textSoft, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono',monospace", fontSize: '10px', lineHeight: 1.5 }}>
+                        {detail}
+                      </pre>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {lineNumber && (
+                      <button onClick={() => jumpToLine(lineNumber)} style={{ background: `${colors.error}22`, border: `1px solid ${colors.error}44`, borderRadius: '4px', color: colors.error, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                        line {lineNumber} ↗
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
             {allWarnings.map((rawWarning, index) => {
-              const message = typeof rawWarning === 'string' ? rawWarning : (rawWarning?.message ?? JSON.stringify(rawWarning));
-              const lineMatch = message.match(/line (\d+)/);
-              const lineNumber = lineMatch ? parseInt(lineMatch[1], 10) : null;
+              const message = getIssueMessage(rawWarning);
+              const detail = getIssueDetail(rawWarning);
+              const lineNumber = getIssueLineNumber(rawWarning);
               return (
-                <div key={`warning-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 0', borderBottom: `1px solid ${colors.border}22` }}>
+                <div key={`warning-${index}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '6px 0', borderBottom: `1px solid ${colors.border}22` }}>
                   <span style={{ color: colors.warn, flexShrink: 0, marginTop: '1px' }}><Icons.Warn /></span>
-                  <span style={{ color: colors.warn, flex: 1 }}>{message.replace(/ \(line \d+\)/, '')}</span>
-                  {lineNumber && (
-                    <button onClick={() => jumpToLine(lineNumber)} style={{ background: `${colors.warn}22`, border: `1px solid ${colors.warn}44`, borderRadius: '4px', color: colors.warn, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                      line {lineNumber} ↗
-                    </button>
-                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: colors.warn, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message.replace(/ \(line \d+\)/, '')}</div>
+                    {detail && (
+                      <pre style={{ margin: '6px 0 0', padding: '8px', background: `${colors.warn}12`, border: `1px solid ${colors.warn}22`, borderRadius: '8px', color: colors.textSoft, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: "'JetBrains Mono',monospace", fontSize: '10px', lineHeight: 1.5 }}>
+                        {detail}
+                      </pre>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {lineNumber && (
+                      <button onClick={() => jumpToLine(lineNumber)} style={{ background: `${colors.warn}22`, border: `1px solid ${colors.warn}44`, borderRadius: '4px', color: colors.warn, cursor: 'pointer', fontSize: '10px', fontWeight: 700, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                        line {lineNumber} ↗
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -129,6 +184,7 @@ export default function BottomPane({
 
         <div style={panelStyle(activeTab === 'terminal', { padding: '0' })}>
           <TerminalPane
+            ref={terminalPaneRef}
             active={activeTab === 'terminal'}
             colors={colors}
             focusToken={terminalFocusToken}

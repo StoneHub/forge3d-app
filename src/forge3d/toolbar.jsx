@@ -59,12 +59,14 @@ export default function ForgeToolbar({
   onNewFile,
   onOpenFile,
   onRedo,
+  onRenderProfileChange,
   onResetView,
   onReturnToDesignMode,
   onRunCode,
   onSaveFile,
   onThemeToggle,
   onUndo,
+  renderProfile = 'quick',
   theme,
 }) {
   return (
@@ -116,6 +118,28 @@ export default function ForgeToolbar({
         ) : (
           <button onClick={onRunCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700 }}><Icons.Play /> Build</button>
         ))}
+        {mode === 'design' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted, fontWeight: 600 }}>
+            <span>Render</span>
+            <select
+              value={renderProfile}
+              onChange={(event) => onRenderProfileChange?.(event.target.value)}
+              style={{
+                background: `${colors.bgDarker}cc`,
+                border: `1px solid ${colors.border}`,
+                color: colors.textSoft,
+                borderRadius: '6px',
+                padding: '4px 8px',
+                fontSize: '12px',
+                fontWeight: 600,
+              }}
+              title="Quick lowers facet detail for faster iteration. Final uses full code-defined detail."
+            >
+              <option value="quick">Quick</option>
+              <option value="final">Final</option>
+            </select>
+          </label>
+        )}
         {mode === 'design' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', fontWeight: 600 }}>
             <input type='checkbox' checked={autoRun} onChange={(event) => onAutoRunChange(event.target.checked)} style={{ accentColor: colors.accent }} />Auto

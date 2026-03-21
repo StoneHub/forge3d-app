@@ -8,8 +8,7 @@ import 'monaco-editor/esm/vs/editor/contrib/inlineCompletions/browser/inlineComp
 import 'monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.js';
 import 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import { configureMonacoOpenScad, ensureForge3DThemes, extractOpenScadSymbols, OPENSCAD_LANGUAGE_ID } from './editor-language.js';
-import { getOpenScadDoc } from './openscad-docs.js';
+import { configureMonacoOpenScad, ensureForge3DThemes, extractOpenScadSymbols, OPENSCAD_LANGUAGE_ID, resolveOpenScadReference } from './editor-language.js';
 
 const INLINE_ACCEPT_ID = 'editor.action.inlineSuggest.commit';
 const INLINE_ACCEPT_WORD_ID = 'editor.action.inlineSuggest.acceptNextWord';
@@ -172,7 +171,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
   diagnostics = [],
   onBuild,
   onChange,
-  onOpenBuiltinDocs,
+  onOpenReference,
   onRedo,
   onUndo,
   showDiff = false,
@@ -225,10 +224,11 @@ export const CodeEditor = forwardRef(function CodeEditor({
       if (!position || !(event.event.ctrlKey || event.event.metaKey)) return;
       const model = editor.getModel();
       const word = model?.getWordAtPosition(position)?.word;
-      if (!getOpenScadDoc(word)) return;
-      onOpenBuiltinDocs?.(word);
+      const reference = resolveOpenScadReference(model?.getValue() || '', word, position.lineNumber);
+      if (!reference) return;
+      onOpenReference?.(reference);
     }));
-  }, [onOpenBuiltinDocs]);
+  }, [onOpenReference]);
 
   const refreshDecorationsAndMarkers = useCallback(() => {
     const editor = getActiveEditor();

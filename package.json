@@ -13,8 +13,9 @@
   },
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "generate:start-previews": "node scripts/generate-start-previews.mjs",
     "build": "vite build",
-    "dist": "vite build && electron-builder",
+    "dist": "npm run generate:start-previews && vite build && electron-builder",
     "postinstall": "electron-rebuild || echo 'Warning: electron-rebuild failed. Terminal may not work.'"
   },
   "dependencies": {
