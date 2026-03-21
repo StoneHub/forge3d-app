@@ -15,7 +15,7 @@ const DEFAULT_PANEL_LAYOUT = {
 
 const DEFAULT_START_STATE = {
   search: '',
-  kindFilter: 'all',
+  sectionFilter: 'all',
 };
 
 const DEFAULT_TERMINAL_PREFERENCES = {
@@ -105,10 +105,15 @@ export function loadWorkspace() {
     return {
       ...getDefaultWorkspace(),
       ...parsed,
+      autoRun: false,
       lastSavedCode: parsed.lastSavedCode ?? parsed.code ?? '',
       viewSettings: { ...getDefaultWorkspace().viewSettings, ...(parsed.viewSettings || {}) },
       panelLayout: { ...DEFAULT_PANEL_LAYOUT, ...(parsed.panelLayout || {}) },
-      startState: { ...DEFAULT_START_STATE, ...(parsed.startState || {}) },
+      startState: {
+        ...DEFAULT_START_STATE,
+        ...(parsed.startState || {}),
+        sectionFilter: parsed.startState?.sectionFilter ?? parsed.startState?.kindFilter ?? 'all',
+      },
       terminalPreferences: { ...DEFAULT_TERMINAL_PREFERENCES, ...(parsed.terminalPreferences || {}) },
       terminalManagerState: { ...DEFAULT_TERMINAL_MANAGER_STATE, ...(parsed.terminalManagerState || {}) },
     };

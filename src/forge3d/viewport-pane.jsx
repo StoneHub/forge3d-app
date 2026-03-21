@@ -1,18 +1,13 @@
 import Icons from './icons.jsx';
-import ViewportTree from './viewport-tree.jsx';
 
 export default function ViewportPane({
   canvasRef,
   colors,
-  hiddenPreviewSymbolIds,
   minViewportWidth,
   mode = 'design',
   onCaptureRender,
-  onJumpToSymbol,
-  onTogglePreviewSymbol,
   selectedAssemblyPart,
   setViewSettings,
-  symbols,
   theme,
   viewSettings,
 }) {
@@ -47,16 +42,6 @@ export default function ViewportPane({
         ))}
         <button title="Capture Render" onClick={() => onCaptureRender?.()} style={buttonStyle(false)}><Icons.Camera /></button>
       </div>
-
-      {mode !== 'assembly' && (
-        <ViewportTree
-          colors={colors}
-          hiddenIds={hiddenPreviewSymbolIds}
-          onJumpToSymbol={onJumpToSymbol}
-          onToggleSymbol={onTogglePreviewSymbol}
-          symbols={symbols}
-        />
-      )}
 
       <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: colors.surfaceOverlay || `${colors.bg}dd`, borderRadius: '10px', padding: '8px 11px', fontSize: '11px', color: colors.textMuted, fontWeight: 700, backdropFilter: 'blur(10px)', border: `1px solid ${colors.borderHover}`, boxShadow: theme === 'dark' ? '0 8px 24px rgba(0,0,0,0.24)' : '0 8px 20px rgba(64,80,96,0.14)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         {mode === 'assembly' ? (

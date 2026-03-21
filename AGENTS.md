@@ -40,6 +40,11 @@ npm run build        # Production build to dist/
 npm run dist         # Package desktop app / installer
 ```
 
+## Branch Hygiene
+- Before editing files, check the current branch with `git status --short --branch` and compare it to both `main` and `origin/main`.
+- If the current branch is stale, already merged, or has a gone upstream, move the work to a fresh `codex/...` branch based on updated `origin/main` before continuing.
+- If this mismatch is discovered after edits have started, preserve the changes first, then restack them onto the correct branch instead of continuing on the stale branch.
+
 ## Architecture Decisions
 
 ### Rendering: Native OpenSCAD via Electron IPC

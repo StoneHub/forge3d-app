@@ -380,13 +380,35 @@ async function renderScadInput(inputPath, { removeInput = false, cwd = undefined
   }
 }
 
-async function renderScadCode(code) {
-  const ts = Date.now()
-  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
-  await fs.writeFile(inputPath, code, 'utf8')
-  return renderScadInput(inputPath, { removeInput: true })
+function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } = {}) {
+  const replaceInputPath = (value) => {
+    if (!value) return ''
+    let next = String(value)
+    if (inputPath) {
+      next = next.split(inputPath).join(sourceName)
+      next = next.split(path.basename(inputPath)).join(sourceName)
+    }
+    return next.trim()
+  }
+
+  const parts = [err?.stderr, err?.stdout, err?.message]
+    .map(replaceInputPath)
+    .filter(Boolean)
+
+  return [...new Set(parts)].join('\n') || 'OpenSCAD render failed.'
 }
 
+async function renderScadCode(code, { sourceName = 'Current buffer' } = {}) {
+  const ts = Date.now()
+  const inputPath = path.join(os.tmpdir(), `forge3d_${ts}.scad`)
+  try {
+    await fs.writeFile(inputPath, code, 'utf8')
+    return await renderScadInput(inputPath, { removeInput: true })
+  } catch (err) {
+    err.forgeMessage = formatRenderFailure(err, { inputPath, sourceName })
+    throw err
+  }
+}
 // ── File dialogs ─────────────────────────────────────────────────────────────
 function buildCaptureFileName() {
   const now = new Date()
@@ -700,13 +722,13 @@ ipcMain.handle('workspace:listFiles', async () => {
 })
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
-ipcMain.handle('openscad:render', async (_event, { code }) => {
+ipcMain.handle('openscad:render', async (_event, { code, sourceName } = {}) => {
   try {
-    const stlBuffer = await renderScadCode(code)
+    const stlBuffer = await renderScadCode(code, { sourceName })
     // Return as a plain array so it survives IPC serialization
     return { stl: Array.from(stlBuffer) }
   } catch (err) {
-    const msg = err.stderr || err.stdout || err.message || String(err)
+    const msg = err.forgeMessage || formatRenderFailure(err, { sourceName })
     return { error: msg }
   }
 })

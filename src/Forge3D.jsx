@@ -65,20 +65,129 @@ function buildMergedInsertionStatus(itemName, mode, stats = {}) {
   return `${actionLabel} ${itemName} (${details.join(', ')})`;
 }
 
-function applyPreviewVisibilityMask(code, symbols, hiddenIds) {
-  if (!hiddenIds || hiddenIds.size === 0) return code;
-  const lines = code.split('\n');
-
-  for (const symbol of symbols) {
-    if (!hiddenIds.has(symbol.id) || symbol.kind !== 'template') continue;
-    for (let lineIndex = symbol.startLine - 1; lineIndex < symbol.endLine; lineIndex += 1) {
-      lines[lineIndex] = lineIndex === symbol.startLine - 1
-        ? `// Forge3D preview-hidden: ${symbol.name}`
-        : '';
-    }
+function extractDiagnosticLineNumber(entry) {
+  if (entry && typeof entry === 'object' && Number.isInteger(entry.lineNumber)) {
+    return entry.lineNumber;
   }
 
-  return lines.join('\n');
+  const message = typeof entry === 'string'
+    ? entry
+    : (entry?.raw || entry?.message || '');
+  const lineMatch = String(message).match(/\bline\s+(\d+)\b/i);
+  return lineMatch ? Number.parseInt(lineMatch[1], 10) : null;
+}
+
+function buildCodeExcerpt(sourceCode, lineNumber, radius = 1) {
+  if (!Number.isInteger(lineNumber) || lineNumber < 1) return null;
+  const lines = String(sourceCode || '').split(/\r?\n/);
+  if (lines.length === 0) return null;
+
+  const startLine = Math.max(1, lineNumber - radius);
+  const endLine = Math.min(lines.length, lineNumber + radius);
+  return {
+    highlightLine: lineNumber,
+    lines: Array.from({ length: endLine - startLine + 1 }, (_, index) => {
+      const number = startLine + index;
+      return { number, text: lines[number - 1] ?? '' };
+    }),
+  };
+}
+
+function createOpenScadIssue(lines, sourceCode, fallbackSeverity = 'error') {
+  const filteredLines = Array.isArray(lines)
+    ? lines.map((line) => String(line).trimEnd()).filter(Boolean)
+    : [];
+  const raw = filteredLines.join('\n').trim();
+  const firstLine = filteredLines[0] || 'OpenSCAD reported an issue.';
+  const severity = /^(warning|deprecated):/i.test(firstLine)
+    ? 'warning'
+    : /^(error):/i.test(firstLine)
+      ? 'error'
+      : fallbackSeverity;
+  const message = firstLine.replace(/^(error|warning|deprecated):\s*/i, '').trim() || firstLine.trim();
+  const lineNumber = extractDiagnosticLineNumber(raw);
+
+  return {
+    severity,
+    message,
+    raw,
+    detail: filteredLines.slice(1).join('\n'),
+    lineNumber,
+    excerpt: buildCodeExcerpt(sourceCode, lineNumber),
+  };
+}
+
+function parseOpenScadOutput(output, sourceCode) {
+  const normalizedLines = String(output || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+
+  if (normalizedLines.length === 0) {
+    return { errors: [], warnings: [], logs: [] };
+  }
+
+  const groupedIssues = [];
+  const looseLines = [];
+  let currentIssue = null;
+
+  normalizedLines.forEach((line) => {
+    if (/^(error|warning|deprecated):/i.test(line)) {
+      if (currentIssue) groupedIssues.push(currentIssue);
+      currentIssue = { severity: /^(warning|deprecated):/i.test(line) ? 'warning' : 'error', lines: [line] };
+      return;
+    }
+
+    if (currentIssue) {
+      currentIssue.lines.push(line);
+      return;
+    }
+
+    looseLines.push(line);
+  });
+
+  if (currentIssue) groupedIssues.push(currentIssue);
+
+  if (groupedIssues.length === 0 && looseLines.length > 0) {
+    groupedIssues.push({ severity: 'error', lines: looseLines });
+  }
+
+  const errors = [];
+  const warnings = [];
+
+  groupedIssues.forEach((issue) => {
+    const entry = createOpenScadIssue(issue.lines, sourceCode, issue.severity);
+    if (entry.severity === 'warning') {
+      warnings.push(entry);
+    } else {
+      errors.push(entry);
+    }
+  });
+
+  return { errors, warnings, logs: groupedIssues.length > 0 ? looseLines : [] };
+}
+
+function formatDiagnosticForPrompt(entry) {
+  if (typeof entry === 'string') return entry;
+  if (!entry || typeof entry !== 'object') return String(entry);
+
+  const parts = [];
+  const severityLabel = entry.severity ? `${String(entry.severity).toUpperCase()}: ` : '';
+  parts.push(`${severityLabel}${entry.message || entry.raw || 'Issue'}`);
+
+  if (entry.detail) {
+    parts.push(entry.detail);
+  }
+
+  if (entry.excerpt?.lines?.length) {
+    const excerptText = entry.excerpt.lines
+      .map(({ number, text }) => `${String(number).padStart(4, ' ')} | ${text}`)
+      .join('\n');
+    parts.push(`Code excerpt:\n${excerptText}`);
+  }
+
+  return parts.join('\n');
 }
 
 const DEFAULT_ASSEMBLY_SCENE = {
@@ -207,7 +316,6 @@ function appendMeasurementPick(measurement = {}, point, resolvePartName) {
     },
   };
 }
-
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const ACTIVITY_RAIL_WIDTH = 52;
@@ -224,13 +332,14 @@ export default function Forge3D() {
   const [buildTime, setBuildTime] = useState(0);
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
   const [currentFilePath, setCurrentFilePath] = useState(initialWorkspace.currentFilePath || null);
-  const [lastSavedCode, setLastSavedCode] = useState(initialWorkspace.lastSavedCode ?? initialWorkspace.code);
+  const [savedCode, setSavedCode] = useState(initialWorkspace.lastSavedCode ?? initialWorkspace.code);
+  const [comparisonCode, setComparisonCode] = useState(initialWorkspace.comparisonCode ?? initialWorkspace.lastSavedCode ?? initialWorkspace.code);
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
   const [zoomFactor, setZoomFactor] = useState(1);
   const [resetViewSignal, setResetViewSignal] = useState(0);
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const [theme, setTheme] = useState(initialWorkspace.theme || 'dark');
-  const [startState, setStartState] = useState(initialWorkspace.startState || { search: '', kindFilter: 'all' });
+  const [startState, setStartState] = useState(initialWorkspace.startState || { search: '', sectionFilter: 'all' });
   const [preferredShellId, setPreferredShellId] = useState(initialWorkspace.terminalPreferences?.preferredShellId || null);
   const [terminalManagerState] = useState(initialWorkspace.terminalManagerState || {});
   const appRef = useRef(null);
@@ -248,8 +357,8 @@ export default function Forge3D() {
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
   const [showDiffEditor, setShowDiffEditor] = useState(false);
-  const [activeDocKey, setActiveDocKey] = useState(null);
-  const [hiddenPreviewSymbolIds, setHiddenPreviewSymbolIds] = useState([]);
+  const [activeReference, setActiveReference] = useState(null);
+  const [pendingExternalSnapshot, setPendingExternalSnapshot] = useState(null);
   const [availableShells, setAvailableShells] = useState([]);
   const [terminalState, setTerminalState] = useState({ status: 'idle', pid: null, cwd: null, shellId: null, shellLabel: null, error: null });
   const [terminalResetToken, setTerminalResetToken] = useState(0);
@@ -282,17 +391,12 @@ export default function Forge3D() {
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const buildTimeoutRef = useRef(null);
-  const hiddenPreviewBuildRef = useRef(hiddenPreviewSymbolIds);
   const BUILD_TIMEOUT = 60000;
 
   const colors = getThemeColors(theme);
   const projectWorkingDirectory = useMemo(() => workspaceFolder || getParentDirectory(currentFilePath), [workspaceFolder, currentFilePath]);
   const documentSymbols = useMemo(() => extractOpenScadSymbols(code), [code]);
-  const hiddenPreviewSymbolIdSet = useMemo(() => new Set(hiddenPreviewSymbolIds), [hiddenPreviewSymbolIds]);
-  const previewCode = useMemo(
-    () => applyPreviewVisibilityMask(code, documentSymbols, hiddenPreviewSymbolIdSet),
-    [code, documentSymbols, hiddenPreviewSymbolIdSet],
-  );
+  const previewCode = code;
   const assemblyScene = assemblyHistory.present;
   const selectedAssemblyPart = useMemo(
     () => assemblyScene.parts.find((part) => part.id === assemblyScene.selectedPartId) || null,
@@ -359,7 +463,8 @@ export default function Forge3D() {
   const canRedoAssembly = assemblyHistory.future.length > 0;
   const canUndo = mode === 'assembly' ? canUndoAssembly : canUndoCode;
   const canRedo = mode === 'assembly' ? canRedoAssembly : canRedoCode;
-  const isDirty = code !== lastSavedCode;
+  const isDirty = code !== savedCode;
+  const hasComparisonDiff = code !== comparisonCode;
 
   const updateStartState = useCallback((partialState) => {
     setStartState((current) => ({ ...current, ...partialState }));
@@ -378,7 +483,6 @@ export default function Forge3D() {
     geometry.computeBoundingBox();
     setStlGeometry(geometry);
     setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`], errors: [], warnings: [], variables: {} });
-    setActiveTab('console');
   }, []);
 
   const queueAutoFitView = useCallback(() => {
@@ -807,30 +911,36 @@ export default function Forge3D() {
       return snapshot;
     }
 
-    const hasUnsavedLocalChanges = code !== lastSavedCode;
+    const hasUnsavedLocalChanges = code !== savedCode;
     if (hasUnsavedLocalChanges) {
+      setPendingExternalSnapshot(snapshot);
+      setComparisonCode(snapshot.content);
+      setShowDiffEditor(true);
       if (!quiet) {
-        setStatusMessage(`Disk changed for ${snapshot.name || currentFileName}; save or reopen to load external edits`);
+        setStatusMessage(`Disk changed for ${snapshot.name || currentFileName}; review local vs disk before choosing`);
       }
       return { skipped: true, reason: 'dirty', snapshot };
     }
 
-    if (snapshot.content === code && snapshot.content === lastSavedCode) {
+    if (snapshot.content === code && snapshot.content === savedCode) {
       return { reused: true, snapshot };
     }
 
     queueAutoFitView();
+    setComparisonCode(code);
     replaceCodeWithoutHistory(snapshot.content);
-    setLastSavedCode(snapshot.content);
+    setSavedCode(snapshot.content);
+    setPendingExternalSnapshot(null);
     setCurrentFileName(snapshot.name || currentFileName);
     setCurrentFilePath(snapshot.filePath || filePath);
+    setShowDiffEditor(true);
     setStatusMessage(
       reason === 'restore'
         ? `Loaded latest disk version of ${snapshot.name || currentFileName}`
         : `Reloaded ${snapshot.name || currentFileName} from disk`,
     );
     return { applied: true, snapshot };
-  }, [code, currentFileName, forgeAPI, lastSavedCode, queueAutoFitView, replaceCodeWithoutHistory]);
+  }, [code, currentFileName, forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, savedCode]);
 
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async () => {
@@ -850,7 +960,10 @@ export default function Forge3D() {
     buildTimeoutRef.current = timeoutHandle;
 
     try {
-      const response = await forgeAPI.renderOpenSCAD(previewCode);
+      const response = await forgeAPI.renderOpenSCAD(previewCode, {
+        sourceName: currentFileName || DEFAULT_FILE_NAME,
+        sourcePath: currentFilePath || null,
+      });
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
       setBuilding(false);
@@ -859,21 +972,48 @@ export default function Forge3D() {
 
       if (response.error) {
         setStlGeometry(null);
-        const lines = response.error.split('\n').filter(Boolean);
-        setResult({ objects: [], logs: [], errors: lines, warnings: [], variables: {} });
+        const diagnostics = parseOpenScadOutput(
+          [response.error, response.stderr, response.stdout].filter(Boolean).join('\n'),
+          previewCode,
+        );
+        const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
+        const lifecycleLogs = [
+          response.command ? `OpenSCAD command: ${response.command}` : null,
+          Number.isInteger(response.exitCode) ? `Exit code: ${response.exitCode}` : null,
+          response.debugSourcePath ? `Debug source: ${response.debugSourcePath}` : null,
+          response.stdout ? `stdout:\n${response.stdout}` : null,
+          response.stderr ? `stderr:\n${response.stderr}` : null,
+          ...diagnostics.logs,
+        ].filter(Boolean);
+        setResult({ objects: [], logs: lifecycleLogs, errors: diagnostics.errors, warnings: diagnostics.warnings, variables: {} });
         setActiveTab('errors');
+        setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
       } else {
         loadStlBytes(new Uint8Array(response.stl), elapsed);
+        setResult((current) => ({
+          ...current,
+          logs: [
+            ...current.logs,
+            ...[
+              response.command ? `OpenSCAD command: ${response.command}` : null,
+              Number.isInteger(response.elapsedMs) ? `OpenSCAD render time: ${response.elapsedMs}ms` : null,
+              response.stdout ? `stdout:\n${response.stdout}` : null,
+            ].filter(Boolean),
+          ],
+        }));
       }
     } catch (err) {
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
-      setResult({ objects: [], logs: [], errors: [`Render error: ${err.message}`], warnings: [], variables: {} });
+      const diagnostics = parseOpenScadOutput(`ERROR: ${err.message}`, previewCode);
+      const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
+      setResult({ objects: [], logs: diagnostics.logs, errors: diagnostics.errors, warnings: diagnostics.warnings, variables: {} });
       setActiveTab('errors');
+      setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
     }
-  }, [BUILD_TIMEOUT, clearBuildTimeout, forgeAPI, loadStlBytes, previewCode]);
+  }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode]);
 
   const cancelBuild = useCallback(() => {
     buildIdRef.current += 1;
@@ -901,15 +1041,16 @@ export default function Forge3D() {
     const next = getDefaultWorkspace();
     queueAutoFitView();
     replaceCodeWithoutHistory(next.code);
-    setHiddenPreviewSymbolIds([]);
-    setActiveDocKey(null);
-    setLastSavedCode(next.code);
+    setActiveReference(null);
+    setSavedCode(next.code);
+    setComparisonCode(next.code);
+    setPendingExternalSnapshot(null);
     setCurrentFileName(DEFAULT_FILE_NAME);
     setCurrentFilePath(null);
     setAutoRun(next.autoRun);
     setSidebarTab(next.activeActivity || 'start');
     setSidebarOpen(true);
-    setStartState(next.startState || { search: '', kindFilter: 'all' });
+    setStartState(next.startState || { search: '', sectionFilter: 'all' });
     setActiveTab(next.workbenchTab || 'console');
     resetAssemblyState();
     setStatusMessage('Started a new workspace');
@@ -921,9 +1062,10 @@ export default function Forge3D() {
       if (!payload) return;
       queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
-      setHiddenPreviewSymbolIds([]);
-      setActiveDocKey(null);
-      setLastSavedCode(payload.content);
+      setActiveReference(null);
+      setSavedCode(payload.content);
+      setComparisonCode(payload.content);
+      setPendingExternalSnapshot(null);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
       resetAssemblyState();
@@ -944,9 +1086,10 @@ export default function Forge3D() {
       }
       queueAutoFitView();
       replaceCodeWithoutHistory(payload.content);
-      setHiddenPreviewSymbolIds([]);
-      setActiveDocKey(null);
-      setLastSavedCode(payload.content);
+      setActiveReference(null);
+      setSavedCode(payload.content);
+      setComparisonCode(payload.content);
+      setPendingExternalSnapshot(null);
       setCurrentFileName(payload.name || DEFAULT_FILE_NAME);
       setCurrentFilePath(payload.filePath || null);
       resetAssemblyState();
@@ -964,20 +1107,14 @@ export default function Forge3D() {
       if (!saved) return;
       setCurrentFileName(saved.name || suggestedName);
       setCurrentFilePath(saved.filePath || null);
-      setLastSavedCode(code);
+      setSavedCode(code);
+      setComparisonCode(code);
+      setPendingExternalSnapshot(null);
       setStatusMessage(`Saved ${saved.name || suggestedName}`);
     } catch (error) {
       setStatusMessage(`Save failed: ${error.message}`);
     }
   }, [code, currentFileName, currentFilePath, forgeAPI]);
-
-  // ─── Auto-run ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!autoRun) return;
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(runCode, 400);
-    return () => clearTimeout(timerRef.current);
-  }, [code, autoRun, runCode]);
 
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
 
@@ -991,7 +1128,8 @@ export default function Forge3D() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       code,
-      lastSavedCode,
+      lastSavedCode: savedCode,
+      comparisonCode,
       viewSettings,
       autoRun,
       activeActivity: sidebarTab,
@@ -1011,7 +1149,7 @@ export default function Forge3D() {
         bottomPanelHeight,
       },
     }));
-  }, [activeTab, autoRun, bottomPanelHeight, code, currentFileName, currentFilePath, editorWidth, lastSavedCode, preferredShellId, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
+  }, [activeTab, autoRun, bottomPanelHeight, code, comparisonCode, currentFileName, currentFilePath, editorWidth, preferredShellId, savedCode, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────
   useEffect(() => {
@@ -1098,21 +1236,6 @@ export default function Forge3D() {
     }
   }, [code]);
 
-  useEffect(() => {
-    const validIds = new Set(documentSymbols.map((symbol) => symbol.id));
-    setHiddenPreviewSymbolIds((current) => {
-      const next = current.filter((id) => validIds.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [documentSymbols]);
-
-  useEffect(() => {
-    if (hiddenPreviewBuildRef.current === hiddenPreviewSymbolIds) return;
-    hiddenPreviewBuildRef.current = hiddenPreviewSymbolIds;
-    if (!code.trim()) return;
-    runCode();
-  }, [code, hiddenPreviewSymbolIds, runCode]);
-
   // ─── Global keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -1183,10 +1306,10 @@ export default function Forge3D() {
   }, [deleteAssemblyPart, duplicateSelectedAssemblyPart, mode, openFile, openFilePath, redoAssemblyScene, redoCode, resetWorkspace, runCode, saveFile, selectedAssemblyPart, undoAssemblyScene, undoCode]);
 
   useEffect(() => {
-    if (!isDirty && showDiffEditor) {
+    if (!hasComparisonDiff && showDiffEditor) {
       setShowDiffEditor(false);
     }
-  }, [isDirty, showDiffEditor]);
+  }, [hasComparisonDiff, showDiffEditor]);
 
   // ─── Panel resize mouse handlers ──────────────────────────────────────
   useEffect(() => {
@@ -1295,9 +1418,10 @@ export default function Forge3D() {
       const content = ev.target.result;
       queueAutoFitView();
       replaceCodeWithoutHistory(content);
-      setHiddenPreviewSymbolIds([]);
-      setActiveDocKey(null);
-      setLastSavedCode(content);
+      setActiveReference(null);
+      setSavedCode(content);
+      setComparisonCode(content);
+      setPendingExternalSnapshot(null);
       setCurrentFileName(file.name);
       setCurrentFilePath(file.path || null);
       resetAssemblyState();
@@ -1325,7 +1449,6 @@ export default function Forge3D() {
 
   const jumpToLine = useCallback((lineNum) => {
     editorRef.current?.jumpToLine(lineNum);
-    setActiveTab('console');
   }, []);
 
   const handleSidebarTabChange = useCallback((nextTab) => {
@@ -1447,19 +1570,32 @@ export default function Forge3D() {
   }, []);
 
   const handleInsertStartItem = useCallback((item, explicitMode) => {
-    if (!item?.code) return;
+    if (!item) return;
 
-    const mode = !code.trim()
-      ? 'replace'
-      : explicitMode || item.defaultInsertBehavior || (item.kind === 'basic' ? 'cursor' : 'append');
+    if (item.primaryAction === 'openExternal' && item.externalUrl) {
+      Promise.resolve(forgeAPI.openExternalUrl?.(item.externalUrl)).catch(() => {});
+      setStatusMessage(`Opened ${item.name}`);
+      return;
+    }
 
-    if (item.kind === 'basic') {
-      if (mode === 'replace' || !code.trim()) {
-        applyCodeChange(`${item.code.trimEnd()}\n`);
-        setStatusMessage(`Start loaded: ${item.name}`);
-        return;
-      }
+    if (!item.code) return;
 
+    if (item.primaryAction === 'openExample' || explicitMode === 'replace') {
+      const nextCode = `${item.code.trimEnd()}\n`;
+      queueAutoFitView();
+      replaceCodeWithoutHistory(nextCode);
+      setSavedCode(nextCode);
+      setComparisonCode(nextCode);
+      setPendingExternalSnapshot(null);
+      setCurrentFileName(`${item.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'example'}.scad`);
+      setCurrentFilePath(null);
+      setActiveReference(null);
+      resetAssemblyState();
+      setStatusMessage(`Opened ${item.name}`);
+      return;
+    }
+
+    if (item.primaryAction === 'insert') {
       const inserted = editorRef.current?.insertText?.(item.code, { selectInserted: true });
       if (inserted) {
         setStatusMessage(`Inserted ${item.name}`);
@@ -1471,6 +1607,7 @@ export default function Forge3D() {
       return;
     }
 
+    const mode = explicitMode || 'append';
     const insertion = prepareTemplateInsertion({ name: item.name, code: item.code }, code, mode);
     if (!insertion) return;
 
@@ -1492,7 +1629,7 @@ export default function Forge3D() {
       applyCodeChange(insertion.nextCode);
       setStatusMessage(buildMergedInsertionStatus(item.name, mode, insertion.stats));
     }
-  }, [applyCodeChange, code]);
+  }, [applyCodeChange, code, forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState]);
 
   const handleBuildCurrentDesign = useCallback(() => {
     setStatusMessage('Rendering the latest design from Assembly...');
@@ -1508,7 +1645,7 @@ export default function Forge3D() {
   }, [applyCodeChange, autoRun, code, mode]);
 
   const handleResetParam = useCallback((param) => {
-    const originalParams = parseParams(lastSavedCode);
+    const originalParams = parseParams(savedCode);
     const original = originalParams.find((candidate) => candidate.id === param.id)
       || originalParams.find((candidate) => candidate.name === param.name && candidate.section === param.section);
     const resetValue = original?.value ?? param.defaultValue;
@@ -1518,31 +1655,13 @@ export default function Forge3D() {
     if (mode === 'assembly' && !autoRun) {
       setStatusMessage(`Reset ${param.label || param.name}. Render the latest design to refresh current render parts.`);
     }
-  }, [applyCodeChange, autoRun, code, lastSavedCode, mode]);
+  }, [applyCodeChange, autoRun, code, mode, savedCode]);
 
   const handleJumpToParam = useCallback((param) => {
     const targetLine = param?.assignmentLine || param?.line;
     if (!targetLine) return;
     editorRef.current?.jumpToLine(targetLine);
     setStatusMessage(`Jumped to ${param.name}`);
-  }, []);
-
-  const handleJumpToSymbol = useCallback((symbol) => {
-    if (!symbol?.startLine) return;
-    editorRef.current?.jumpToLine(symbol.startLine);
-    setStatusMessage(`Jumped to ${symbol.name}`);
-  }, []);
-
-  const handleTogglePreviewSymbol = useCallback((symbol) => {
-    if (!symbol?.id || symbol.kind !== 'template') return;
-    setHiddenPreviewSymbolIds((current) => {
-      const next = current.includes(symbol.id)
-        ? current.filter((id) => id !== symbol.id)
-        : [...current, symbol.id];
-      const nowHidden = !current.includes(symbol.id);
-      setStatusMessage(nowHidden ? `Hidden ${symbol.name} from preview` : `Showing ${symbol.name} in preview`);
-      return next;
-    });
   }, []);
 
   const handleClearRecentFiles = useCallback(() => {
@@ -1588,9 +1707,31 @@ export default function Forge3D() {
     Promise.resolve(forgeAPI.openExternalUrl?.(url)).catch(() => {});
   }, [forgeAPI]);
 
+  const handleReloadFromDiskConflict = useCallback(() => {
+    if (!pendingExternalSnapshot?.content) return;
+    const localCode = code;
+    queueAutoFitView();
+    replaceCodeWithoutHistory(pendingExternalSnapshot.content);
+    setSavedCode(pendingExternalSnapshot.content);
+    setComparisonCode(localCode);
+    setCurrentFileName(pendingExternalSnapshot.name || currentFileName);
+    setCurrentFilePath(pendingExternalSnapshot.filePath || currentFilePath);
+    setPendingExternalSnapshot(null);
+    setShowDiffEditor(true);
+    setStatusMessage(`Reloaded ${pendingExternalSnapshot.name || currentFileName} from disk`);
+  }, [code, currentFileName, currentFilePath, pendingExternalSnapshot, queueAutoFitView, replaceCodeWithoutHistory]);
+
+  const handleKeepLocalChanges = useCallback(() => {
+    if (!pendingExternalSnapshot) return;
+    setComparisonCode(pendingExternalSnapshot.content);
+    setPendingExternalSnapshot(null);
+    setShowDiffEditor(true);
+    setStatusMessage('Keeping local edits for now');
+  }, [pendingExternalSnapshot]);
+
   const askAI = useCallback(() => {
-    const errorText = allErrors.map(e => `- ${e}`).join('\n');
-    const warnText = allWarnings.map(w => `- ${w}`).join('\n');
+    const errorText = allErrors.map((entry) => `- ${formatDiagnosticForPrompt(entry).replace(/\n/g, '\n  ')}`).join('\n');
+    const warnText = allWarnings.map((entry) => `- ${formatDiagnosticForPrompt(entry).replace(/\n/g, '\n  ')}`).join('\n');
     const prompt = `I'm writing OpenSCAD code in Forge3D and getting errors. Please help me fix the issue.\n\n## My Code (${currentFileName})\n\`\`\`openscad\n${code}\n\`\`\`\n\n## Errors\n${errorText || 'None'}\n\n## Warnings\n${warnText || 'None'}\n\nPlease explain what's wrong and show me the corrected code.`;
     navigator.clipboard.writeText(prompt).then(
       () => setStatusMessage('AI debug prompt copied to clipboard'),
@@ -1750,6 +1891,7 @@ export default function Forge3D() {
                 <StartSidebar
                   colors={colors}
                   onInsertItem={handleInsertStartItem}
+                  onOpenExternal={handleOpenExternalDoc}
                   onStateChange={updateStartState}
                   startState={startState}
                 />
@@ -1836,14 +1978,14 @@ export default function Forge3D() {
                 <span style={{ fontSize: '11px', color: canUndo || canRedo ? colors.accent : colors.textMuted, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>{history.past.length} undo · {history.future.length} redo</span>
                 <button
                   onClick={() => setShowDiffEditor((value) => !value)}
-                  disabled={!isDirty}
-                  title={isDirty ? 'Compare current code with last saved code' : 'Diff is available once you have unsaved changes'}
+                  disabled={!hasComparisonDiff}
+                  title={hasComparisonDiff ? 'Compare current code with the current comparison base' : 'Diff becomes available once the file changes locally or on disk'}
                   style={{
                     background: showDiffEditor ? `${colors.accent}22` : 'transparent',
                     border: `1px solid ${showDiffEditor ? colors.accent : colors.border}`,
                     borderRadius: '999px',
-                    color: !isDirty ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
-                    cursor: !isDirty ? 'not-allowed' : 'pointer',
+                    color: !hasComparisonDiff ? colors.textFaint : showDiffEditor ? colors.accent : colors.textMuted,
+                    cursor: !hasComparisonDiff ? 'not-allowed' : 'pointer',
                     padding: '3px 8px',
                     fontSize: '11px',
                     fontWeight: 700,
@@ -1857,7 +1999,26 @@ export default function Forge3D() {
               </>
             )}
           </div>
-          <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden' }}>
+          <div style={{ flex: 1, background: colors.bgDarker, overflow: 'hidden', position: 'relative' }}>
+            {mode !== 'assembly' && pendingExternalSnapshot && (
+              <div style={{ position: 'absolute', top: '10px', left: '10px', right: '10px', zIndex: 15, background: `${colors.warn}18`, border: `1px solid ${colors.warn}55`, borderRadius: '12px', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ color: colors.textSoft, fontSize: '12px', fontWeight: 700 }}>
+                  Disk changed: {pendingExternalSnapshot.name || currentFileName}
+                </div>
+                <div style={{ color: colors.textMuted, fontSize: '11px', flex: 1, minWidth: '180px' }}>
+                  The saved file changed outside Forge3D while you also have unsaved local edits.
+                </div>
+                <button onClick={() => setShowDiffEditor(true)} style={{ background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '9px', color: colors.textSoft, cursor: 'pointer', padding: '7px 10px', fontSize: '11px', fontWeight: 700 }}>
+                  Open Diff
+                </button>
+                <button onClick={handleKeepLocalChanges} style={{ background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '9px', color: colors.textSoft, cursor: 'pointer', padding: '7px 10px', fontSize: '11px', fontWeight: 700 }}>
+                  Keep Local
+                </button>
+                <button onClick={handleReloadFromDiskConflict} style={{ background: `${colors.warn}22`, border: `1px solid ${colors.warn}`, borderRadius: '9px', color: colors.warn, cursor: 'pointer', padding: '7px 10px', fontSize: '11px', fontWeight: 700 }}>
+                  Reload From Disk
+                </button>
+              </div>
+            )}
             {mode === 'assembly' ? (
               <AssemblyInspector
                 autoRun={autoRun}
@@ -1890,27 +2051,28 @@ export default function Forge3D() {
               <CodeEditor
                 ref={editorRef}
                 code={code}
-                comparisonCode={lastSavedCode}
+                comparisonCode={comparisonCode}
                 diagnostics={lspDiagnostics.markers}
                 onBuild={runCode}
                 onChange={applyCodeChange}
-                onOpenBuiltinDocs={setActiveDocKey}
+                onOpenReference={setActiveReference}
                 onRedo={redoCode}
                 onUndo={undoCode}
-                showDiff={showDiffEditor && isDirty}
+                showDiff={showDiffEditor && hasComparisonDiff}
                 theme={theme}
               />
             )}
+            {mode !== 'assembly' && activeReference && (
+              <DocsDrawer
+                colors={colors}
+                onClose={() => setActiveReference(null)}
+                onInsertExample={handleInsertDocExample}
+                onJumpToLine={jumpToLine}
+                onOpenExternal={handleOpenExternalDoc}
+                reference={activeReference}
+              />
+            )}
           </div>
-          {mode !== 'assembly' && activeDocKey && (
-            <DocsDrawer
-              colors={colors}
-              docKey={activeDocKey}
-              onClose={() => setActiveDocKey(null)}
-              onInsertExample={handleInsertDocExample}
-              onOpenExternal={handleOpenExternalDoc}
-            />
-          )}
 
           {/* Bottom panel drag handle */}
           <div
@@ -1959,15 +2121,11 @@ export default function Forge3D() {
         <ViewportPane
           canvasRef={canvasRef}
           colors={colors}
-          hiddenPreviewSymbolIds={hiddenPreviewSymbolIds}
           minViewportWidth={MIN_VIEWPORT_WIDTH}
           mode={mode}
           onCaptureRender={handleCaptureRender}
-          onJumpToSymbol={handleJumpToSymbol}
-          onTogglePreviewSymbol={handleTogglePreviewSymbol}
           selectedAssemblyPart={selectedAssemblyPart}
           setViewSettings={setViewSettings}
-          symbols={documentSymbols}
           theme={theme}
           viewSettings={viewSettings}
         />

@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('forgeAPI', {
   listWorkspaceFiles: () => ipcRenderer.invoke('workspace:listFiles'),
 
   // Native OpenSCAD render (Electron-only)
-  renderOpenSCAD: (code) => ipcRenderer.invoke('openscad:render', { code }),
+  renderOpenSCAD: (code, options = {}) => ipcRenderer.invoke('openscad:render', { code, ...options }),
 
   // LSP bridge (Electron-only)
   lspSend: (msg) => ipcRenderer.send('lsp-send', msg),

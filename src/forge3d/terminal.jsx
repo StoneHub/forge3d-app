@@ -1,22 +1,65 @@
-import { useEffect, useRef } from 'react'
-import { Terminal } from 'xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import 'xterm/css/xterm.css'
-import './terminal.css'
-import { requireForgeAPI } from './forge-api.js'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { Terminal } from 'xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import 'xterm/css/xterm.css';
+import './terminal.css';
+import { requireForgeAPI } from './forge-api.js';
 
-export default function TerminalPane({ active, colors, focusToken = 0, onEnsureSession, resetToken = 0, sessionState = {} }) {
-  const containerRef = useRef(null)
-  const terminalRef = useRef(null)
-  const fitAddonRef = useRef(null)
-  const lastErrorRef = useRef('')
-  const requestingSessionRef = useRef(false)
-  const forgeAPI = requireForgeAPI()
+const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusToken = 0, onEnsureSession, resetToken = 0, sessionState = {} }, ref) {
+  const containerRef = useRef(null);
+  const terminalRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const lastErrorRef = useRef('');
+  const requestingSessionRef = useRef(false);
+  const forgeAPI = requireForgeAPI();
+
+  const writeClipboardText = async (text) => {
+    if (!text) return false;
+    try {
+      await navigator.clipboard?.writeText?.(text);
+      return true;
+    } catch (_) {
+      try {
+        await forgeAPI.writeClipboardText?.(text);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const copySelection = async () => {
+    const selection = terminalRef.current?.getSelection?.() || '';
+    if (!selection) return false;
+    return writeClipboardText(selection);
+  };
+
+  const pasteText = (text) => {
+    if (!text) return false;
+    forgeAPI.writeTerminal(text);
+    return true;
+  };
+
+  const pasteClipboard = async () => {
+    try {
+      const text = await forgeAPI.readClipboardText?.();
+      return pasteText(text);
+    } catch (_) {
+      return false;
+    }
+  };
+
+  useImperativeHandle(ref, () => ({
+    copySelection,
+    pasteClipboard,
+    focus() {
+      terminalRef.current?.focus();
+    },
+  }), [forgeAPI]);
 
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current) return;
 
-    // Initialize xterm.js
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -44,158 +87,127 @@ export default function TerminalPane({ active, colors, focusToken = 0, onEnsureS
         brightCyan: '#56b6c2',
         brightWhite: '#ffffff',
       },
-    })
+    });
 
-    const fitAddon = new FitAddon()
-    terminal.loadAddon(fitAddon)
-    terminal.open(containerRef.current)
-    fitAddon.fit()
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(containerRef.current);
+    fitAddon.fit();
 
-    terminalRef.current = terminal
-    fitAddonRef.current = fitAddon
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
 
-    const copySelection = async () => {
-      const selection = terminal.getSelection()
-      if (!selection) return false
-      try {
-        await forgeAPI.writeClipboardText?.(selection)
-        return true
-      } catch (_) {
-        return false
-      }
-    }
-
-    const pasteText = (text) => {
-      if (!text) return false
-      forgeAPI.writeTerminal(text)
-      return true
-    }
-
-    const pasteClipboard = async () => {
-      try {
-        const text = await forgeAPI.readClipboardText?.()
-        return pasteText(text)
-      } catch (_) {
-        return false
-      }
-    }
-
-    // Pipe terminal input to PTY
     terminal.onData((data) => {
-      forgeAPI.writeTerminal(data)
-    })
+      forgeAPI.writeTerminal(data);
+    });
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== 'keydown') return true
+      if (event.type !== 'keydown') return true;
 
-      const key = String(event.key || '').toLowerCase()
-      const mod = event.ctrlKey || event.metaKey
+      const key = String(event.key || '').toLowerCase();
+      const mod = event.ctrlKey || event.metaKey;
 
       if (mod && event.shiftKey && key === 'c') {
-        void copySelection()
-        return false
+        void copySelection();
+        return false;
       }
 
       if (mod && event.shiftKey && key === 'v') {
-        void pasteClipboard()
-        return false
+        void pasteClipboard();
+        return false;
       }
 
       if (event.ctrlKey && key === 'insert') {
-        void copySelection()
-        return false
+        void copySelection();
+        return false;
       }
 
       if (event.shiftKey && key === 'insert') {
-        void pasteClipboard()
-        return false
+        void pasteClipboard();
+        return false;
       }
 
-      return true
-    })
+      return true;
+    });
 
-    // Pipe PTY output to terminal
     const unsubscribe = forgeAPI.onTerminalData((data) => {
-      terminal.write(data)
-    })
+      terminal.write(data);
+    });
 
-    // Handle window resize
     const handleResize = () => {
-      if (!containerRef.current || containerRef.current.offsetParent === null) return
-      fitAddon.fit()
-      forgeAPI.resizeTerminal(terminal.cols, terminal.rows)
-    }
+      if (!containerRef.current || containerRef.current.offsetParent === null) return;
+      fitAddon.fit();
+      forgeAPI.resizeTerminal(terminal.cols, terminal.rows);
+    };
 
-    window.addEventListener('resize', handleResize)
+    window.addEventListener('resize', handleResize);
     const handlePaste = (event) => {
-      const text = event.clipboardData?.getData('text/plain') || ''
-      if (!text) return
-      event.preventDefault()
-      pasteText(text)
-    }
+      const text = event.clipboardData?.getData('text/plain') || '';
+      if (!text) return;
+      event.preventDefault();
+      pasteText(text);
+    };
     const handleCopy = (event) => {
-      const selection = terminal.getSelection()
-      if (!selection) return
-      event.preventDefault()
-      event.clipboardData?.setData('text/plain', selection)
-      void forgeAPI.writeClipboardText?.(selection)
-    }
-    containerRef.current.addEventListener('paste', handlePaste)
-    containerRef.current.addEventListener('copy', handleCopy)
-    // Also trigger fit after a short delay to ensure layout is stable
-    const timeoutId = setTimeout(handleResize, 100)
+      const selection = terminal.getSelection();
+      if (!selection) return;
+      event.preventDefault();
+      event.clipboardData?.setData('text/plain', selection);
+      void writeClipboardText(selection);
+    };
+    containerRef.current.addEventListener('paste', handlePaste);
+    containerRef.current.addEventListener('copy', handleCopy);
+    const timeoutId = setTimeout(handleResize, 100);
 
-    // Cleanup
     return () => {
-      clearTimeout(timeoutId)
-      window.removeEventListener('resize', handleResize)
-      containerRef.current?.removeEventListener('paste', handlePaste)
-      containerRef.current?.removeEventListener('copy', handleCopy)
-      unsubscribe()
-      terminal.dispose()
-    }
-  }, [colors, forgeAPI])
+      clearTimeout(timeoutId);
+      window.removeEventListener('resize', handleResize);
+      containerRef.current?.removeEventListener('paste', handlePaste);
+      containerRef.current?.removeEventListener('copy', handleCopy);
+      unsubscribe();
+      terminal.dispose();
+    };
+  }, [colors, forgeAPI]);
 
   useEffect(() => {
-    if (!active || sessionState?.status !== 'idle' || requestingSessionRef.current) return
-    requestingSessionRef.current = true
+    if (!active || sessionState?.status !== 'idle' || requestingSessionRef.current) return;
+    requestingSessionRef.current = true;
     Promise.resolve(onEnsureSession?.()).finally(() => {
-      requestingSessionRef.current = false
-    })
-  }, [active, onEnsureSession, sessionState?.status])
+      requestingSessionRef.current = false;
+    });
+  }, [active, onEnsureSession, sessionState?.status]);
 
   useEffect(() => {
     if (sessionState?.status === 'running' || sessionState?.status === 'error' || sessionState?.status === 'exited') {
-      requestingSessionRef.current = false
+      requestingSessionRef.current = false;
     }
-  }, [sessionState?.status])
+  }, [sessionState?.status]);
 
   useEffect(() => {
-    if (sessionState?.status !== 'error' || !sessionState.error || lastErrorRef.current === sessionState.error) return
-    lastErrorRef.current = sessionState.error
-    terminalRef.current?.writeln(`\x1b[31m${sessionState.error}\x1b[0m`)
-  }, [sessionState?.error, sessionState?.status])
+    if (sessionState?.status !== 'error' || !sessionState.error || lastErrorRef.current === sessionState.error) return;
+    lastErrorRef.current = sessionState.error;
+    terminalRef.current?.writeln(`\x1b[31m${sessionState.error}\x1b[0m`);
+  }, [sessionState?.error, sessionState?.status]);
 
   useEffect(() => {
-    const terminal = terminalRef.current
-    if (!terminal) return
-    terminal.reset()
-    terminal.clear()
-  }, [resetToken])
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.reset();
+    terminal.clear();
+  }, [resetToken]);
 
   useEffect(() => {
-    if (!active) return
-    const terminal = terminalRef.current
-    const fitAddon = fitAddonRef.current
+    if (!active) return;
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
     const focusTerminal = () => {
-      if (!containerRef.current || containerRef.current.offsetParent === null) return
-      fitAddon?.fit()
-      forgeAPI.resizeTerminal(terminal?.cols || 80, terminal?.rows || 24)
-      terminal?.focus()
-    }
-    const frameId = requestAnimationFrame(focusTerminal)
-    return () => cancelAnimationFrame(frameId)
-  }, [active, focusToken, forgeAPI, sessionState?.pid])
+      if (!containerRef.current || containerRef.current.offsetParent === null) return;
+      fitAddon?.fit();
+      forgeAPI.resizeTerminal(terminal?.cols || 80, terminal?.rows || 24);
+      terminal?.focus();
+    };
+    const frameId = requestAnimationFrame(focusTerminal);
+    return () => cancelAnimationFrame(frameId);
+  }, [active, focusToken, forgeAPI, sessionState?.pid]);
 
   return (
     <div
@@ -208,5 +220,7 @@ export default function TerminalPane({ active, colors, focusToken = 0, onEnsureS
         backgroundColor: colors.bgPanel,
       }}
     />
-  )
-}
+  );
+});
+
+export default TerminalPane;

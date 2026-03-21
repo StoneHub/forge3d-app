@@ -228,16 +228,78 @@ function findBlockEndLine(lines, startLine) {
   return startLine + 1;
 }
 
+function parseParameterList(raw = '') {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [leftSide, ...defaultParts] = entry.split('=');
+      const nameMatch = leftSide.trim().match(new RegExp(`^(${SYMBOL_NAME_PATTERN})`));
+      if (!nameMatch) return null;
+      return {
+        name: nameMatch[1],
+        defaultValue: defaultParts.length > 0 ? defaultParts.join('=').trim() : null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildSignature(kind, name, params = []) {
+  const renderedParams = params
+    .map((param) => (param.defaultValue ? `${param.name} = ${param.defaultValue}` : param.name))
+    .join(', ');
+  return kind === 'function'
+    ? `function ${name}(${renderedParams})`
+    : `${name}(${renderedParams})`;
+}
+
+function buildUserSymbolContents(symbol) {
+  const title = symbol.kind === 'parameter'
+    ? `**${symbol.name}**`
+    : `**${symbol.signature || symbol.name}**`;
+  const summary = symbol.kind === 'parameter'
+    ? `Parameter available in lines ${symbol.scopeStartLine}-${symbol.scopeEndLine}.`
+    : `${symbol.kind} defined at line ${symbol.startLine}.`;
+
+  return [
+    { value: title },
+    { value: summary },
+  ];
+}
+
+function isVisibleSymbolAtLine(symbol, lineNumber) {
+  if (!Number.isInteger(lineNumber)) return true;
+  if (symbol.kind === 'parameter') {
+    return lineNumber >= symbol.scopeStartLine && lineNumber <= symbol.scopeEndLine;
+  }
+  return symbol.startLine <= lineNumber;
+}
+
+function getVisibleSymbolsAtLine(code, lineNumber) {
+  return extractOpenScadSymbols(code)
+    .filter((symbol) => isVisibleSymbolAtLine(symbol, lineNumber))
+    .sort((a, b) => {
+      if (a.name === b.name) return b.startLine - a.startLine;
+      return a.name.localeCompare(b.name);
+    });
+}
+
 export function extractOpenScadSymbols(code) {
   const lines = code.split('\n');
   const depthAtLineStart = buildLineContexts(lines);
   const symbols = [];
-  const makeSymbol = (kind, name, startLine, endLine) => ({
+  const makeSymbol = (kind, name, startLine, endLine, extra = {}) => ({
     id: `${kind}:${name}:${startLine}`,
     kind,
     name,
     startLine,
     endLine,
+    scopeStartLine: startLine,
+    scopeEndLine: endLine,
+    params: [],
+    signature: null,
+    ...extra,
   });
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -258,15 +320,33 @@ export function extractOpenScadSymbols(code) {
       continue;
     }
 
-    const moduleMatch = line.match(new RegExp(`^\\s*module\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(`));
+    const moduleMatch = line.match(new RegExp(`^\\s*module\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(([^)]*)\\)`));
     if (moduleMatch) {
-      symbols.push(makeSymbol('module', moduleMatch[1], lineIndex + 1, findBlockEndLine(lines, lineIndex)));
+      const params = parseParameterList(moduleMatch[2]);
+      const endLine = findBlockEndLine(lines, lineIndex);
+      symbols.push(makeSymbol('module', moduleMatch[1], lineIndex + 1, endLine, {
+        params,
+        signature: buildSignature('module', moduleMatch[1], params),
+      }));
+      params.forEach((param) => {
+        symbols.push(makeSymbol('parameter', param.name, lineIndex + 1, endLine, {
+          params: [],
+          signature: param.defaultValue ? `${param.name} = ${param.defaultValue}` : param.name,
+          scopeStartLine: lineIndex + 1,
+          scopeEndLine: endLine,
+          parentName: moduleMatch[1],
+        }));
+      });
       continue;
     }
 
-    const functionMatch = line.match(new RegExp(`^\\s*function\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(`));
+    const functionMatch = line.match(new RegExp(`^\\s*function\\s+(${SYMBOL_NAME_PATTERN})\\s*\\(([^)]*)\\)`));
     if (functionMatch) {
-      symbols.push(makeSymbol('function', functionMatch[1], lineIndex + 1, lineIndex + 1));
+      const params = parseParameterList(functionMatch[2]);
+      symbols.push(makeSymbol('function', functionMatch[1], lineIndex + 1, lineIndex + 1, {
+        params,
+        signature: buildSignature('function', functionMatch[1], params),
+      }));
       continue;
     }
 
@@ -279,6 +359,17 @@ export function extractOpenScadSymbols(code) {
   }
 
   return symbols;
+}
+
+export function resolveOpenScadReference(code, word, lineNumber) {
+  const builtinDoc = getOpenScadDoc(word);
+  if (builtinDoc) {
+    return { type: 'builtin', word, doc: builtinDoc };
+  }
+
+  const candidates = getVisibleSymbolsAtLine(code, lineNumber).filter((symbol) => symbol.name === word);
+  const symbol = candidates.sort((a, b) => b.startLine - a.startLine)[0];
+  return symbol ? { type: 'symbol', word, symbol } : null;
 }
 
 function getSymbolKind(monaco, kind) {
@@ -329,7 +420,27 @@ function buildKeywordSuggestions(monaco, model, position) {
     insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
   }));
 
-  return [...snippetItems, ...keywordItems, ...builtinItems];
+  const userSymbolItems = getVisibleSymbolsAtLine(model.getValue(), position.lineNumber)
+    .filter((symbol) => ['module', 'function', 'variable', 'parameter'].includes(symbol.kind))
+    .map((symbol) => ({
+      label: symbol.name,
+      kind:
+        symbol.kind === 'module'
+          ? monaco.languages.CompletionItemKind.Module
+          : symbol.kind === 'function'
+            ? monaco.languages.CompletionItemKind.Function
+            : symbol.kind === 'parameter'
+              ? monaco.languages.CompletionItemKind.Variable
+              : monaco.languages.CompletionItemKind.Variable,
+      insertText: symbol.name,
+      range,
+      detail: symbol.signature || `OpenSCAD ${symbol.kind}`,
+      documentation: symbol.kind === 'parameter'
+        ? `Parameter from ${symbol.parentName || 'current scope'}`
+        : `User-defined ${symbol.kind}`,
+    }));
+
+  return [...snippetItems, ...userSymbolItems, ...keywordItems, ...builtinItems];
 }
 
 function buildDocContents(doc) {
@@ -407,7 +518,7 @@ function buildInlineSuggestions(monaco, model, position) {
   };
 
   if (word.length >= 2) {
-    const symbols = extractOpenScadSymbols(model.getValue());
+    const symbols = getVisibleSymbolsAtLine(model.getValue(), position.lineNumber);
     for (const label of [...KEYWORD_LIST, ...BUILTIN_LIST, ...symbols.map((symbol) => symbol.name)]) {
       if (label.toLowerCase().startsWith(word.toLowerCase()) && label !== word) {
         addSuggestion(label);
@@ -575,12 +686,20 @@ export function configureMonacoOpenScad(monaco) {
   monaco.languages.registerHoverProvider(OPENSCAD_LANGUAGE_ID, {
     provideHover(model, position) {
       const word = model.getWordAtPosition(position)?.word;
-      const doc = getOpenScadDoc(word);
-      if (!doc) return null;
       const range = wordRangeAtPosition(monaco, model, position).range;
+      const reference = resolveOpenScadReference(model.getValue(), word, position.lineNumber);
+      if (!reference) return null;
+
+      if (reference.type === 'builtin') {
+        return {
+          range,
+          contents: buildDocContents(reference.doc),
+        };
+      }
+
       return {
         range,
-        contents: buildDocContents(doc),
+        contents: buildUserSymbolContents(reference.symbol),
       };
     },
   });
@@ -591,20 +710,40 @@ export function configureMonacoOpenScad(monaco) {
     provideSignatureHelp(model, position) {
       const callInfo = getActiveCallInfo(model, position);
       const doc = getOpenScadDoc(callInfo?.name);
-      if (!doc) return null;
+      if (doc) {
+        return {
+          value: {
+            signatures: [{
+              label: doc.signature,
+              documentation: doc.summary,
+              parameters: doc.arguments.map((argument) => ({
+                label: argument.name,
+                documentation: `${argument.type}${argument.defaultValue ? `, default ${argument.defaultValue}` : ''} — ${argument.description}`,
+              })),
+            }],
+            activeSignature: 0,
+            activeParameter: Math.min(callInfo?.activeParameter || 0, Math.max(doc.arguments.length - 1, 0)),
+          },
+          dispose() {},
+        };
+      }
+
+      const userSymbol = getVisibleSymbolsAtLine(model.getValue(), position.lineNumber)
+        .find((symbol) => ['module', 'function'].includes(symbol.kind) && symbol.name === callInfo?.name);
+      if (!userSymbol) return null;
 
       return {
         value: {
           signatures: [{
-            label: doc.signature,
-            documentation: doc.summary,
-            parameters: doc.arguments.map((argument) => ({
+            label: userSymbol.signature || userSymbol.name,
+            documentation: `User-defined ${userSymbol.kind}`,
+            parameters: (userSymbol.params || []).map((argument) => ({
               label: argument.name,
-              documentation: `${argument.type}${argument.defaultValue ? `, default ${argument.defaultValue}` : ''} — ${argument.description}`,
+              documentation: argument.defaultValue ? `default ${argument.defaultValue}` : 'No default value',
             })),
           }],
           activeSignature: 0,
-          activeParameter: Math.min(callInfo?.activeParameter || 0, Math.max(doc.arguments.length - 1, 0)),
+          activeParameter: Math.min(callInfo?.activeParameter || 0, Math.max((userSymbol.params || []).length - 1, 0)),
         },
         dispose() {},
       };
