@@ -179,6 +179,15 @@ function buildRenderLifecycleLogEntries(response = {}, { includeStreams = true }
   ].filter(Boolean);
 }
 
+function formatBuildElapsed(ms) {
+  const totalSeconds = Math.max(0, Math.floor((ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0
+    ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
+    : `${seconds}s`;
+}
+
 function appendIssueDetail(issue, detail) {
   if (!detail) return issue;
   return {
@@ -422,6 +431,8 @@ export default function Forge3D() {
   const [sidebarTab, setSidebarTab] = useState(initialWorkspace.activeActivity || (initialWorkspace.code.trim() ? 'workspace' : 'start'));
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [buildTime, setBuildTime] = useState(0);
+  const [buildElapsedMs, setBuildElapsedMs] = useState(0);
+  const [buildStatusDetail, setBuildStatusDetail] = useState('');
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
   const [currentFilePath, setCurrentFilePath] = useState(initialWorkspace.currentFilePath || null);
   const [savedCode, setSavedCode] = useState(initialWorkspace.lastSavedCode ?? initialWorkspace.code);
@@ -483,6 +494,8 @@ export default function Forge3D() {
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const buildTimeoutRef = useRef(null);
+  const renderRequestIdRef = useRef(null);
+  const renderLogBufferRef = useRef([]);
   const BUILD_TIMEOUT = 5 * 60 * 1000;
 
   const colors = getThemeColors(theme);
@@ -566,6 +579,14 @@ export default function Forge3D() {
     setTerminalFocusToken((value) => value + 1);
   }, []);
 
+  const replaceRenderLogs = useCallback((nextLogs) => {
+    renderLogBufferRef.current = nextLogs;
+    setResult((current) => ({
+      ...current,
+      logs: nextLogs,
+    }));
+  }, []);
+
   // ─── STL loader helper ───────────────────────────────────────────────
   const loadStlBytes = useCallback((bytes, elapsed) => {
     const stlBytes = bytes instanceof Uint8Array
@@ -602,7 +623,7 @@ export default function Forge3D() {
     }
 
     setStlGeometry(geometry);
-    setResult({ objects: [], logs: [`Rendered ${parsed.triangleCount} triangles in ${elapsed}ms`], errors: [], warnings: [], variables: {} });
+    return parsed.triangleCount;
   }, []);
 
   const queueAutoFitView = useCallback(() => {
@@ -1065,16 +1086,36 @@ export default function Forge3D() {
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async () => {
     const id = ++buildIdRef.current;
+    const requestId = `render-${Date.now()}-${id}`;
+    renderRequestIdRef.current = requestId;
+    renderLogBufferRef.current = [];
     buildStartRef.current = performance.now();
     setBuilding(true);
+    setBuildElapsedMs(0);
+    setBuildStatusDetail('Preparing render...');
+    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME}...`);
+    setResult((current) => ({
+      ...current,
+      logs: [],
+      errors: [],
+      warnings: [],
+    }));
 
     clearBuildTimeout();
     const timeoutHandle = setTimeout(() => {
       if (buildIdRef.current !== id) return;
       buildTimeoutRef.current = null;
+      if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
       setBuildTime(BUILD_TIMEOUT);
-      setResult({ objects: [], logs: [], errors: [`Render timed out after ${BUILD_TIMEOUT / 1000}s`], warnings: [], variables: {} });
+      setBuildStatusDetail(`Timed out after ${formatBuildElapsed(BUILD_TIMEOUT)}`);
+      setResult({
+        objects: [],
+        logs: [...renderLogBufferRef.current],
+        errors: [`Render timed out after ${BUILD_TIMEOUT / 1000}s`],
+        warnings: [],
+        variables: {},
+      });
       setActiveTab('errors');
     }, BUILD_TIMEOUT);
     buildTimeoutRef.current = timeoutHandle;
@@ -1083,53 +1124,63 @@ export default function Forge3D() {
       const response = await forgeAPI.renderOpenSCAD(previewCode, {
         sourceName: currentFileName || DEFAULT_FILE_NAME,
         sourcePath: currentFilePath || null,
+        requestId,
       });
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
+      if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
       const elapsed = Math.round(performance.now() - buildStartRef.current);
       setBuildTime(elapsed);
+      setBuildElapsedMs(elapsed);
 
       if (response.error) {
         setStlGeometry(null);
         const diagnostics = buildRenderDiagnostics(response, previewCode);
         const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
         const lifecycleLogs = [
-          ...buildRenderLifecycleLogEntries(response),
+          ...renderLogBufferRef.current,
+          ...buildRenderLifecycleLogEntries(response, { includeStreams: false }),
           ...diagnostics.logs,
         ].filter(Boolean);
         setResult({ objects: [], logs: lifecycleLogs, errors: diagnostics.errors, warnings: diagnostics.warnings, variables: {} });
         setActiveTab('errors');
+        setBuildStatusDetail('Render failed');
         setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
       } else {
+        let triangleCount = 0;
         try {
-          loadStlBytes(new Uint8Array(response.stl), elapsed);
+          triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
         } catch (loadError) {
           setStlGeometry(null);
           const diagnostics = createRenderStageError('STL ingest', loadError, response, previewCode);
           const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
           setResult({
             objects: [],
-            logs: [...buildRenderLifecycleLogEntries(response), ...diagnostics.logs],
+            logs: [...renderLogBufferRef.current, ...buildRenderLifecycleLogEntries(response, { includeStreams: false }), ...diagnostics.logs],
             errors: diagnostics.errors,
             warnings: diagnostics.warnings,
             variables: {},
           });
           setActiveTab('errors');
+          setBuildStatusDetail('STL ingest failed');
           setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed during STL ingest. See Problems for details.');
           return;
         }
         const diagnostics = buildRenderDiagnostics(response, previewCode);
-        setResult((current) => ({
-          ...current,
+        setResult({
+          objects: [],
           logs: [
-            ...current.logs,
-            ...buildRenderLifecycleLogEntries(response),
+            ...renderLogBufferRef.current,
+            `Rendered ${triangleCount} triangles in ${elapsed}ms`,
+            ...buildRenderLifecycleLogEntries(response, { includeStreams: false }),
             ...diagnostics.logs,
           ],
           errors: diagnostics.errors,
           warnings: diagnostics.warnings,
-        }));
+          variables: {},
+        });
+        setBuildStatusDetail('Render complete');
         setStatusMessage(
           diagnostics.warnings.length > 0
             ? `Render completed with ${diagnostics.warnings.length} warning${diagnostics.warnings.length === 1 ? '' : 's'}`
@@ -1139,6 +1190,7 @@ export default function Forge3D() {
     } catch (err) {
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
+      if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
       const failureResponse = {
@@ -1154,22 +1206,31 @@ export default function Forge3D() {
       const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
       setResult({
         objects: [],
-        logs: [...buildRenderLifecycleLogEntries(failureResponse), ...diagnostics.logs],
+        logs: [...renderLogBufferRef.current, ...buildRenderLifecycleLogEntries(failureResponse, { includeStreams: false }), ...diagnostics.logs],
         errors: diagnostics.errors,
         warnings: diagnostics.warnings,
         variables: {},
       });
       setActiveTab('errors');
+      setBuildStatusDetail(err.message === 'OpenSCAD render cancelled.' ? 'Render cancelled' : 'Render failed');
       setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
     }
   }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode]);
 
-  const cancelBuild = useCallback(() => {
+  const cancelBuild = useCallback(async () => {
     buildIdRef.current += 1;
     clearBuildTimeout();
+    const requestId = renderRequestIdRef.current;
+    renderRequestIdRef.current = null;
+    if (requestId) {
+      try {
+        await forgeAPI.cancelOpenScadRender(requestId);
+      } catch (_) {}
+    }
     setBuilding(false);
+    setBuildStatusDetail('Render cancelled');
     setStatusMessage('Build cancelled');
-  }, [clearBuildTimeout]);
+  }, [clearBuildTimeout, forgeAPI]);
 
   const startResize = useCallback((panel, event) => {
     resizingRef.current = panel;
@@ -1276,6 +1337,68 @@ export default function Forge3D() {
   }, [autoRun, code, runCode]);
 
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
+
+  useEffect(() => {
+    if (!building) {
+      setBuildElapsedMs(0);
+      return;
+    }
+
+    setBuildElapsedMs(Math.max(0, Math.round(performance.now() - buildStartRef.current)));
+    const intervalId = window.setInterval(() => {
+      setBuildElapsedMs(Math.max(0, Math.round(performance.now() - buildStartRef.current)));
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [building]);
+
+  useEffect(() => forgeAPI.onOpenScadProgress((payload) => {
+    if (!payload || payload.requestId !== renderRequestIdRef.current) return;
+
+    if (Number.isFinite(payload.elapsedMs)) {
+      setBuildElapsedMs(payload.elapsedMs);
+    }
+
+    if (payload.phase === 'started') {
+      const introLogs = [
+        `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME}`,
+        payload.command ? `OpenSCAD command: ${payload.command}` : null,
+        payload.inputPath ? `Debug source: ${payload.inputPath}` : null,
+        payload.cwd ? `Working directory: ${payload.cwd}` : null,
+      ].filter(Boolean);
+      setBuildStatusDetail('Launching OpenSCAD...');
+      replaceRenderLogs(introLogs);
+      return;
+    }
+
+    if (payload.phase === 'stdout' || payload.phase === 'stderr') {
+      const prefix = payload.phase === 'stderr' ? 'stderr' : 'stdout';
+      const text = String(payload.text || '').trim();
+      if (!text) return;
+      setBuildStatusDetail(`OpenSCAD running... ${formatBuildElapsed(payload.elapsedMs || 0)}`);
+      replaceRenderLogs([...renderLogBufferRef.current, `${prefix}:\n${text}`]);
+      return;
+    }
+
+    if (payload.phase === 'finished') {
+      setBuildStatusDetail(`OpenSCAD finished in ${formatBuildElapsed(payload.elapsedMs || 0)}`);
+      return;
+    }
+
+    if (payload.phase === 'timed_out') {
+      setBuildStatusDetail(`OpenSCAD timed out after ${formatBuildElapsed(payload.elapsedMs || 0)}`);
+      return;
+    }
+
+    if (payload.phase === 'cancelled') {
+      setBuildStatusDetail(`OpenSCAD cancelled after ${formatBuildElapsed(payload.elapsedMs || 0)}`);
+      return;
+    }
+
+    if (payload.phase === 'exited') {
+      setBuildStatusDetail(`OpenSCAD exited after ${formatBuildElapsed(payload.elapsedMs || 0)}`);
+    }
+  }), [currentFileName, forgeAPI, replaceRenderLogs]);
 
   useEffect(() => {
     if (!stlGeometry || !shouldAutoFitViewRef.current) return;
@@ -2293,6 +2416,8 @@ export default function Forge3D() {
       {/* ── Status bar ── */}
       <StatusBar
         allErrors={allErrors}
+        buildElapsedMs={buildElapsedMs}
+        buildStatusText={buildStatusDetail}
         building={building}
         code={code}
         colors={colors}

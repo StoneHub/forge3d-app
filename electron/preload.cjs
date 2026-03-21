@@ -40,6 +40,12 @@ contextBridge.exposeInMainWorld('forgeAPI', {
 
   // Native OpenSCAD render (Electron-only)
   renderOpenSCAD: (code, options = {}) => ipcRenderer.invoke('openscad:render', { code, ...options }),
+  cancelOpenScadRender: (requestId) => ipcRenderer.invoke('openscad:cancel', { requestId }),
+  onOpenScadProgress: (cb) => {
+    const handler = (_event, payload) => cb(payload)
+    ipcRenderer.on('openscad:progress', handler)
+    return () => ipcRenderer.removeListener('openscad:progress', handler)
+  },
 
   // LSP bridge (Electron-only)
   lspSend: (msg) => ipcRenderer.send('lsp-send', msg),
