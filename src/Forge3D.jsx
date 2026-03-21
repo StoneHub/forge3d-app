@@ -1116,6 +1116,16 @@ export default function Forge3D() {
     }
   }, [code, currentFileName, currentFilePath, forgeAPI]);
 
+  useEffect(() => {
+    if (!autoRun) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      if (!code.trim()) return;
+      runCode();
+    }, 400);
+    return () => clearTimeout(timerRef.current);
+  }, [autoRun, code, runCode]);
+
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
 
   useEffect(() => {

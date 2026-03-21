@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const previewDir = path.join(repoRoot, 'public', 'start-previews');
+const previewDir = path.join(repoRoot, 'src', 'forge3d', 'start-catalog', 'previews');
 const openscadBin = 'C:\\Program Files\\OpenSCAD\\openscad.com';
 
 const jobs = [
@@ -31,6 +31,10 @@ async function runOpenScad(inputRelativePath, outputFileName) {
     '--viewall',
     '--projection=p',
     '--imgsize=640,420',
+    '--colorscheme=DeepOcean',
+    '--render',
+    '-D',
+    '$fn=40',
     '-o',
     outputPath,
     inputPath,

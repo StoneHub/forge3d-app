@@ -10,6 +10,18 @@ import threadedHoleTestCode from './start-catalog/scad/helpers/threaded_hole_tes
 import impossibleRingCode from './start-catalog/scad/vendored/jeffbarr/impossible_ring.scad?raw';
 import quadsCode from './start-catalog/scad/vendored/jeffbarr/quads.scad?raw';
 import talonsCode from './start-catalog/scad/vendored/jeffbarr/talons.scad?raw';
+import magneticLettersPreview from './start-catalog/previews/example-magnetic-letters.png';
+import chessPawnPreview from './start-catalog/previews/example-chess-pawn.png';
+import impossibleRingPreview from './start-catalog/previews/example-impossible-ring.png';
+import quadsPreview from './start-catalog/previews/example-quads.png';
+import talonsPreview from './start-catalog/previews/example-talons.png';
+import projectEnclosurePreview from './start-catalog/previews/helper-project-enclosure.png';
+import insertBossPlatePreview from './start-catalog/previews/helper-insert-boss-plate.png';
+import screwHoleSamplerPreview from './start-catalog/previews/helper-screw-hole-sampler.png';
+import threadedBoltPreview from './start-catalog/previews/helper-threaded-bolt.png';
+import threadedHoleTestPreview from './start-catalog/previews/helper-threaded-hole-test.png';
+import cubeStarterPreview from './start-catalog/previews/learning-cube-starter.png';
+import offsetProfilePreview from './start-catalog/previews/learning-offset-profile.png';
 
 const SECTION_ORDER = ['examples', 'helpers', 'learning', 'libraries'];
 
@@ -20,10 +32,6 @@ export const START_SECTIONS = [
   { id: 'learning', label: 'Learning' },
   { id: 'libraries', label: 'Libraries' },
 ];
-
-function createPreviewPath(id) {
-  return `/start-previews/${id}.png`;
-}
 
 export const START_CATALOG = [
   {
@@ -36,7 +44,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: magneticLettersCode,
-    previewImage: createPreviewPath('example-magnetic-letters'),
+    previewImage: magneticLettersPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -44,13 +52,13 @@ export const START_CATALOG = [
     id: 'example-chess-pawn',
     section: 'examples',
     kind: 'example',
-    name: 'Chess Pawn',
-    summary: 'A printable pawn profile built with rotate_extrude.',
-    tags: ['chess', 'rotate_extrude', 'playful'],
+    name: 'Chess Pieces Showcase',
+    summary: 'A full six-piece chess lineup with reusable modules for pawn, rook, knight, bishop, queen, and king.',
+    tags: ['chess', 'showcase', 'parametric', 'playful'],
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: chessPawnCode,
-    previewImage: createPreviewPath('example-chess-pawn'),
+    previewImage: chessPawnPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -64,7 +72,7 @@ export const START_CATALOG = [
     sourceType: 'vendored',
     primaryAction: 'openExample',
     code: impossibleRingCode,
-    previewImage: createPreviewPath('example-impossible-ring'),
+    previewImage: impossibleRingPreview,
     license: 'MIT',
     sourceRepoUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
   },
@@ -78,7 +86,7 @@ export const START_CATALOG = [
     sourceType: 'vendored',
     primaryAction: 'openExample',
     code: quadsCode,
-    previewImage: createPreviewPath('example-quads'),
+    previewImage: quadsPreview,
     license: 'MIT',
     sourceRepoUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
   },
@@ -92,7 +100,7 @@ export const START_CATALOG = [
     sourceType: 'vendored',
     primaryAction: 'openExample',
     code: talonsCode,
-    previewImage: createPreviewPath('example-talons'),
+    previewImage: talonsPreview,
     license: 'MIT',
     sourceRepoUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
   },
@@ -106,7 +114,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: projectEnclosureCode,
-    previewImage: createPreviewPath('helper-project-enclosure'),
+    previewImage: projectEnclosurePreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -120,7 +128,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: insertBossPlateCode,
-    previewImage: createPreviewPath('helper-insert-boss-plate'),
+    previewImage: insertBossPlatePreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -134,7 +142,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: screwHoleSamplerCode,
-    previewImage: createPreviewPath('helper-screw-hole-sampler'),
+    previewImage: screwHoleSamplerPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -148,7 +156,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: threadedBoltCode,
-    previewImage: createPreviewPath('helper-threaded-bolt'),
+    previewImage: threadedBoltPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -162,7 +170,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'openExample',
     code: threadedHoleTestCode,
-    previewImage: createPreviewPath('helper-threaded-hole-test'),
+    previewImage: threadedHoleTestPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -176,7 +184,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'insert',
     code: cubeStarterCode,
-    previewImage: createPreviewPath('learning-cube-starter'),
+    previewImage: cubeStarterPreview,
     license: 'MIT',
     sourceRepoUrl: null,
   },
@@ -190,7 +198,7 @@ export const START_CATALOG = [
     sourceType: 'builtin',
     primaryAction: 'appendSafe',
     code: offsetProfileCode,
-    previewImage: createPreviewPath('learning-offset-profile'),
+    previewImage: offsetProfilePreview,
     license: 'MIT',
     sourceRepoUrl: null,
     docs: { builtin: 'offset', category: 'transform' },
