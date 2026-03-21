@@ -1,11 +1,10 @@
-// Chess Pieces Showcase
+// Chess Pieces
 // Forge3D curated example
 
 $fn = $preview ? 44 : 120;
 
-piece = "all"; // all | pawn | rook | knight | bishop | queen | king
+piece = "queen"; // pawn | rook | knight | bishop | queen | king
 scale_factor = 1;
-layout_spacing = 34;
 
 module revolve_profile(points) {
   rotate_extrude(convexity = 12) polygon(points = points);
@@ -189,15 +188,7 @@ module chess_piece(kind = "pawn") {
   else if (kind == "king") king_piece();
 }
 
-module showcase() {
-  piece_order = ["rook", "knight", "bishop", "queen", "king", "pawn"];
-  for (i = [0 : len(piece_order) - 1]) {
-    translate([(i - (len(piece_order) - 1) / 2) * layout_spacing, 0, 0]) chess_piece(piece_order[i]);
-  }
-}
-
 color("Ivory")
 scale([scale_factor, scale_factor, scale_factor]) {
-  if (piece == "all") showcase();
-  else chess_piece(piece);
+  chess_piece(piece);
 }
