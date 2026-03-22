@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#172033"/>
+      <stop offset="100%" stop-color="#0d1324"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5ec8ff"/>
+      <stop offset="100%" stop-color="#6ef2d8"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="420" rx="28" fill="url(#bg)"/>
+  <rect x="36" y="34" width="568" height="352" rx="24" fill="#10182a" stroke="#24304c"/>
+  <g fill="none" stroke="url(#accent)" stroke-width="8" stroke-linejoin="round">
+    <path d="M128 272l84-126 88 72 72-102 140 156z"/>
+    <rect x="112" y="90" width="112" height="112" rx="18"/>
+    <circle cx="420" cy="170" r="54"/>
+  </g>
+  <text x="72" y="332" fill="#f3f7ff" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="700">Official OpenSCAD Examples</text>
+  <text x="72" y="366" fill="#9fb0cf" font-family="Segoe UI, Arial, sans-serif" font-size="18">Language patterns, primitives, transforms, and modeling idioms</text>
+</svg>

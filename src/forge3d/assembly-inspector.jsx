@@ -103,6 +103,8 @@ function formatMeasurementPoint(point) {
 
 export default function AssemblyInspector({
   autoRun,
+  booleanBusy = false,
+  booleanBusyLabel = 'Working...',
   booleanOperandId,
   booleanOperandOptions,
   building,
@@ -296,7 +298,7 @@ export default function AssemblyInspector({
             Operand
           </span>
           <select
-            disabled={booleanOperandOptions.length === 0}
+            disabled={booleanBusy || booleanOperandOptions.length === 0}
             onChange={(event) => onBooleanOperandChange(event.target.value || null)}
             value={booleanOperandId || ''}
             style={{
@@ -326,8 +328,8 @@ export default function AssemblyInspector({
             <PanelButton
               key={operation}
               colors={colors}
-              disabled={!booleanOperandId}
-              label={operation[0].toUpperCase() + operation.slice(1)}
+              disabled={booleanBusy || !booleanOperandId}
+              label={booleanBusy ? booleanBusyLabel : operation[0].toUpperCase() + operation.slice(1)}
               onClick={() => onBooleanRun(operation)}
             />
           ))}

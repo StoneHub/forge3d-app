@@ -31,6 +31,19 @@ function createGeometryFromArrays(vertices, normals) {
   return geometry;
 }
 
+export function serializeAssemblyGeometry(geometry) {
+  const position = geometry?.getAttribute('position')?.array;
+  const normal = geometry?.getAttribute('normal')?.array;
+  return {
+    position: Array.from(position || []),
+    normal: Array.from(normal || []),
+  };
+}
+
+export function createAssemblyGeometryFromPayload(payload) {
+  return createGeometryFromArrays(payload?.position || [], payload?.normal || []);
+}
+
 export function createAssemblyGeometryFromStlBytes(bytes) {
   const parsed = parseSTL(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   const geometry = createGeometryFromArrays(parsed.vertices, parsed.normals);
@@ -206,7 +219,7 @@ export function deserializeAssemblyScene(payload) {
           visible: part.visible !== false,
           locked: part.locked === true,
           metadata: part.metadata || {},
-          geometry: createGeometryFromArrays(part.geometry.position, part.geometry.normal),
+          geometry: createAssemblyGeometryFromPayload(part.geometry),
         }))
     : [];
 

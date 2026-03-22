@@ -44,6 +44,52 @@ function buildStableChildProcessEnv(overrides = {}) {
   }
 }
 
+function shouldSkipStartupPreviewGeneration() {
+  return process.argv.includes('--skip-start-previews') || process.env.FORGE3D_SKIP_START_PREVIEWS === '1'
+}
+
+function shouldForceStartupPreviewGeneration() {
+  return process.argv.includes('--refresh-start-previews') || process.env.FORGE3D_REFRESH_START_PREVIEWS === '1'
+}
+
+async function maybeGenerateStartPreviewsOnStartup() {
+  if (!isDev) return
+  if (shouldSkipStartupPreviewGeneration()) {
+    console.log('[StartPreviews] Skipping startup preview generation')
+    return
+  }
+
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'generate-start-previews.mjs')
+  if (!fsSync.existsSync(scriptPath)) {
+    console.warn('[StartPreviews] Preview script not found:', scriptPath)
+    return
+  }
+
+  const nodeBin = process.platform === 'win32' ? 'node.exe' : 'node'
+  const args = [scriptPath, shouldForceStartupPreviewGeneration() ? '--force' : '--changed-only']
+  console.log(`[StartPreviews] Running ${path.basename(scriptPath)} ${args.slice(1).join(' ')}`)
+
+  await new Promise((resolve) => {
+    const child = spawn(nodeBin, args, {
+      cwd: path.join(__dirname, '..'),
+      env: buildStableChildProcessEnv(),
+      stdio: 'inherit',
+    })
+
+    child.on('error', (err) => {
+      console.warn('[StartPreviews] Failed to start preview generation:', err.message)
+      resolve()
+    })
+
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        console.warn('[StartPreviews] Preview generation exited with code', code)
+      }
+      resolve()
+    })
+  })
+}
+
 function getPreferredDocumentsPath(env = process.env) {
   const userProfile = env.USERPROFILE || process.env.USERPROFILE || os.homedir()
   return userProfile ? path.join(userProfile, 'Documents') : null
@@ -1300,7 +1346,10 @@ ipcMain.handle('terminal:kill', () => {
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  await maybeGenerateStartPreviewsOnStartup()
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   stopWatchingFile()

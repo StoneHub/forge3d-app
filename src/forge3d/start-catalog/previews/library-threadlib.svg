@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#15231b"/>
+      <stop offset="100%" stop-color="#0d1511"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#73f0af"/>
+      <stop offset="100%" stop-color="#4dc4ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="420" rx="28" fill="url(#bg)"/>
+  <rect x="36" y="34" width="568" height="352" rx="24" fill="#101b16" stroke="#254236"/>
+  <g fill="none" stroke="url(#accent)" stroke-width="8" stroke-linejoin="round">
+    <path d="M148 224c0-66 54-120 120-120h58"/>
+    <path d="M150 256c0 34 28 62 62 62h194"/>
+    <path d="M354 98c64 0 116 52 116 116s-52 116-116 116"/>
+    <path d="M248 112l38-24"/>
+    <path d="M244 312l40 22"/>
+    <path d="M364 112l38-24"/>
+    <path d="M362 312l40 22"/>
+  </g>
+  <text x="72" y="332" fill="#f2fff8" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="700">threadlib Reference</text>
+  <text x="72" y="366" fill="#a6c8bc" font-family="Segoe UI, Arial, sans-serif" font-size="18">Thread standards, fastener tables, and reusable thread utilities</text>
+</svg>

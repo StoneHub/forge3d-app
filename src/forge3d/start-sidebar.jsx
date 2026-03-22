@@ -37,14 +37,33 @@ function renderPreview(colors, item) {
           borderRadius: '12px',
           overflow: 'hidden',
           border: `1px solid ${colors.border}`,
-          background: colors.bgDarker,
+          background: `linear-gradient(180deg, ${colors.bgPanel}, ${colors.bgDarker})`,
+          position: 'relative',
         }}
       >
         <img
           alt={item.name}
           src={item.previewImage}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', padding: '8px', boxSizing: 'border-box' }}
         />
+        <div
+          style={{
+            position: 'absolute',
+            left: '10px',
+            bottom: '10px',
+            background: 'rgba(8, 11, 18, 0.72)',
+            border: `1px solid ${colors.border}`,
+            borderRadius: '999px',
+            color: '#f5f7ff',
+            fontSize: '10px',
+            fontWeight: 800,
+            letterSpacing: '0.4px',
+            padding: '4px 8px',
+            textTransform: 'uppercase',
+          }}
+        >
+          {item.section}
+        </div>
       </div>
     );
   }
