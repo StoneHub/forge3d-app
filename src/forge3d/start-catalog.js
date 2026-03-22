@@ -1,3 +1,5 @@
+import angleBracketCode from './start-catalog/scad/helpers/angle_bracket.scad?raw';
+import ballSocketMountCode from './start-catalog/scad/helpers/ball_socket_mount.scad?raw';
 import chessPawnCode from './start-catalog/scad/examples/chess_pawn.scad?raw';
 import impossibleRingCode from './start-catalog/scad/examples/impossible_ring_showcase.scad?raw';
 import magneticLettersCode from './start-catalog/scad/examples/magnetic_letters_pro.scad?raw';
@@ -7,9 +9,13 @@ import offsetProfileCode from './start-catalog/scad/learning/offset_profile.scad
 import projectEnclosureCode from './start-catalog/scad/helpers/project_enclosure.scad?raw';
 import insertBossPlateCode from './start-catalog/scad/helpers/insert_boss_plate.scad?raw';
 import screwHoleSamplerCode from './start-catalog/scad/helpers/screw_hole_sampler.scad?raw';
+import sphereStarterCode from './start-catalog/scad/learning/sphere_starter.scad?raw';
 import threadedBoltCode from './start-catalog/scad/helpers/threaded_bolt.scad?raw';
 import threadedHoleTestCode from './start-catalog/scad/helpers/threaded_hole_test.scad?raw';
 import talonsCode from './start-catalog/scad/vendored/jeffbarr/talons.scad?raw';
+import trianglePlateCode from './start-catalog/scad/learning/triangle_plate.scad?raw';
+import angleBracketPreview from './start-catalog/previews/helper-angle-bracket.png';
+import ballSocketMountPreview from './start-catalog/previews/helper-ball-socket-mount.png';
 import magneticLettersPreview from './start-catalog/previews/example-magnetic-letters.png';
 import chessPawnPreview from './start-catalog/previews/example-chess-pawn.png';
 import impossibleRingPreview from './start-catalog/previews/example-impossible-ring.png';
@@ -22,6 +28,8 @@ import threadedBoltPreview from './start-catalog/previews/helper-threaded-bolt.p
 import threadedHoleTestPreview from './start-catalog/previews/helper-threaded-hole-test.png';
 import cubeStarterPreview from './start-catalog/previews/learning-cube-starter.png';
 import offsetProfilePreview from './start-catalog/previews/learning-offset-profile.png';
+import sphereStarterPreview from './start-catalog/previews/learning-sphere-starter.png';
+import trianglePlatePreview from './start-catalog/previews/learning-triangle-plate.png';
 
 const SECTION_ORDER = ['examples', 'helpers', 'learning', 'libraries'];
 
@@ -103,6 +111,34 @@ export const START_CATALOG = [
     previewImage: talonsPreview,
     license: 'MIT',
     sourceRepoUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
+  },
+  {
+    id: 'helper-angle-bracket',
+    section: 'helpers',
+    kind: 'helper',
+    name: 'Angle Bracket',
+    summary: 'A practical L-bracket with four holes and an integrated gusset.',
+    tags: ['bracket', 'mount', 'gusset'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: angleBracketCode,
+    previewImage: angleBracketPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'helper-ball-socket-mount',
+    section: 'helpers',
+    kind: 'helper',
+    name: 'Ball Socket Mount',
+    summary: 'A compact socket mount starter with a slotted cup and two base screws.',
+    tags: ['ball', 'socket', 'mount'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: ballSocketMountCode,
+    previewImage: ballSocketMountPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
   },
   {
     id: 'helper-project-enclosure',
@@ -189,6 +225,20 @@ export const START_CATALOG = [
     sourceRepoUrl: null,
   },
   {
+    id: 'learning-sphere-starter',
+    section: 'learning',
+    kind: 'learning',
+    name: 'Sphere Starter',
+    summary: 'A quick sphere setup with an optional flat and equator ring for form studies.',
+    tags: ['sphere', 'round', 'starter'],
+    sourceType: 'builtin',
+    primaryAction: 'insert',
+    code: sphereStarterCode,
+    previewImage: sphereStarterPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
     id: 'learning-offset-profile',
     section: 'learning',
     kind: 'learning',
@@ -202,6 +252,20 @@ export const START_CATALOG = [
     license: 'MIT',
     sourceRepoUrl: null,
     docs: { builtin: 'offset', category: 'transform' },
+  },
+  {
+    id: 'learning-triangle-plate',
+    section: 'learning',
+    kind: 'learning',
+    name: 'Triangle Plate',
+    summary: 'A rounded triangle plate showing polygon, offset, and hole placement in one file.',
+    tags: ['triangle', 'polygon', 'plate'],
+    sourceType: 'builtin',
+    primaryAction: 'appendSafe',
+    code: trianglePlateCode,
+    previewImage: trianglePlatePreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
   },
   {
     id: 'library-openscad-examples',
