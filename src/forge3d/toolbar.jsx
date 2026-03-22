@@ -46,6 +46,7 @@ function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, on
 }
 
 export default function ForgeToolbar({
+  assemblyActionLabel = 'Assembly Mode',
   autoRun,
   building,
   canEnterAssembly,
@@ -99,6 +100,7 @@ export default function ForgeToolbar({
           <button
             disabled={!canEnterAssembly}
             onClick={onEnterAssemblyMode}
+            title={assemblyActionLabel === 'Assembly Mode' ? 'Enter Assembly Mode' : 'Assembly Mode requires a Final render; click to run it first'}
             style={{
               background: canEnterAssembly ? `${colors.bgDarker}cc` : colors.bgDarker,
               border: `1px solid ${canEnterAssembly ? colors.accent : colors.border}`,
@@ -111,7 +113,7 @@ export default function ForgeToolbar({
               WebkitAppRegion: 'no-drag',
             }}
           >
-            Assembly Mode
+            {assemblyActionLabel}
           </button>
         )}
         <button onClick={onResetView} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, WebkitAppRegion: 'no-drag' }}>Reset View</button>

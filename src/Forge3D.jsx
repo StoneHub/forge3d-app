@@ -470,6 +470,7 @@ export default function Forge3D() {
   const [startState, setStartState] = useState(initialWorkspace.startState || { search: '', sectionFilter: 'all' });
   const [preferredShellId, setPreferredShellId] = useState(initialWorkspace.terminalPreferences?.preferredShellId || null);
   const [terminalManagerState] = useState(initialWorkspace.terminalManagerState || {});
+  const [currentRenderMeta, setCurrentRenderMeta] = useState({ profileId: null, sourceCode: null });
   const appRef = useRef(null);
   const contentRef = useRef(null);
   const canvasRef = useRef(null);
@@ -521,6 +522,8 @@ export default function Forge3D() {
   const buildTimeoutRef = useRef(null);
   const renderRequestIdRef = useRef(null);
   const renderLogBufferRef = useRef([]);
+  const latestRenderedGeometryRef = useRef(null);
+  const currentBuildProfileRef = useRef(getRenderProfileConfig(initialWorkspace.renderProfile || 'quick'));
   const BUILD_TIMEOUT = 5 * 60 * 1000;
 
   const colors = getThemeColors(theme);
@@ -537,8 +540,10 @@ export default function Forge3D() {
     () => (selectedAssemblyPart ? getAssemblyPartMetrics(selectedAssemblyPart) : null),
     [selectedAssemblyPart],
   );
-  const canEnterAssembly = Boolean(stlGeometry || assemblyScene.parts.length > 0);
-  const canRefreshCurrentRender = Boolean(stlGeometry);
+  const hasCurrentRenderableGeometry = Boolean(stlGeometry) && currentRenderMeta.sourceCode === previewCode;
+  const hasCurrentFinalRender = hasCurrentRenderableGeometry && currentRenderMeta.profileId === 'final';
+  const canEnterAssembly = Boolean(hasCurrentRenderableGeometry || assemblyScene.parts.length > 0);
+  const canRefreshCurrentRender = hasCurrentRenderableGeometry;
   const booleanOperandOptions = useMemo(
     () => assemblyScene.parts.filter((part) => part.id !== selectedAssemblyPart?.id),
     [assemblyScene.parts, selectedAssemblyPart],
@@ -648,6 +653,7 @@ export default function Forge3D() {
       throw new Error('STL geometry parsed, but produced invalid bounds for viewport rendering.');
     }
 
+    latestRenderedGeometryRef.current = geometry;
     setStlGeometry(geometry);
     return parsed.triangleCount;
   }, []);
@@ -768,7 +774,8 @@ export default function Forge3D() {
   }, [queueAssemblyFitView, updateAssemblyScene]);
 
   const addCurrentRenderToAssembly = useCallback(({ centerOnAdd = false, switchMode = true } = {}) => {
-    if (!stlGeometry) {
+    const geometry = latestRenderedGeometryRef.current || stlGeometry;
+    if (!geometry || !hasCurrentRenderableGeometry) {
       setStatusMessage('Build the current design before adding it to Assembly Mode');
       return null;
     }
@@ -777,13 +784,13 @@ export default function Forge3D() {
     const nextPart = addAssemblyPart({
       name: baseName,
       source: { kind: 'active-render', filePath: currentFilePath || null },
-      geometry: createAssemblyGeometryFromDesignGeometry(stlGeometry),
+      geometry: createAssemblyGeometryFromDesignGeometry(geometry),
       centerOnAdd,
       switchMode,
     });
     setStatusMessage(`Added ${nextPart.name} to Assembly Mode`);
     return nextPart;
-  }, [addAssemblyPart, currentFileName, currentFilePath, stlGeometry]);
+  }, [addAssemblyPart, currentFileName, currentFilePath, hasCurrentRenderableGeometry, stlGeometry]);
 
   const updateAssemblyPart = useCallback((partId, updater) => {
     updateAssemblyScene((current) => {
@@ -1110,16 +1117,18 @@ export default function Forge3D() {
   }, [code, currentFileName, forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, savedCode]);
 
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
-  const runCode = useCallback(async () => {
+  const runCode = useCallback(async (options = {}) => {
+    const targetProfile = getRenderProfileConfig(options.profileId || renderProfile);
     const id = ++buildIdRef.current;
     const requestId = `render-${Date.now()}-${id}`;
     renderRequestIdRef.current = requestId;
+    currentBuildProfileRef.current = targetProfile;
     renderLogBufferRef.current = [];
     buildStartRef.current = performance.now();
     setBuilding(true);
     setBuildElapsedMs(0);
     setBuildStatusDetail('Preparing render...');
-    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME} (${activeRenderProfile.label})...`);
+    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME} (${targetProfile.label})...`);
     setResult((current) => ({
       ...current,
       logs: [],
@@ -1132,9 +1141,11 @@ export default function Forge3D() {
       if (buildIdRef.current !== id) return;
       buildTimeoutRef.current = null;
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
+      latestRenderedGeometryRef.current = null;
       setBuilding(false);
       setBuildTime(BUILD_TIMEOUT);
       setBuildStatusDetail(`Timed out after ${formatBuildElapsed(BUILD_TIMEOUT)}`);
+      setCurrentRenderMeta({ profileId: null, sourceCode: null });
       setResult({
         objects: [],
         logs: [...renderLogBufferRef.current],
@@ -1151,7 +1162,7 @@ export default function Forge3D() {
         sourceName: currentFileName || DEFAULT_FILE_NAME,
         sourcePath: currentFilePath || null,
         requestId,
-        defineOverrides: activeRenderProfile.defineOverrides,
+        defineOverrides: targetProfile.defineOverrides,
       });
       clearBuildTimeout(timeoutHandle);
       if (buildIdRef.current !== id) return; // stale build
@@ -1162,7 +1173,9 @@ export default function Forge3D() {
       setBuildElapsedMs(elapsed);
 
       if (response.error) {
+        latestRenderedGeometryRef.current = null;
         setStlGeometry(null);
+        setCurrentRenderMeta({ profileId: null, sourceCode: null });
         const diagnostics = buildRenderDiagnostics(response, previewCode);
         const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
         const lifecycleLogs = [
@@ -1174,12 +1187,16 @@ export default function Forge3D() {
         setActiveTab('errors');
         setBuildStatusDetail('Render failed');
         setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
+        return false;
       } else {
         let triangleCount = 0;
         try {
           triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
+          setCurrentRenderMeta({ profileId: targetProfile.id, sourceCode: previewCode });
         } catch (loadError) {
+          latestRenderedGeometryRef.current = null;
           setStlGeometry(null);
+          setCurrentRenderMeta({ profileId: null, sourceCode: null });
           const diagnostics = createRenderStageError('STL ingest', loadError, response, previewCode);
           const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
           setResult({
@@ -1192,7 +1209,7 @@ export default function Forge3D() {
           setActiveTab('errors');
           setBuildStatusDetail('STL ingest failed');
           setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed during STL ingest. See Problems for details.');
-          return;
+          return false;
         }
         const diagnostics = buildRenderDiagnostics(response, previewCode);
         setResult({
@@ -1213,6 +1230,7 @@ export default function Forge3D() {
             ? `Render completed with ${diagnostics.warnings.length} warning${diagnostics.warnings.length === 1 ? '' : 's'}`
             : 'Render complete',
         );
+        return true;
       }
     } catch (err) {
       clearBuildTimeout(timeoutHandle);
@@ -1220,6 +1238,9 @@ export default function Forge3D() {
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
       setBuildTime(Math.round(performance.now() - buildStartRef.current));
+      latestRenderedGeometryRef.current = null;
+      setStlGeometry(null);
+      setCurrentRenderMeta({ profileId: null, sourceCode: null });
       const failureResponse = {
         error: err.message || 'OpenSCAD render failed.',
         stdout: err.stdout || '',
@@ -1241,8 +1262,9 @@ export default function Forge3D() {
       setActiveTab('errors');
       setBuildStatusDetail(err.message === 'OpenSCAD render cancelled.' ? 'Render cancelled' : 'Render failed');
       setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
+      return false;
     }
-  }, [BUILD_TIMEOUT, activeRenderProfile, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode]);
+  }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode, renderProfile]);
 
   const cancelBuild = useCallback(async () => {
     buildIdRef.current += 1;
@@ -1254,6 +1276,8 @@ export default function Forge3D() {
         await forgeAPI.cancelOpenScadRender(requestId);
       } catch (_) {}
     }
+    latestRenderedGeometryRef.current = null;
+    setCurrentRenderMeta({ profileId: null, sourceCode: null });
     setBuilding(false);
     setBuildStatusDetail('Render cancelled');
     setStatusMessage('Build cancelled');
@@ -1389,7 +1413,7 @@ export default function Forge3D() {
 
     if (payload.phase === 'started') {
       const introLogs = [
-        `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME} (${activeRenderProfile.label})`,
+        `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME} (${currentBuildProfileRef.current.label})`,
         payload.command ? `OpenSCAD command: ${payload.command}` : null,
         payload.defineOverrides?.length ? `Render overrides: ${payload.defineOverrides.join(', ')}` : null,
         payload.inputPath ? `Debug source: ${payload.inputPath}` : null,
@@ -1427,7 +1451,7 @@ export default function Forge3D() {
     if (payload.phase === 'exited') {
       setBuildStatusDetail(`OpenSCAD exited after ${formatBuildElapsed(payload.elapsedMs || 0)}`);
     }
-  }), [activeRenderProfile.label, currentFileName, forgeAPI, replaceRenderLogs]);
+  }), [currentFileName, forgeAPI, replaceRenderLogs]);
 
   useEffect(() => {
     if (!stlGeometry || !shouldAutoFitViewRef.current) return;
@@ -1790,7 +1814,7 @@ export default function Forge3D() {
     setWorkspaceFiles(files || []);
   }, [forgeAPI]);
 
-  const enterAssemblyMode = useCallback(() => {
+  const enterAssemblyMode = useCallback(async () => {
     if (assemblyScene.parts.length > 0) {
       setMode('assembly');
       setSidebarTab('assembly');
@@ -1799,13 +1823,30 @@ export default function Forge3D() {
       return;
     }
 
+    if (!hasCurrentRenderableGeometry) {
+      setStatusMessage('Build the current design before entering Assembly Mode');
+      return;
+    }
+
+    if (!hasCurrentFinalRender) {
+      if (renderProfile !== 'final') {
+        setRenderProfile('final');
+      }
+      setStatusMessage('Assembly Mode requires a Final render. Running Final render now...');
+      const success = await runCode({ profileId: 'final' });
+      if (!success) {
+        setStatusMessage('Assembly Mode requires a successful Final render before continuing');
+        return;
+      }
+    }
+
     const part = addCurrentRenderToAssembly({ centerOnAdd: true, switchMode: true });
     if (part) {
       setSidebarTab('assembly');
       setSidebarOpen(true);
       setStatusMessage(`Entered Assembly Mode with ${part.name}`);
     }
-  }, [addCurrentRenderToAssembly, assemblyScene.parts.length]);
+  }, [addCurrentRenderToAssembly, assemblyScene.parts.length, hasCurrentFinalRender, hasCurrentRenderableGeometry, renderProfile, runCode]);
 
   const returnToDesignMode = useCallback(() => {
     setMode('design');
@@ -2072,6 +2113,11 @@ export default function Forge3D() {
       {/* ── Toolbar ── */}
       <ForgeToolbar
         autoRun={autoRun}
+        assemblyActionLabel={!hasCurrentRenderableGeometry
+          ? 'Assembly Mode'
+          : hasCurrentFinalRender || mode === 'assembly'
+            ? 'Assembly Mode'
+            : 'Final Render for Assembly'}
         building={building}
         canEnterAssembly={canEnterAssembly}
         canRedo={canRedo}
