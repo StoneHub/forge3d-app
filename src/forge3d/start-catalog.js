@@ -1,5 +1,7 @@
 import chessPawnCode from './start-catalog/scad/examples/chess_pawn.scad?raw';
+import impossibleRingCode from './start-catalog/scad/examples/impossible_ring_showcase.scad?raw';
 import magneticLettersCode from './start-catalog/scad/examples/magnetic_letters_pro.scad?raw';
+import quadsCode from './start-catalog/scad/examples/quads_relief_showcase.scad?raw';
 import cubeStarterCode from './start-catalog/scad/learning/cube_starter.scad?raw';
 import offsetProfileCode from './start-catalog/scad/learning/offset_profile.scad?raw';
 import projectEnclosureCode from './start-catalog/scad/helpers/project_enclosure.scad?raw';
@@ -7,8 +9,6 @@ import insertBossPlateCode from './start-catalog/scad/helpers/insert_boss_plate.
 import screwHoleSamplerCode from './start-catalog/scad/helpers/screw_hole_sampler.scad?raw';
 import threadedBoltCode from './start-catalog/scad/helpers/threaded_bolt.scad?raw';
 import threadedHoleTestCode from './start-catalog/scad/helpers/threaded_hole_test.scad?raw';
-import impossibleRingCode from './start-catalog/scad/vendored/jeffbarr/impossible_ring.scad?raw';
-import quadsCode from './start-catalog/scad/vendored/jeffbarr/quads.scad?raw';
 import talonsCode from './start-catalog/scad/vendored/jeffbarr/talons.scad?raw';
 import magneticLettersPreview from './start-catalog/previews/example-magnetic-letters.png';
 import chessPawnPreview from './start-catalog/previews/example-chess-pawn.png';
@@ -67,9 +67,9 @@ export const START_CATALOG = [
     section: 'examples',
     kind: 'example',
     name: 'Impossible Ring',
-    summary: 'Hand-crafted impossible ring sculpture from Jeff Barr’s MIT collection.',
-    tags: ['sculpture', 'illusion', 'vendored'],
-    sourceType: 'vendored',
+    summary: 'A fast, layered impossible-ring study tuned for Forge3D, inspired by Jeff Barr’s MIT collection.',
+    tags: ['sculpture', 'illusion', 'curated'],
+    sourceType: 'builtin',
     primaryAction: 'openExample',
     code: impossibleRingCode,
     previewImage: impossibleRingPreview,
@@ -81,9 +81,9 @@ export const START_CATALOG = [
     section: 'examples',
     kind: 'example',
     name: 'Quads Relief',
-    summary: 'A perturbation-driven relief pattern from Jeff Barr’s MIT collection.',
-    tags: ['pattern', 'surface', 'vendored'],
-    sourceType: 'vendored',
+    summary: 'A clean tapered quad field with deterministic relief, adapted from Jeff Barr’s MIT collection.',
+    tags: ['pattern', 'surface', 'relief'],
+    sourceType: 'builtin',
     primaryAction: 'openExample',
     code: quadsCode,
     previewImage: quadsPreview,
@@ -95,7 +95,7 @@ export const START_CATALOG = [
     section: 'examples',
     kind: 'example',
     name: 'Talon Array',
-    summary: 'A dramatic ring/grid talon study from Jeff Barr’s MIT collection.',
+    summary: 'A dramatic talon study with grid and ring layout modes from Jeff Barr’s MIT collection.',
     tags: ['talons', 'pattern', 'vendored'],
     sourceType: 'vendored',
     primaryAction: 'openExample',

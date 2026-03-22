@@ -11,8 +11,8 @@ const openscadBin = 'C:\\Program Files\\OpenSCAD\\openscad.com';
 const jobs = [
   ['example-magnetic-letters', 'src/forge3d/start-catalog/scad/examples/magnetic_letters_pro.scad'],
   ['example-chess-pawn', 'src/forge3d/start-catalog/scad/examples/chess_pawn.scad'],
-  ['example-impossible-ring', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/impossible_ring.scad'],
-  ['example-quads', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/quads.scad'],
+  ['example-impossible-ring', 'src/forge3d/start-catalog/scad/examples/impossible_ring_showcase.scad'],
+  ['example-quads', 'src/forge3d/start-catalog/scad/examples/quads_relief_showcase.scad'],
   ['example-talons', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/talons.scad'],
   ['helper-project-enclosure', 'src/forge3d/start-catalog/scad/helpers/project_enclosure.scad'],
   ['helper-insert-boss-plate', 'src/forge3d/start-catalog/scad/helpers/insert_boss_plate.scad'],
