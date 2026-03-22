@@ -1,4 +1,4 @@
-import { mkdir } from 'fs/promises';
+import { mkdir, stat } from 'fs/promises';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,6 +7,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const previewDir = path.join(repoRoot, 'src', 'forge3d', 'start-catalog', 'previews');
 const openscadBin = 'C:\\Program Files\\OpenSCAD\\openscad.com';
+const scriptPath = fileURLToPath(import.meta.url);
+const force = process.argv.includes('--force');
+const changedOnly = process.argv.includes('--changed-only');
 
 const jobs = [
   ['example-magnetic-letters', 'src/forge3d/start-catalog/scad/examples/magnetic_letters_pro.scad'],
@@ -26,6 +29,24 @@ const jobs = [
   ['learning-sphere-starter', 'src/forge3d/start-catalog/scad/learning/sphere_starter.scad'],
   ['learning-triangle-plate', 'src/forge3d/start-catalog/scad/learning/triangle_plate.scad'],
 ];
+
+async function shouldRenderJob(inputRelativePath, outputFileName) {
+  if (force || !changedOnly) return true;
+
+  const inputPath = path.join(repoRoot, inputRelativePath);
+  const outputPath = path.join(previewDir, `${outputFileName}.png`);
+
+  try {
+    const [inputStats, outputStats, scriptStats] = await Promise.all([
+      stat(inputPath),
+      stat(outputPath),
+      stat(scriptPath),
+    ]);
+    return inputStats.mtimeMs > outputStats.mtimeMs || scriptStats.mtimeMs > outputStats.mtimeMs;
+  } catch (_) {
+    return true;
+  }
+}
 
 async function runOpenScad(inputRelativePath, outputFileName) {
   const inputPath = path.join(repoRoot, inputRelativePath);
@@ -71,9 +92,16 @@ async function runOpenScad(inputRelativePath, outputFileName) {
 
 await mkdir(previewDir, { recursive: true });
 
+let renderedCount = 0;
+
 for (const [id, relativePath] of jobs) {
+  if (!(await shouldRenderJob(relativePath, id))) {
+    process.stdout.write(`Skipping ${id} (up to date)\n`);
+    continue;
+  }
   process.stdout.write(`Rendering ${id}...\n`);
   await runOpenScad(relativePath, id);
+  renderedCount += 1;
 }
 
-process.stdout.write(`Generated ${jobs.length} preview images in ${previewDir}\n`);
+process.stdout.write(`Generated ${renderedCount} preview image${renderedCount === 1 ? '' : 's'} in ${previewDir}\n`);
