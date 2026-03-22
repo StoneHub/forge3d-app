@@ -17,6 +17,7 @@ function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, on
         ...restingStyle,
         padding: '4px 8px',
         borderRadius: '6px',
+        WebkitAppRegion: 'no-drag',
         cursor: disabled ? 'not-allowed' : 'pointer',
         display: 'flex',
         alignItems: 'center',
@@ -70,8 +71,8 @@ export default function ForgeToolbar({
   theme,
 }) {
   return (
-    <div style={{ height: '42px', minHeight: '42px', background: theme === 'dark' ? 'linear-gradient(180deg,#1e1f30,#181924)' : colors.bgPanel, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 12px', gap: '8px', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+    <div style={{ height: '42px', minHeight: '42px', background: theme === 'dark' ? 'linear-gradient(180deg,#1e1f30,#181924)' : colors.bgPanel, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 140px 0 12px', gap: '8px', justifyContent: 'space-between', WebkitAppRegion: 'drag' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, WebkitAppRegion: 'no-drag' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{ width: '22px', height: '22px', background: colors.logoGlow, borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><Icons.Cube /></div>
           <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px' }}>
@@ -88,12 +89,12 @@ export default function ForgeToolbar({
         <ToolbarButton colors={colors} disabled={!canRedo} icon={Icons.Redo} label="Redo" onClick={onRedo} title="Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y" />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button onClick={onThemeToggle} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', WebkitAppRegion: 'no-drag' }}>
+        <button onClick={onThemeToggle} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: '12px', WebkitAppRegion: 'no-drag' }}>
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
         {mode === 'assembly' ? (
-          <button onClick={onReturnToDesignMode} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Design Mode</button>
+          <button onClick={onReturnToDesignMode} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, WebkitAppRegion: 'no-drag' }}>Design Mode</button>
         ) : (
           <button
             disabled={!canEnterAssembly}
@@ -107,19 +108,20 @@ export default function ForgeToolbar({
               cursor: canEnterAssembly ? 'pointer' : 'not-allowed',
               fontSize: '12px',
               fontWeight: 700,
+              WebkitAppRegion: 'no-drag',
             }}
           >
             Assembly Mode
           </button>
         )}
-        <button onClick={onResetView} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Reset View</button>
+        <button onClick={onResetView} style={{ background: `${colors.bgDarker}cc`, border: `1px solid ${colors.border}`, color: colors.textSoft, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, WebkitAppRegion: 'no-drag' }}>Reset View</button>
         {mode === 'design' && (building ? (
-          <button onClick={onCancelBuild} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700 }}>⏹ Cancel</button>
+          <button onClick={onCancelBuild} style={{ background: 'linear-gradient(135deg,#e57373,#ef5350)', border: 'none', color: '#fff', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700, WebkitAppRegion: 'no-drag' }}>⏹ Cancel</button>
         ) : (
-          <button onClick={onRunCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700 }}><Icons.Play /> Build</button>
+          <button onClick={onRunCode} style={{ background: 'linear-gradient(135deg,#4fc3f7,#4dd0e1)', border: 'none', color: '#111', padding: '5px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700, WebkitAppRegion: 'no-drag' }}><Icons.Play /> Build</button>
         ))}
         {mode === 'design' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted, fontWeight: 600 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: colors.textMuted, fontWeight: 600, WebkitAppRegion: 'no-drag' }}>
             <span>Render</span>
             <select
               value={renderProfile}
@@ -132,6 +134,7 @@ export default function ForgeToolbar({
                 padding: '4px 8px',
                 fontSize: '12px',
                 fontWeight: 600,
+                WebkitAppRegion: 'no-drag',
               }}
               title="Quick lowers facet detail for faster iteration. Final uses full code-defined detail."
             >
@@ -141,8 +144,8 @@ export default function ForgeToolbar({
           </label>
         )}
         {mode === 'design' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', fontWeight: 600 }}>
-            <input type='checkbox' checked={autoRun} onChange={(event) => onAutoRunChange(event.target.checked)} style={{ accentColor: colors.accent }} />Auto
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: colors.textMuted, cursor: 'pointer', fontWeight: 600, WebkitAppRegion: 'no-drag' }}>
+            <input type='checkbox' checked={autoRun} onChange={(event) => onAutoRunChange(event.target.checked)} style={{ accentColor: colors.accent, WebkitAppRegion: 'no-drag' }} />Auto
           </label>
         )}
       </div>

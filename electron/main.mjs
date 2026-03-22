@@ -354,6 +354,17 @@ function createWindow() {
     title: 'Forge3D',
     backgroundColor: '#13141f',
     icon: windowIcon,
+    autoHideMenuBar: true,
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: '#1e1f30',
+            symbolColor: '#c7cbda',
+            height: 42,
+          },
+        }
+      : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -363,6 +374,7 @@ function createWindow() {
 
   mainWin = win
   buildAppMenu()
+  win.setMenuBarVisibility(false)
   setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
 
   if (isDev) {
