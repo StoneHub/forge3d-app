@@ -30,6 +30,9 @@ import cubeStarterPreview from './start-catalog/previews/learning-cube-starter.p
 import offsetProfilePreview from './start-catalog/previews/learning-offset-profile.png';
 import sphereStarterPreview from './start-catalog/previews/learning-sphere-starter.png';
 import trianglePlatePreview from './start-catalog/previews/learning-triangle-plate.png';
+import openscadExamplesPreview from './start-catalog/previews/library-openscad-examples.svg';
+import openscadObjectsPreview from './start-catalog/previews/library-openscad-objects.svg';
+import threadlibPreview from './start-catalog/previews/library-threadlib.svg';
 
 const SECTION_ORDER = ['examples', 'helpers', 'learning', 'libraries'];
 
@@ -277,7 +280,7 @@ export const START_CATALOG = [
     sourceType: 'library-wrapper',
     primaryAction: 'openExternal',
     externalUrl: 'https://github.com/openscad/openscad/wiki/Examples',
-    previewImage: null,
+    previewImage: openscadExamplesPreview,
     license: 'GPL-2.0',
     sourceRepoUrl: 'https://github.com/openscad/openscad/wiki/Examples',
   },
@@ -291,7 +294,7 @@ export const START_CATALOG = [
     sourceType: 'library-wrapper',
     primaryAction: 'openExternal',
     externalUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
-    previewImage: null,
+    previewImage: openscadObjectsPreview,
     license: 'MIT',
     sourceRepoUrl: 'https://github.com/jeffbarr/OpenSCADObjects',
   },
@@ -305,7 +308,7 @@ export const START_CATALOG = [
     sourceType: 'library-wrapper',
     primaryAction: 'openExternal',
     externalUrl: 'https://github.com/adrianschlatter/threadlib',
-    previewImage: null,
+    previewImage: threadlibPreview,
     license: 'BSD-3-Clause',
     sourceRepoUrl: 'https://github.com/adrianschlatter/threadlib',
   },
