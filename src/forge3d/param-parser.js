@@ -377,7 +377,7 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (lowerName.match(/^(count|levels?|steps?|segments?|num|n)(_|$)/)) {
     return {
       min: 1,
-      max: niceCeil(Math.max(absValue * 2, 12)),
+      max: niceCeil(Math.max(absValue * 1.5, 10)),
       step: defaultStepForValue(value, 'integer'),
     };
   }
@@ -392,8 +392,8 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
 
   if (lowerName.match(/(scale|factor|mult|ratio|shrink|grow)/)) {
     return {
-      min: value < 0 ? niceFloor(Math.max(absValue * 2, 1)) : 0,
-      max: niceCeil(Math.max(absValue * 2, 2)),
+      min: value < 0 ? niceFloor(Math.max(absValue * 1.5, 1)) : 0,
+      max: niceCeil(Math.max(absValue * 1.6, 2)),
       step: defaultStepForValue(value, 'scale'),
     };
   }
@@ -401,7 +401,7 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (lowerName.match(/(thickness|clearance|gap|spacing|padding|margin|fillet|chamfer|bevel|tolerance|kerf|lip)/)) {
     return {
       min: signedFloor,
-      max: niceCeil(Math.max(absValue * 3, Math.min(fileScale * 0.35, absValue * 6, 20), 1)),
+      max: niceCeil(Math.max(absValue * 1.8, Math.min(fileScale * 0.25, absValue * 3, 12), 1)),
       step: defaultStepForValue(value, 'fine'),
     };
   }
@@ -409,7 +409,7 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (lowerName.match(/(radius|diameter|corner)/)) {
     return {
       min: signedFloor,
-      max: niceCeil(Math.max(absValue * 3, Math.min(fileScale, absValue * 5, 60), 2)),
+      max: niceCeil(Math.max(absValue * 2, Math.min(fileScale * 0.6, absValue * 3, 36), 2)),
       step: defaultStepForValue(value, 'fine'),
     };
   }
@@ -417,7 +417,7 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (lowerName.match(/(offset|translate|shift|move|origin|position|center|dist)/)) {
     return {
       min: signedFloor,
-      max: niceCeil(Math.max(absValue * 2, Math.min(fileScale, absValue * 5, 100), 1)),
+      max: niceCeil(Math.max(absValue * 1.75, Math.min(fileScale * 0.8, absValue * 3, 60), 1)),
       step: defaultStepForValue(value),
     };
   }
@@ -425,14 +425,14 @@ function inferMetadataFromName(name, value, type, numericStats = {}) {
   if (lowerName.match(/(size|width|height|depth|length|span|distance)/)) {
     return {
       min: signedFloor,
-      max: niceCeil(Math.max(absValue * 2, Math.min(fileScale * 1.5, absValue * 4, 150), 5)),
+      max: niceCeil(Math.max(absValue * 1.75, Math.min(fileScale, absValue * 3, 100), 5)),
       step: defaultStepForValue(value),
     };
   }
 
   return {
     min: signedFloor,
-    max: niceCeil(Math.max(absValue * 2, Math.min(fileScale * 1.25, absValue * 5, 100), 1)),
+    max: niceCeil(Math.max(absValue * 1.75, Math.min(fileScale, absValue * 3, 60), 1)),
     step: defaultStepForValue(value),
   };
 }

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
-import { CSG } from 'three-csg-ts';
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
 import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
@@ -26,6 +25,7 @@ import { createHistoryState, pushHistoryState, redoHistoryState, replaceHistoryS
 import { prepareTemplateInsertion } from "./forge3d/template-merge.js";
 import { getThemeColors } from "./forge3d/theme.js";
 import {
+  createAssemblyGeometryFromPayload,
   createAssemblyGeometryFromDesignGeometry,
   createAssemblyGeometryFromStlBytes,
   createAssemblyPart,
@@ -34,6 +34,7 @@ import {
   deserializeAssemblyScene,
   duplicateAssemblyPart,
   getAssemblyPartMetrics,
+  serializeAssemblyGeometry,
   serializeAssemblyScene,
 } from "./forge3d/assembly.js";
 
@@ -483,6 +484,7 @@ export default function Forge3D() {
   const [booleanOperandId, setBooleanOperandId] = useState(null);
   const [assemblyHistory, setAssemblyHistory] = useState(() => createHistoryState(DEFAULT_ASSEMBLY_SCENE));
   const [assemblyMeasurement, setAssemblyMeasurement] = useState(DEFAULT_ASSEMBLY_MEASUREMENT);
+  const [assemblyBooleanState, setAssemblyBooleanState] = useState({ running: false, operation: null });
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
   const [showDiffEditor, setShowDiffEditor] = useState(false);
@@ -520,11 +522,15 @@ export default function Forge3D() {
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
   const buildTimeoutRef = useRef(null);
+  const booleanWorkerRef = useRef(null);
+  const booleanTimeoutRef = useRef(null);
+  const booleanRequestIdRef = useRef(0);
   const renderRequestIdRef = useRef(null);
   const renderLogBufferRef = useRef([]);
   const latestRenderedGeometryRef = useRef(null);
   const currentBuildProfileRef = useRef(getRenderProfileConfig(initialWorkspace.renderProfile || 'quick'));
   const BUILD_TIMEOUT = 5 * 60 * 1000;
+  const BOOLEAN_TIMEOUT = 30 * 1000;
 
   const colors = getThemeColors(theme);
   const activeRenderProfile = useMemo(() => getRenderProfileConfig(renderProfile), [renderProfile]);
@@ -544,6 +550,7 @@ export default function Forge3D() {
   const hasCurrentFinalRender = hasCurrentRenderableGeometry && currentRenderMeta.profileId === 'final';
   const canEnterAssembly = Boolean(hasCurrentRenderableGeometry || assemblyScene.parts.length > 0);
   const canRefreshCurrentRender = hasCurrentRenderableGeometry;
+  const booleanBusy = assemblyBooleanState.running;
   const booleanOperandOptions = useMemo(
     () => assemblyScene.parts.filter((part) => part.id !== selectedAssemblyPart?.id),
     [assemblyScene.parts, selectedAssemblyPart],
@@ -996,43 +1003,80 @@ export default function Forge3D() {
     }
   }, [forgeAPI, queueAssemblyFitView, replaceAssemblySceneWithoutHistory]);
 
-  const handleRunBooleanOperation = useCallback((operation) => {
+  const terminateBooleanWorker = useCallback(() => {
+    if (booleanTimeoutRef.current) {
+      clearTimeout(booleanTimeoutRef.current);
+      booleanTimeoutRef.current = null;
+    }
+    if (booleanWorkerRef.current) {
+      booleanWorkerRef.current.terminate();
+      booleanWorkerRef.current = null;
+    }
+  }, []);
+
+  const runAssemblyBooleanOperation = useCallback((operation, primaryPart, operandPart) => new Promise((resolve, reject) => {
+    terminateBooleanWorker();
+    const worker = new Worker(new URL('./forge3d/assembly-boolean-worker.js', import.meta.url), { type: 'module' });
+    const requestId = ++booleanRequestIdRef.current;
+    booleanWorkerRef.current = worker;
+    setAssemblyBooleanState({ running: true, operation });
+
+    const finish = () => {
+      setAssemblyBooleanState({ running: false, operation: null });
+      terminateBooleanWorker();
+    };
+
+    booleanTimeoutRef.current = setTimeout(() => {
+      finish();
+      reject(new Error(`Boolean ${operation} timed out after ${Math.round(BOOLEAN_TIMEOUT / 1000)}s`));
+    }, BOOLEAN_TIMEOUT);
+
+    worker.onmessage = (event) => {
+      if (event.data?.requestId !== requestId) return;
+      const payload = event.data;
+      finish();
+      if (payload.ok) {
+        resolve(payload.geometry);
+        return;
+      }
+      reject(new Error(payload.error || `Boolean ${operation} failed`));
+    };
+
+    worker.onerror = (event) => {
+      finish();
+      reject(new Error(event.message || `Boolean ${operation} worker crashed`));
+    };
+
+    worker.postMessage({
+      requestId,
+      operation,
+      primary: {
+        geometry: serializeAssemblyGeometry(primaryPart.geometry),
+        transform: primaryPart.transform,
+      },
+      operand: {
+        geometry: serializeAssemblyGeometry(operandPart.geometry),
+        transform: operandPart.transform,
+      },
+    });
+  }), [BOOLEAN_TIMEOUT, terminateBooleanWorker]);
+
+  const handleRunBooleanOperation = useCallback(async (operation) => {
     const primaryPart = selectedAssemblyPart;
     const operandPart = assemblyScene.parts.find((part) => part.id === booleanOperandId);
     if (!primaryPart || !operandPart) {
       setStatusMessage('Select a part and a boolean operand first');
       return;
     }
+    if (booleanBusy) {
+      setStatusMessage('A boolean operation is already running');
+      return;
+    }
 
     try {
-      const meshA = new THREE.Mesh(primaryPart.geometry.clone(), new THREE.MeshStandardMaterial());
-      const meshB = new THREE.Mesh(operandPart.geometry.clone(), new THREE.MeshStandardMaterial());
-      meshA.position.set(...primaryPart.transform.position);
-      meshA.rotation.set(
-        THREE.MathUtils.degToRad(primaryPart.transform.rotation[0] || 0),
-        THREE.MathUtils.degToRad(primaryPart.transform.rotation[1] || 0),
-        THREE.MathUtils.degToRad(primaryPart.transform.rotation[2] || 0),
-      );
-      meshB.position.set(...operandPart.transform.position);
-      meshB.rotation.set(
-        THREE.MathUtils.degToRad(operandPart.transform.rotation[0] || 0),
-        THREE.MathUtils.degToRad(operandPart.transform.rotation[1] || 0),
-        THREE.MathUtils.degToRad(operandPart.transform.rotation[2] || 0),
-      );
-      meshA.updateMatrix();
-      meshB.updateMatrix();
-
-      const resultMesh = operation === 'union'
-        ? CSG.union(meshA, meshB)
-        : operation === 'subtract'
-          ? CSG.subtract(meshA, meshB)
-          : CSG.intersect(meshA, meshB);
-
-      resultMesh.updateMatrix();
-      const bakedGeometry = resultMesh.geometry.clone();
-      bakedGeometry.applyMatrix4(resultMesh.matrix);
-      bakedGeometry.computeVertexNormals();
-      bakedGeometry.computeBoundingBox();
+      setStatusMessage(`Running ${operation} for ${primaryPart.name} and ${operandPart.name}...`);
+      const payload = await runAssemblyBooleanOperation(operation, primaryPart, operandPart);
+      const bakedGeometry = createAssemblyGeometryFromPayload(payload);
 
       const derivedPart = createAssemblyPart({
         name: `${primaryPart.name} ${operation} ${operandPart.name}`,
@@ -1063,7 +1107,7 @@ export default function Forge3D() {
       setActiveTab('errors');
       setStatusMessage(`Boolean ${operation} failed: ${error.message}`);
     }
-  }, [assemblyScene.parts, booleanOperandId, queueAssemblyFitView, selectedAssemblyPart, updateAssemblyScene]);
+  }, [assemblyScene.parts, booleanBusy, booleanOperandId, queueAssemblyFitView, runAssemblyBooleanOperation, selectedAssemblyPart, updateAssemblyScene]);
 
   const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
     if (timeoutHandle) {
@@ -1073,6 +1117,10 @@ export default function Forge3D() {
       buildTimeoutRef.current = null;
     }
   }, []);
+
+  useEffect(() => () => {
+    terminateBooleanWorker();
+  }, [terminateBooleanWorker]);
 
   const loadFileSnapshot = useCallback(async (filePath, { quiet = false, reason = 'reload' } = {}) => {
     if (!filePath || !forgeAPI.readFileSnapshot) return null;
@@ -2382,6 +2430,8 @@ export default function Forge3D() {
             {mode === 'assembly' ? (
               <AssemblyInspector
                 autoRun={autoRun}
+                booleanBusy={booleanBusy}
+                booleanBusyLabel={assemblyBooleanState.operation ? `${assemblyBooleanState.operation}...` : 'Working...'}
                 booleanOperandId={booleanOperandId}
                 booleanOperandOptions={booleanOperandOptions}
                 building={building}

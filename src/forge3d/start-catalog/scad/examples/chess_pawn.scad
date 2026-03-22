@@ -1,9 +1,9 @@
 // Chess Pieces
 // Forge3D curated example
 
-$fn = $preview ? 44 : 120;
+$fn = $preview ? 20 : 48;
 
-piece = "queen"; // pawn | rook | knight | bishop | queen | king
+piece = "pawn"; // pawn | rook | knight | bishop | queen | king
 scale_factor = 1;
 
 module revolve_profile(points) {

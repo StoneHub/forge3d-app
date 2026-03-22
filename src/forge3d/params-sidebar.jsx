@@ -2,6 +2,49 @@ function stopEvent(event) {
   event.stopPropagation();
 }
 
+function isFiniteNumber(value) {
+  return Number.isFinite(Number(value));
+}
+
+function getSteppedRangeConfig(value) {
+  const numericValue = Number(value) || 0;
+  const absValue = Math.abs(numericValue);
+
+  if (absValue < 1) return { step: 0.1, span: 1 };
+  if (absValue < 10) return { step: 1, span: 10 };
+  if (absValue < 100) return { step: 5, span: 50 };
+  if (absValue < 500) return { step: 10, span: 100 };
+  return { step: 50, span: 500 };
+}
+
+function getNumericStep(param) {
+  if (!param.auto && isFiniteNumber(param.step) && Number(param.step) > 0) {
+    return Number(param.step);
+  }
+  return getSteppedRangeConfig(param.value).step;
+}
+
+function getSliderBounds(param) {
+  const value = Number(param.value) || 0;
+  const step = getNumericStep(param);
+  const explicitMin = !param.auto && isFiniteNumber(param.min) ? Number(param.min) : null;
+  const explicitMax = !param.auto && isFiniteNumber(param.max) ? Number(param.max) : null;
+
+  if (explicitMin !== null && explicitMax !== null && explicitMax > explicitMin) {
+    return { min: explicitMin, max: explicitMax, step };
+  }
+
+  const { span } = getSteppedRangeConfig(value);
+  let min = explicitMin ?? (value < 0 ? value - span : Math.max(0, value - span));
+  let max = explicitMax ?? (value + span);
+
+  if (value < min) min = value;
+  if (value > max) max = value;
+  if (max - min < step) max = min + step;
+
+  return { min, max, step };
+}
+
 export default function ParamsSidebar({
   colors,
   compact = false,
@@ -28,8 +71,11 @@ height = 20;
 radius = 5;`}</pre>
         </div>
       ) : (
-        parsedParams.map((param) => (
-          <div
+        parsedParams.map((param) => {
+          const sliderBounds = param.type === 'number' ? getSliderBounds(param) : null;
+
+          return (
+            <div
             key={param.id || `${param.name}:${param.assignmentLine}`}
             role={canJump ? 'button' : undefined}
             tabIndex={canJump ? 0 : undefined}
@@ -80,18 +126,18 @@ radius = 5;`}</pre>
             {param.type === 'number' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={stopEvent} onMouseDown={stopEvent}>
                 <input type="range"
-                  min={param.min ?? 0}
-                  max={param.max ?? (param.value * 3 || 100)}
-                  step={param.step ?? (param.value < 1 ? 0.01 : param.value < 10 ? 0.1 : 1)}
+                  min={sliderBounds.min}
+                  max={sliderBounds.max}
+                  step={sliderBounds.step}
                   value={param.value}
                   onChange={(event) => onParamChange(param, parseFloat(event.target.value))}
                   style={{ flex: 1, accentColor: colors.accent, height: '4px' }}
                 />
                 <input type="number"
                   value={param.value}
-                  min={param.min}
-                  max={param.max}
-                  step={param.step ?? 0.1}
+                  min={sliderBounds.min}
+                  max={sliderBounds.max}
+                  step={sliderBounds.step}
                   onChange={(event) => {
                     const value = parseFloat(event.target.value);
                     if (!Number.isNaN(value)) {
@@ -136,7 +182,8 @@ radius = 5;`}</pre>
               </label>
             )}
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
