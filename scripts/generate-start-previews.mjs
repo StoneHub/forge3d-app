@@ -11,9 +11,11 @@ const openscadBin = 'C:\\Program Files\\OpenSCAD\\openscad.com';
 const jobs = [
   ['example-magnetic-letters', 'src/forge3d/start-catalog/scad/examples/magnetic_letters_pro.scad'],
   ['example-chess-pawn', 'src/forge3d/start-catalog/scad/examples/chess_pawn.scad'],
-  ['example-impossible-ring', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/impossible_ring.scad'],
-  ['example-quads', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/quads.scad'],
+  ['example-impossible-ring', 'src/forge3d/start-catalog/scad/examples/impossible_ring_showcase.scad'],
+  ['example-quads', 'src/forge3d/start-catalog/scad/examples/quads_relief_showcase.scad'],
   ['example-talons', 'src/forge3d/start-catalog/scad/vendored/jeffbarr/talons.scad'],
+  ['helper-angle-bracket', 'src/forge3d/start-catalog/scad/helpers/angle_bracket.scad'],
+  ['helper-ball-socket-mount', 'src/forge3d/start-catalog/scad/helpers/ball_socket_mount.scad'],
   ['helper-project-enclosure', 'src/forge3d/start-catalog/scad/helpers/project_enclosure.scad'],
   ['helper-insert-boss-plate', 'src/forge3d/start-catalog/scad/helpers/insert_boss_plate.scad'],
   ['helper-screw-hole-sampler', 'src/forge3d/start-catalog/scad/helpers/screw_hole_sampler.scad'],
@@ -21,6 +23,8 @@ const jobs = [
   ['helper-threaded-hole-test', 'src/forge3d/start-catalog/scad/helpers/threaded_hole_test.scad'],
   ['learning-cube-starter', 'src/forge3d/start-catalog/scad/learning/cube_starter.scad'],
   ['learning-offset-profile', 'src/forge3d/start-catalog/scad/learning/offset_profile.scad'],
+  ['learning-sphere-starter', 'src/forge3d/start-catalog/scad/learning/sphere_starter.scad'],
+  ['learning-triangle-plate', 'src/forge3d/start-catalog/scad/learning/triangle_plate.scad'],
 ];
 
 async function runOpenScad(inputRelativePath, outputFileName) {
