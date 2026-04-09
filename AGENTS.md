@@ -16,6 +16,9 @@ src/
   main.jsx              # React entry
   Forge3D.jsx           # Main app component (all UI state lives here)
   forge3d/
+    assembly.js         # Assembly scene model + transforms
+    assembly-sidebar.jsx # Assembly controls + part actions
+    bottom-pane.jsx     # Console / problems / terminal shell container
     editor.jsx          # Monaco-based editor component
     examples.js         # Built-in .scad example gallery
     exporter.js         # STL export (Three.js scene → STL text)
@@ -23,13 +26,20 @@ src/
     interpreter.js      # Tokenizer data for syntax highlighting only
     lsp-client.js       # OpenSCAD language server client
     param-parser.js     # Parse // @param annotations
+    params-sidebar.jsx  # Params UI + jump-to-source
     renderer.js         # Three.js scene builder (useThreeRenderer hook)
+    start-sidebar.jsx   # Start panel for examples/templates/recipes
     stl-parser.js       # Binary + ASCII STL parsing
     terminal.jsx        # Embedded terminal pane
+    terminal-sidebar.jsx # Terminal status + shell controls
+    viewport-pane.jsx   # Viewport chrome + overlays
     workspace.js        # localStorage persistence
+    workspace-sidebar.jsx # Recent files + workspace folder browser
 electron/
   main.mjs              # Electron main process
   preload.cjs           # IPC bridge
+scripts/
+  generate-start-previews.mjs # Regenerates start gallery thumbnails
 ```
 
 ## Build & Run
@@ -39,6 +49,13 @@ npm run dev          # Electron dev mode (starts Vite renderer + Electron)
 npm run build        # Production build to dist/
 npm run dist         # Package desktop app / installer
 ```
+
+## Verification
+- There is currently no automated test suite or `npm test` script in this repo.
+- For renderer/UI changes, the default "done" bar is `npm run build` succeeding and the touched interaction behaving correctly in Electron.
+- For Electron main/preload changes, also run:
+  - `node --check electron/main.mjs`
+  - `node --check electron/preload.cjs`
 
 ## Branch Hygiene
 - Before editing files, check the current branch with `git status --short --branch` and compare it to both `main` and `origin/main`.

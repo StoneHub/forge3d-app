@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
 import Icons from "./forge3d/icons.jsx";
 import { useThreeRenderer } from "./forge3d/renderer.js";
-import { STORAGE_KEY, DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace } from "./forge3d/workspace.js";
+import { DEFAULT_FILE_NAME, getDefaultWorkspace, loadWorkspace, saveWorkspace } from "./forge3d/workspace.js";
 import { CodeEditor } from "./forge3d/editor.jsx";
 import { extractOpenScadSymbols } from "./forge3d/editor-language.js";
 import { exportSceneToSTL } from "./forge3d/exporter.js";
@@ -1509,7 +1509,7 @@ export default function Forge3D() {
 
   // ─── Persist workspace ────────────────────────────────────────────────
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    saveWorkspace({
       code,
       lastSavedCode: savedCode,
       comparisonCode,
@@ -1532,7 +1532,7 @@ export default function Forge3D() {
         editorWidth,
         bottomPanelHeight,
       },
-    }));
+    });
   }, [activeTab, autoRun, bottomPanelHeight, code, comparisonCode, currentFileName, currentFilePath, editorWidth, preferredShellId, renderProfile, savedCode, sidebarOpen, sidebarTab, sidebarWidth, startState, terminalManagerState, theme, viewSettings]);
 
   // ─── Load recent files & workspace on mount ──────────────────────────

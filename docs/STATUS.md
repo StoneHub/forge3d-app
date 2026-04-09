@@ -1,6 +1,6 @@
 # Forge3D — Current Status
 
-_Last updated: 2026-03-15_
+_Last updated: 2026-04-09_
 
 ## ✅ Completed Features
 
@@ -39,11 +39,6 @@ _Last updated: 2026-03-15_
 ---
 
 ## 🚧 Known Issues
-
-### Minor Issues
-- [ ] **Missing screenshot:** [README.md](../README.md) references `docs/screenshots/forge3d-dimensions-demo.png` but file doesn't exist
-  - User took screenshot but hasn't saved it to repo yet
-  - Current placeholder: `forge3d-electron-demo.png`
 
 ### Build Issues (Resolved)
 - ✅ node-pty build errors — Fixed with non-fatal postinstall script
@@ -117,8 +112,8 @@ See [next-features.md](next-features.md) for detailed implementation plans.
 - Vite 6
 
 ### Terminal
-- xterm 5.6
-- @xterm/addon-fit 0.10
+- xterm 5.3
+- @xterm/addon-fit 0.11
 - node-pty 1.1 (native addon)
 
 ### LSP

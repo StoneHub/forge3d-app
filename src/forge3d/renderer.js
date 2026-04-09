@@ -261,7 +261,9 @@ export function useThreeRenderer({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = theme === 'dark' ? 0.82 : 0.9;
-    const envTexture = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(renderer), 0.04).texture;
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const envTexture = pmremGenerator.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+    pmremGenerator.dispose();
     nextScene.environment = envTexture;
     const hemi = new THREE.HemisphereLight(theme === 'dark' ? 0xcfe6ff : 0xfafcff, theme === 'dark' ? 0x243242 : 0xc6d2de, theme === 'dark' ? 0.78 : 0.62);
     hemi.userData.forgeExcludeFromExport = true;
@@ -406,6 +408,9 @@ export function useThreeRenderer({
       cameraStateRef.current.dist = Math.max(3, Math.min(500, cameraStateRef.current.dist * (1 + event.deltaY * 0.001)));
       updateCamera(camera, cameraStateRef.current);
     };
+    const onContextMenu = (event) => {
+      event.preventDefault();
+    };
     const onResize = () => {
       const width = Math.max(resizeTarget.clientWidth || canvas.clientWidth || 1, 1);
       const height = Math.max(resizeTarget.clientHeight || canvas.clientHeight || 1, 1);
@@ -414,26 +419,28 @@ export function useThreeRenderer({
       renderer.setSize(width, height, false);
     };
     canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('wheel', onWheel, { passive: false });
-    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+    canvas.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('resize', onResize);
     const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => onResize()) : null;
     resizeObserver?.observe(resizeTarget);
     const animate = () => { resources.frameId = requestAnimationFrame(animate); updateInfiniteGridPosition(resources.grid, cameraStateRef.current.panX, cameraStateRef.current.panZ); renderer.render(nextScene, camera); };
     animate();
-    setTimeout(onResize, 50);
+    const resizeTimeoutId = window.setTimeout(onResize, 50);
     return () => {
+      window.clearTimeout(resizeTimeoutId);
       cancelAnimationFrame(resources.frameId);
       resizeObserver?.disconnect();
       renderer.dispose();
       envTexture.dispose();
       background.dispose();
       canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
       canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', onResize);
       resourcesRef.current = null;
     };

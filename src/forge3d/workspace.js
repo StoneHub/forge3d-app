@@ -91,11 +91,20 @@ export function getDefaultWorkspace() {
     currentFilePath: null,
     activeActivity: 'start',
     workbenchTab: 'console',
-    startState: DEFAULT_START_STATE,
-    terminalPreferences: DEFAULT_TERMINAL_PREFERENCES,
-    terminalManagerState: DEFAULT_TERMINAL_MANAGER_STATE,
-    panelLayout: DEFAULT_PANEL_LAYOUT,
+    startState: { ...DEFAULT_START_STATE },
+    terminalPreferences: { ...DEFAULT_TERMINAL_PREFERENCES },
+    terminalManagerState: { ...DEFAULT_TERMINAL_MANAGER_STATE },
+    panelLayout: { ...DEFAULT_PANEL_LAYOUT },
   };
+}
+
+export function saveWorkspace(workspace) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function loadWorkspace() {

@@ -102,14 +102,21 @@ forge3d-app/
 ├── src/
 │   ├── Forge3D.jsx                 # Main UI
 │   └── forge3d/
+│       ├── assembly.js             # Assembly scene data + transforms
+│       ├── assembly-sidebar.jsx    # Assembly workflow controls
 │       ├── renderer.js             # Three.js viewport
 │       ├── editor.jsx              # Code editor
 │       ├── lsp-client.js           # LSP hook
+│       ├── params-sidebar.jsx      # Param controls and jump-to-source
+│       ├── start-sidebar.jsx       # Start panel with examples/templates
 │       ├── stl-parser.js           # Binary + ASCII STL
 │       ├── interpreter.js          # Tokenizer (syntax highlight only)
+│       ├── terminal.jsx            # Embedded terminal
+│       ├── workspace-sidebar.jsx   # Recent files + workspace browser
 │       └── workspace.js            # localStorage persistence
 ├── public/fonts/                   # Liberation Sans TTFs
-├── Samples/                        # Example .scad files
+├── src/forge3d/start-catalog/      # Built-in examples, helpers, and previews
+├── scripts/                        # Preview generation and repo utilities
 └── docs/
     ├── DEVPLAN.md                  # Active development plan
     └── WORKFLOW.md                 # UX spec
