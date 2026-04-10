@@ -1,5 +1,7 @@
 import Icons from './icons.jsx';
 
+const appVersion = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
+
 function ToolbarButton({ active = false, colors, disabled, icon: Icon, label, onClick, title }) {
   const restingStyle = {
     background: active ? colors.btnHover : 'none',
@@ -79,7 +81,7 @@ export default function ForgeToolbar({
           <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '0.5px' }}>
             <span style={{ color: colors.accent }}>FORGE</span><span style={{ color: theme === 'dark' ? '#7c4dff' : '#4527a0' }}>3D</span>
           </span>
-          <span style={{ fontSize: '10px', color: colors.textMuted, marginLeft: '4px', fontWeight: 700 }}>v3.0</span>
+          <span style={{ fontSize: '10px', color: colors.textMuted, marginLeft: '4px', fontWeight: 700 }}>{`v${appVersion}`}</span>
         </div>
         <div style={{ height: '20px', width: '1px', background: colors.border }} />
         <ToolbarButton colors={colors} icon={Icons.File} label="New" onClick={onNewFile} />

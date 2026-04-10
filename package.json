@@ -1,6 +1,6 @@
 {
   "name": "forge3d",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "description": "Forge3D — Parametric 3D modeling IDE for OpenSCAD (Electron desktop app)",
   "license": "MIT",

@@ -2,7 +2,7 @@
 
 A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then send directly to your slicer.
 
-![Version](https://img.shields.io/badge/version-3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Version](https://img.shields.io/badge/version-3.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -31,7 +31,7 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 Download the latest installer from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page:
 
 ```
-Forge3D Setup 3.0.0.exe
+Forge3D Setup 3.0.1.exe
 ```
 
 Run it — no admin required. Forge3D installs to `%LOCALAPPDATA%\Programs\Forge3D` and adds a Start Menu shortcut. To uninstall, use **Add or Remove Programs**.
