@@ -26,17 +26,11 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 
 ---
 
-## Install (Windows — recommended)
+## Install
 
-Download the latest installer from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page:
+Published desktop installers will be available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page when release assets are uploaded. Until then, use the source setup below for development and local validation.
 
-```
-Forge3D Setup 3.0.1.exe
-```
-
-Run it — no admin required. Forge3D installs to `%LOCALAPPDATA%\Programs\Forge3D` and adds a Start Menu shortcut. To uninstall, use **Add or Remove Programs**.
-
-> **Prerequisite:** [OpenSCAD](https://openscad.org/downloads.html) must be installed at the default path (`C:\Program Files\OpenSCAD\openscad.com`).
+> **Windows prerequisite:** [OpenSCAD](https://openscad.org/downloads.html) must be installed at the default path (`C:\Program Files\OpenSCAD\openscad.com`).
 
 ---
 

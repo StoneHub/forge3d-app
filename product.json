@@ -1,0 +1,37 @@
+{
+  "slug": "forge3d",
+  "name": "Forge3D",
+  "version": "3.0.1",
+  "kind": "desktop-app",
+  "summary": "Desktop OpenSCAD modeling IDE for practical CAD-to-print workflows.",
+  "status": "preview",
+  "repo": "https://github.com/StoneHub/forge3d-app",
+  "liveUrl": "",
+  "releaseUrl": "https://github.com/StoneHub/forge3d-app/releases",
+  "downloadUrl": "",
+  "supportUrl": "https://github.com/StoneHub/forge3d-app/issues",
+  "license": "MIT",
+  "platforms": ["Windows", "macOS", "Linux"],
+  "requirements": [
+    "OpenSCAD installed locally",
+    "Node.js 22+ and npm 10+ for source builds",
+    "Published installer assets are pending on GitHub Releases"
+  ],
+  "highlights": [
+    "OpenSCAD editor with native OpenSCAD render loop",
+    "Three.js viewport with orbit, pan, zoom, grid, axes, and dimension overlays",
+    "Parameter controls from OpenSCAD variables and // @param annotations",
+    "File open/save, STL export, recent files, and workspace browser",
+    "Electron Builder packaging configured for future GitHub Release assets"
+  ],
+  "screenshots": [
+    {
+      "src": "docs/screenshots/forge3d-dimensions-demo.png",
+      "alt": "Forge3D editor and 3D viewport with dimension brackets"
+    },
+    {
+      "src": "docs/screenshots/forge3d-electron-demo.png",
+      "alt": "Forge3D Electron desktop app interface"
+    }
+  ]
+}
