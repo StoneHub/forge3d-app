@@ -3,6 +3,18 @@
 ## What Is This?
 Forge3D is an Electron desktop parametric 3D modeling IDE for OpenSCAD `.scad` files. It is evolving into a **unified modeling-to-print pipeline**: edit `.scad` → render STL → arrange on print bed → slice → export G-code.
 
+## Public Direction
+
+Forge3D is one of Monroe's strongest portfolio anchors. Treat public-facing work here as proof that he can ship serious desktop/product engineering, not just experiments.
+
+Direction:
+
+- Emphasize practical CAD-to-print workflow value.
+- Prefer credible, working slices over broad claims about replacing mature CAD tools.
+- Keep README, screenshots, releases, and demos focused on what actually works today.
+- When improving public surfaces, connect the project to Monroe's broader story: Android/cloud/automation engineer building useful tools under real constraints.
+- Avoid over-indexing on AI language unless it directly improves the modeling workflow.
+
 ## Tech Stack
 - **Vite + React 18** — SPA, no router
 - **Three.js 0.170** — 3D viewport
