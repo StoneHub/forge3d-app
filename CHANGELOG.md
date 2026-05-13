@@ -2,7 +2,7 @@
 
 ## 3.0.1 - 2026-05-13
 
-Forge3D is in preview as an Electron desktop OpenSCAD modeling IDE. This release state reflects the current app and catalog metadata; public installer assets may still be pending on GitHub Releases.
+Forge3D is in preview as an Electron desktop OpenSCAD modeling IDE. This release state reflects the current app and catalog metadata; no public installer assets are published yet on GitHub Releases.
 
 ### Current app state
 
@@ -10,8 +10,8 @@ Forge3D is in preview as an Electron desktop OpenSCAD modeling IDE. This release
 - Three.js viewport with orbit, pan, zoom, grid, axes, edge overlay, and dimension brackets.
 - Monaco-based OpenSCAD editor with syntax highlighting, file open/save, and workspace helpers.
 - Parameter controls from OpenSCAD variables and `// @param` annotations.
-- OpenSCAD LSP diagnostics, embedded terminal, recent files, and STL export.
-- Electron Builder packaging is configured, but a public installer is not guaranteed until release assets are published.
+- Windows OpenSCAD LSP diagnostics, embedded terminal, recent files, and STL export.
+- Electron Builder packaging is configured, but no public installer assets are published yet.
 
 ### Known release notes
 

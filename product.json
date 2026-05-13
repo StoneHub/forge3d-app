@@ -3,19 +3,19 @@
   "name": "Forge3D",
   "version": "3.0.1",
   "kind": "desktop-app",
-  "summary": "Desktop OpenSCAD modeling IDE for practical CAD-to-print workflows.",
-  "status": "preview",
+  "summary": "Windows-validated desktop OpenSCAD modeling IDE; no public installer assets are published yet.",
+  "status": "preview; source-build only until public installer assets are published",
   "repo": "https://github.com/StoneHub/forge3d-app",
   "liveUrl": "",
   "releaseUrl": "https://github.com/StoneHub/forge3d-app/releases",
   "downloadUrl": "",
   "supportUrl": "https://github.com/StoneHub/forge3d-app/issues",
   "license": "MIT",
-  "platforms": ["Windows", "macOS", "Linux"],
+  "platforms": ["Windows"],
   "requirements": [
+    "No public installer assets are published yet",
     "OpenSCAD installed locally",
-    "Node.js 22+ and npm 10+ for source builds",
-    "Published installer assets are pending on GitHub Releases"
+    "Node.js 22+ and npm 10+ for source builds"
   ],
   "highlights": [
     "OpenSCAD editor with native OpenSCAD render loop",
