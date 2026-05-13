@@ -14,7 +14,7 @@ A desktop IDE for OpenSCAD built with Electron — write parametric code, render
 
 Forge3D wraps the OpenSCAD you already have installed into a modern, integrated IDE experience. No WASM emulation, no compatibility gaps — it runs your actual `openscad.com` binary and shows the result in a Three.js viewport with orbit controls.
 
-**The goal:** write `.scad` → render → arrange on print bed → slice → print, without leaving the app.
+**Current workflow:** write `.scad` → render → export STL, then send the file to your external slicer.
 
 ---
 
