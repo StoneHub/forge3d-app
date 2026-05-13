@@ -55,6 +55,24 @@ Work items:
    - Linux AppImage when available.
 6. Update `product.json` `downloadUrl` after the first real release exists.
 
+## Dedicated Product Site Handoff
+
+`FORGE3D.SPACE` is owned through Bluehost and expires March 22, 2027. Firebase Hosting already has a `forge3d-space` site available under the shared `possible-haven-471616-f0` project.
+
+Do not treat the standalone Forge3D site as ready until the release path is real. The next agent working in this repo should prepare the app and public materials first:
+
+1. Publish real GitHub Release assets for the current Windows build.
+2. Add clear install and source-build instructions for unsigned preview builds.
+3. Keep `product.json` honest: no direct `downloadUrl` until a release asset exists.
+4. Add current screenshots and a short product-support path.
+5. Draft a small static product site plan for `forge3d.space` after the release assets are live.
+
+The intended relationship is:
+
+- `monroes.tech/software/` remains the portfolio catalog entry.
+- `forge3d.space` can become the product-specific site once downloads, screenshots, install docs, and support links are ready.
+- Do not move domain/DNS or Firebase Hosting mappings without Monroe's explicit approval.
+
 ## Public Copy Rules
 
 - Mention OpenSCAD as a requirement.
