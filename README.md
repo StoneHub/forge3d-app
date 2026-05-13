@@ -1,6 +1,6 @@
 # Forge3D — OpenSCAD Modeling IDE
 
-A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then send directly to your slicer.
+A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then export STL for your slicer.
 
 ![Version](https://img.shields.io/badge/version-3.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
