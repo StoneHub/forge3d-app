@@ -43,6 +43,34 @@ Set `FORGE3D_OPENSCAD_BIN` in CI or local shells when OpenSCAD is installed some
 
 ### macOS Gatekeeper Note
 
+Downloaded macOS apps must be signed with a Developer ID certificate and notarized by Apple. If they are not, browsers attach quarantine metadata and Gatekeeper can show:
+
+```text
+"Forge3D.app" is damaged and can't be opened. You should move it to the Trash.
+```
+
+Forge3D 3.0.2 and later treat that as a release blocker. The macOS package job runs:
+
+```bash
+npm run verify:mac-release
+```
+
+That check requires a signing identity (`CSC_LINK` or `CSC_NAME`) and one supported notarization credential set:
+
+- `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
+- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
+- `APPLE_KEYCHAIN_PROFILE` plus optional `APPLE_KEYCHAIN`
+
+Use Apple API key credentials for CI when possible. `CSC_LINK` should contain the Developer ID Application certificate as a base64-encoded `.p12` or a secure URL supported by `electron-builder`; set `CSC_KEY_PASSWORD` when the certificate is password-protected.
+
+For the already-published unsigned 3.0.1 DMG, the local workaround is to remove quarantine only after deciding you trust the downloaded app:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Forge3D.app
+```
+
+That workaround is not acceptable for public releases.
+
 On Apple Silicon Macs, prefer:
 
 ```bash
@@ -68,8 +96,8 @@ npm run capture:release-screenshot -- --force-rosetta
 Push a version tag to run the release workflow:
 
 ```bash
-git tag v3.0.1
-git push origin v3.0.1
+git tag v3.0.2
+git push origin v3.0.2
 ```
 
 The workflow builds Windows, macOS, and Linux packages, captures release screenshots, uploads all artifacts, and creates or updates a prerelease on GitHub.
@@ -77,5 +105,5 @@ The workflow builds Windows, macOS, and Linux packages, captures release screens
 Current release notes should remain honest:
 
 - OpenSCAD is required locally for rendering.
-- macOS builds are unsigned preview builds unless signing and notarization are configured.
+- macOS releases are native Apple Silicon DMGs and must be signed/notarized before publication.
 - Print Mode and slicer workflows are planned work until shipped.

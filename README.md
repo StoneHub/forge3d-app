@@ -2,7 +2,7 @@
 
 A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then export STL for your slicer.
 
-![Version](https://img.shields.io/badge/version-3.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Version](https://img.shields.io/badge/version-3.0.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -37,9 +37,9 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-Published desktop installers will be available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page when release assets are uploaded. Until then, use the source setup below for development and local validation.
+Published desktop installers are available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page. Forge3D's macOS release target is a native Apple Silicon DMG.
 
-> **Preview build note:** GitHub release automation can produce unsigned desktop installers. On macOS, unsigned builds may require explicit approval in System Settings before launch.
+> **macOS release note:** Starting with 3.0.2, tagged macOS releases require Developer ID signing and Apple notarization credentials in CI. The workflow refuses to publish a Mac DMG when those credentials are missing because unsigned downloaded apps can be reported by Gatekeeper as damaged.
 >
 > **macOS OpenSCAD note:** Homebrew's stable OpenSCAD cask may require Gatekeeper approval and Rosetta because the stable cask can be Intel-based. The snapshot cask includes an Apple Silicon slice and is preferred for local Forge3D development.
 > If the snapshot app crashes during render on your Mac, run Forge3D with `FORGE3D_OPENSCAD_ARCH=x86_64` until the upstream native snapshot is stable.

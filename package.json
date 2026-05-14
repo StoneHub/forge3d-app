@@ -1,6 +1,6 @@
 {
   "name": "forge3d",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "private": true,
   "description": "Forge3D — Parametric 3D modeling IDE for OpenSCAD (Electron desktop app)",
   "license": "MIT",
@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "test:node": "node --test scripts/*.test.mjs",
+    "verify:mac-release": "node scripts/macos-release-config.mjs --require-ci-credentials",
     "generate:start-previews": "node scripts/generate-start-previews.mjs",
     "capture:release-screenshot": "node scripts/capture-release-screenshots.mjs",
     "build": "vite build",
@@ -55,8 +56,22 @@
       "icon": "public/icon.ico"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "public/icon.png"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "public/icon.png",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": true,
+      "minimumSystemVersion": "11.0"
     },
     "linux": {
       "target": "AppImage",

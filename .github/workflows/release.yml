@@ -73,8 +73,35 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
 
+      - name: Verify macOS release signing inputs
+        if: runner.os == 'macOS'
+        run: npm run verify:mac-release
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_NAME: ${{ secrets.CSC_NAME }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN }}
+          APPLE_KEYCHAIN_PROFILE: ${{ secrets.APPLE_KEYCHAIN_PROFILE }}
+
       - name: Package desktop app
         run: npm run dist -- --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_NAME: ${{ secrets.CSC_NAME }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN }}
+          APPLE_KEYCHAIN_PROFILE: ${{ secrets.APPLE_KEYCHAIN_PROFILE }}
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -119,7 +146,7 @@ jobs:
 
           Requirements:
           - OpenSCAD must be installed locally for rendering.
-          - macOS builds are unsigned preview builds unless a signing identity is configured.
+          - macOS releases are native Apple Silicon DMGs and require Developer ID signing plus Apple notarization.
           - Print Mode and slicer workflows remain planned work, not release features.
 
           This release includes installer artifacts and deterministic release screenshots generated from `docs/release-assets/forge3d-showcase.scad`.
