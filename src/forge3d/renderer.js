@@ -2,24 +2,36 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { getAssemblyPartWorldBox } from './assembly.js';
+import { getMaterialSwatch, normalizeRenderAppearance } from './render-appearance.js';
 
 const DEFAULT_CAMERA = { theta: 0.8, phi: 0.6, dist: 50, panX: 0, panY: 0, panZ: 0 };
 
-function createViewportBackgroundTexture(theme) {
+function getViewportBackgroundStops(theme, appearance) {
+  if (appearance.background === 'dark') {
+    return theme === 'dark'
+      ? ['#1e2937', '#121923', '#080b10']
+      : ['#dce6f0', '#c7d4e2', '#aebdca'];
+  }
+  if (appearance.background === 'soft') {
+    return theme === 'dark'
+      ? ['#2a3645', '#1c2530', '#10151d']
+      : ['#fbfcff', '#edf2f7', '#dfe7ef'];
+  }
+  return theme === 'dark'
+    ? ['#314156', '#1a2230', '#0c1018']
+    : ['#f8fbff', '#e6edf5', '#d2dbe7'];
+}
+
+function createViewportBackgroundTexture(theme, appearance) {
   const canvas = document.createElement('canvas');
   canvas.width = 2;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  if (theme === 'dark') {
-    gradient.addColorStop(0, '#314156');
-    gradient.addColorStop(0.55, '#1a2230');
-    gradient.addColorStop(1, '#0c1018');
-  } else {
-    gradient.addColorStop(0, '#f8fbff');
-    gradient.addColorStop(0.58, '#e6edf5');
-    gradient.addColorStop(1, '#d2dbe7');
-  }
+  const [top, middle, bottom] = getViewportBackgroundStops(theme, appearance);
+  gradient.addColorStop(0, top);
+  gradient.addColorStop(0.56, middle);
+  gradient.addColorStop(1, bottom);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const texture = new THREE.CanvasTexture(canvas);
@@ -44,6 +56,35 @@ function createInfiniteGrid(theme) {
   });
   group.userData = { fine, major, fineStep: 10, majorStep: 50, forgeExcludeFromExport: true };
   return group;
+}
+
+function applyViewportAppearance(resources, theme, appearance) {
+  if (!resources) return;
+  resources.renderer.toneMappingExposure = appearance.exposure;
+  resources.hemi.intensity = (theme === 'dark' ? 0.72 : 0.58) * (1.08 - appearance.contrast * 0.08);
+  resources.key.intensity = (theme === 'dark' ? 0.42 : 0.36) * appearance.contrast;
+  resources.fill.intensity = (theme === 'dark' ? 0.18 : 0.14) * Math.max(0.72, 1.3 - appearance.contrast * 0.35);
+  resources.ambient.intensity = (theme === 'dark' ? 0.08 : 0.06) * Math.max(0.72, 1.25 - appearance.contrast * 0.25);
+  if (resources.backgroundAppearance !== `${theme}:${appearance.background}`) {
+    resources.background?.dispose?.();
+    resources.background = createViewportBackgroundTexture(theme, appearance);
+    resources.scene.background = resources.background;
+    resources.backgroundAppearance = `${theme}:${appearance.background}`;
+  }
+}
+
+function createPartMaterial({ appearance, selected = false, locked = false, theme }) {
+  const color = new THREE.Color(getMaterialSwatch(appearance.material).color);
+  return new THREE.MeshStandardMaterial({
+    color,
+    metalness: 0,
+    roughness: 0.82,
+    envMapIntensity: 0.12 + appearance.contrast * 0.08,
+    emissive: selected ? new THREE.Color(theme === 'dark' ? '#18455c' : '#2b6cb0') : new THREE.Color(0x000000),
+    emissiveIntensity: selected ? 0.45 : 0,
+    transparent: locked,
+    opacity: locked ? 0.75 : 1,
+  });
 }
 
 function updateInfiniteGridPosition(group, targetX, targetZ) {
@@ -248,9 +289,10 @@ export function useThreeRenderer({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
+    const appearance = normalizeRenderAppearance(viewSettings?.appearance);
     const resizeTarget = canvas.parentElement || canvas;
     const nextScene = new THREE.Scene();
-    const background = createViewportBackgroundTexture(theme);
+    const background = createViewportBackgroundTexture(theme, appearance);
     nextScene.background = background;
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
     Object.assign(cameraStateRef.current, DEFAULT_CAMERA, { down: false, button: -1, x: 0, y: 0 });
@@ -260,7 +302,7 @@ export function useThreeRenderer({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = theme === 'dark' ? 0.82 : 0.9;
+    renderer.toneMappingExposure = appearance.exposure;
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     const envTexture = pmremGenerator.fromScene(new RoomEnvironment(renderer), 0.04).texture;
     pmremGenerator.dispose();
@@ -282,6 +324,12 @@ export function useThreeRenderer({
       scene: nextScene,
       camera,
       renderer,
+      background,
+      backgroundAppearance: `${theme}:${appearance.background}`,
+      hemi,
+      key,
+      fill,
+      ambient,
       grid: createInfiniteGrid(theme),
       axes: new THREE.AxesHelper(15),
       designRoot: new THREE.Group(),
@@ -294,6 +342,7 @@ export function useThreeRenderer({
       assemblyMeshes: new Map(),
       frameId: null,
     };
+    applyViewportAppearance(resources, theme, appearance);
     [resources.grid, resources.axes, resources.selectionRoot, resources.gizmoRoot, resources.measureRoot, resources.dimRoot].forEach((item) => {
       item.userData.forgeExcludeFromExport = true;
     });
@@ -435,7 +484,7 @@ export function useThreeRenderer({
       resizeObserver?.disconnect();
       renderer.dispose();
       envTexture.dispose();
-      background.dispose();
+      resources.background?.dispose?.();
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -449,6 +498,8 @@ export function useThreeRenderer({
   useEffect(() => {
     const resources = resourcesRef.current;
     if (!resources) return;
+    const appearance = normalizeRenderAppearance(viewSettings?.appearance);
+    applyViewportAppearance(resources, theme, appearance);
     resources.grid.visible = viewSettings.grid;
     resources.axes.visible = viewSettings.axes;
     resources.dimRoot.clear();
@@ -461,14 +512,14 @@ export function useThreeRenderer({
       resources.gizmoRoot.clear();
       resources.measureRoot.clear();
       if (stlGeometry) {
-        const mesh = new THREE.Mesh(stlGeometry, new THREE.MeshStandardMaterial({ color: new THREE.Color('#75b8d4'), metalness: 0, roughness: 0.78, envMapIntensity: 0.18 }));
+        const mesh = new THREE.Mesh(stlGeometry, createPartMaterial({ appearance, theme }));
         mesh.rotation.x = -Math.PI / 2;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         resources.designRoot.add(mesh);
         resources.displayMeshes.push(mesh);
         if (viewSettings.wireframe) {
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(stlGeometry), new THREE.LineBasicMaterial({ color: new THREE.Color('#4fc3f7').multiplyScalar(0.6), transparent: true, opacity: 0.4 }));
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(stlGeometry), new THREE.LineBasicMaterial({ color: new THREE.Color('#4fc3f7').multiplyScalar(0.6), transparent: true, opacity: appearance.edgeStrength }));
           edges.rotation.copy(mesh.rotation);
           edges.userData.forgeExcludeFromExport = true;
           resources.designRoot.add(edges);
@@ -481,7 +532,7 @@ export function useThreeRenderer({
       resources.assemblyMeshes = new Map();
       (assemblyScene?.parts || []).forEach((part) => {
         if (part.visible === false) return;
-        const mesh = new THREE.Mesh(part.geometry, new THREE.MeshStandardMaterial({ color: new THREE.Color('#75b8d4'), metalness: 0, roughness: 0.78, envMapIntensity: 0.18, emissive: part.id === selectedPartId ? new THREE.Color(theme === 'dark' ? '#18455c' : '#2b6cb0') : new THREE.Color(0x000000), emissiveIntensity: part.id === selectedPartId ? 0.45 : 0, transparent: part.locked, opacity: part.locked ? 0.75 : 1 }));
+        const mesh = new THREE.Mesh(part.geometry, createPartMaterial({ appearance, selected: part.id === selectedPartId, locked: part.locked, theme }));
         applyTransform(mesh, part.transform);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -490,7 +541,7 @@ export function useThreeRenderer({
         resources.displayMeshes.push(mesh);
         resources.assemblyMeshes.set(part.id, mesh);
         if (viewSettings.wireframe) {
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry), new THREE.LineBasicMaterial({ color: new THREE.Color(part.id === selectedPartId ? '#4fc3f7' : '#6d88a5'), transparent: true, opacity: 0.45 }));
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(part.geometry), new THREE.LineBasicMaterial({ color: new THREE.Color(part.id === selectedPartId ? '#4fc3f7' : '#6d88a5'), transparent: true, opacity: appearance.edgeStrength }));
           edges.position.copy(mesh.position);
           edges.rotation.copy(mesh.rotation);
           edges.scale.copy(mesh.scale);
