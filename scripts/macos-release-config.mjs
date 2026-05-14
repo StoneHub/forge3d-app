@@ -9,6 +9,18 @@ export function hasMacNotarizationCredentials(env = process.env) {
   return hasApiKey || hasAppleId || hasKeychainProfile;
 }
 
+export function describeMacReleaseMode(env = process.env) {
+  const signed = hasMacCodeSigningIdentity(env);
+  const notarized = hasMacNotarizationCredentials(env);
+  const publishableForGeneralMacUsers = signed && notarized;
+  return {
+    mode: publishableForGeneralMacUsers ? 'signed-notarized' : 'unsigned-dev-preview',
+    signed,
+    notarized,
+    publishableForGeneralMacUsers,
+  };
+}
+
 export function validateMacReleaseCredentials(env = process.env) {
   const errors = [];
   if (!hasMacCodeSigningIdentity(env)) {
@@ -30,4 +42,10 @@ if (process.argv.includes('--require-ci-credentials')) {
     process.exit(1);
   }
   console.log('macOS release signing and notarization inputs are configured.');
+} else if (process.argv.includes('--describe-mode')) {
+  const mode = describeMacReleaseMode(process.env);
+  console.log(`macOS release mode: ${mode.mode}`);
+  if (!mode.publishableForGeneralMacUsers) {
+    console.log('This macOS artifact is an unsigned development preview. Gatekeeper may require manual approval or quarantine removal after download.');
+  }
 }

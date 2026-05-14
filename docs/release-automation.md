@@ -41,35 +41,35 @@ Forge3D checks for OpenSCAD in this order:
 
 Set `FORGE3D_OPENSCAD_BIN` in CI or local shells when OpenSCAD is installed somewhere custom.
 
-### macOS Gatekeeper Note
+### macOS Development Preview Note
 
-Downloaded macOS apps must be signed with a Developer ID certificate and notarized by Apple. If they are not, browsers attach quarantine metadata and Gatekeeper can show:
+Downloaded macOS apps must be signed with a paid Developer ID certificate and notarized by Apple to open without Gatekeeper friction. Forge3D is currently a portfolio/development project, so macOS DMGs are intentionally published as unsigned native Apple Silicon development previews.
+
+Browsers attach quarantine metadata to downloaded apps, so Gatekeeper can show:
 
 ```text
 "Forge3D.app" is damaged and can't be opened. You should move it to the Trash.
 ```
 
-Forge3D 3.0.2 and later treat that as a release blocker. The macOS package job runs:
+Forge3D 3.0.2 and later make this explicit in the artifact name:
+
+```text
+Forge3D-<version>-mac-arm64-unsigned-dev-preview.dmg
+```
+
+The macOS package job reports the current release mode:
 
 ```bash
 npm run verify:mac-release
 ```
 
-That check requires a signing identity (`CSC_LINK` or `CSC_NAME`) and one supported notarization credential set:
-
-- `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
-- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
-- `APPLE_KEYCHAIN_PROFILE` plus optional `APPLE_KEYCHAIN`
-
-Use Apple API key credentials for CI when possible. `CSC_LINK` should contain the Developer ID Application certificate as a base64-encoded `.p12` or a secure URL supported by `electron-builder`; set `CSC_KEY_PASSWORD` when the certificate is password-protected.
-
-For the already-published unsigned 3.0.1 DMG, the local workaround is to remove quarantine only after deciding you trust the downloaded app:
+For general users, prefer the source build path until paid Developer ID signing is added. For a downloaded unsigned preview that you personally trust, the local workaround is:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Forge3D.app
 ```
 
-That workaround is not acceptable for public releases.
+This is disclosed as a development-preview tradeoff, not treated as a production install flow.
 
 On Apple Silicon Macs, prefer:
 
@@ -105,5 +105,5 @@ The workflow builds Windows, macOS, and Linux packages, captures release screens
 Current release notes should remain honest:
 
 - OpenSCAD is required locally for rendering.
-- macOS releases are native Apple Silicon DMGs and must be signed/notarized before publication.
+- macOS DMGs are unsigned native Apple Silicon development previews until paid Developer ID signing is added.
 - Print Mode and slicer workflows are planned work until shipped.

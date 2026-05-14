@@ -37,9 +37,9 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-Published desktop installers are available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page. Forge3D's macOS release target is a native Apple Silicon DMG.
+Published desktop development builds are available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page. Forge3D's macOS release target is a native Apple Silicon DMG, but it is currently unsigned.
 
-> **macOS release note:** Starting with 3.0.2, tagged macOS releases require Developer ID signing and Apple notarization credentials in CI. The workflow refuses to publish a Mac DMG when those credentials are missing because unsigned downloaded apps can be reported by Gatekeeper as damaged.
+> **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. Downloaded macOS DMGs are unsigned development previews, so Gatekeeper may report the app as damaged or require manual approval. For the cleanest macOS path, build from source.
 >
 > **macOS OpenSCAD note:** Homebrew's stable OpenSCAD cask may require Gatekeeper approval and Rosetta because the stable cask can be Intel-based. The snapshot cask includes an Apple Silicon slice and is preferred for local Forge3D development.
 > If the snapshot app crashes during render on your Mac, run Forge3D with `FORGE3D_OPENSCAD_ARCH=x86_64` until the upstream native snapshot is stable.

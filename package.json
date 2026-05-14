@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "test:node": "node --test scripts/*.test.mjs",
-    "verify:mac-release": "node scripts/macos-release-config.mjs --require-ci-credentials",
+    "verify:mac-release": "node scripts/macos-release-config.mjs --describe-mode",
     "generate:start-previews": "node scripts/generate-start-previews.mjs",
     "capture:release-screenshot": "node scripts/capture-release-screenshots.mjs",
     "build": "vite build",
@@ -65,12 +65,14 @@
         }
       ],
       "icon": "public/icon.png",
+      "artifactName": "${productName}-${version}-${os}-${arch}-unsigned-dev-preview.${ext}",
       "category": "public.app-category.developer-tools",
+      "identity": null,
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": true,
+      "notarize": false,
       "minimumSystemVersion": "11.0"
     },
     "linux": {
