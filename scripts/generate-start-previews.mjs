@@ -2,14 +2,23 @@ import { mkdir, stat } from 'fs/promises';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveOpenScadLaunch } from '../electron/openscad-bin.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const previewDir = path.join(repoRoot, 'src', 'forge3d', 'start-catalog', 'previews');
-const openscadBin = 'C:\\Program Files\\OpenSCAD\\openscad.com';
 const scriptPath = fileURLToPath(import.meta.url);
 const force = process.argv.includes('--force');
 const changedOnly = process.argv.includes('--changed-only');
+const openscadLaunch = resolveOpenScadLaunch();
+
+if (!openscadLaunch.command) {
+  throw new Error(openscadLaunch.message);
+}
+
+if (openscadLaunch.launchWarning) {
+  process.stdout.write(`${openscadLaunch.launchWarning}\n`);
+}
 
 const jobs = [
   ['example-magnetic-letters', 'src/forge3d/start-catalog/scad/examples/magnetic_letters_pro.scad'],
@@ -66,7 +75,7 @@ async function runOpenScad(inputRelativePath, outputFileName) {
   ];
 
   await new Promise((resolve, reject) => {
-    const child = spawn(openscadBin, args, {
+    const child = spawn(openscadLaunch.command, [...openscadLaunch.argsPrefix, ...args], {
       cwd: path.dirname(inputPath),
       stdio: ['ignore', 'pipe', 'pipe'],
     });

@@ -41,19 +41,21 @@ Create a root `product.json` for `monroes.tech/software` to consume:
 
 ## Release Work
 
-Current blocker: README mentions GitHub Releases, but no published releases exist.
+Current blocker: release automation is now wired, but a version tag still needs to be pushed and the produced artifacts verified before `product.json` can point to a concrete download.
 
 Work items:
 
 1. Add `CHANGELOG.md` with a current `3.0.1` entry based on the real app state.
 2. Run `npm run build` to verify renderer build.
-3. Run `npm run dist` on the target packaging machine.
-4. Confirm installers exist under `release/`.
-5. Create a GitHub Release with assets:
+3. Run `npm run capture:release-screenshot` to generate deterministic release screenshots from `docs/release-assets/forge3d-showcase.scad`.
+4. Run `npm run dist` on the target packaging machine.
+5. Confirm installers exist under `release/`.
+6. Create a GitHub Release with assets:
    - Windows NSIS installer when available.
    - macOS DMG when available.
    - Linux AppImage when available.
-6. Update `product.json` `downloadUrl` after the first real release exists.
+   - Release screenshots from `docs/screenshots/release/`.
+7. Update `product.json` `downloadUrl` after the first real release exists.
 
 ## Dedicated Product Site Handoff
 
@@ -61,7 +63,7 @@ Work items:
 
 Do not treat the standalone Forge3D site as ready until the release path is real. The next agent working in this repo should prepare the app and public materials first:
 
-1. Publish real GitHub Release assets for the current Windows build.
+1. Publish real GitHub Release assets for the current desktop builds.
 2. Add clear install and source-build instructions for unsigned preview builds.
 3. Keep `product.json` honest: no direct `downloadUrl` until a release asset exists.
 4. Add current screenshots and a short product-support path.

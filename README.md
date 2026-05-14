@@ -2,7 +2,7 @@
 
 A desktop IDE for OpenSCAD built with Electron — write parametric code, render instantly via the native OpenSCAD binary, then export STL for your slicer.
 
-![Version](https://img.shields.io/badge/version-3.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Version](https://img.shields.io/badge/version-3.0.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -20,9 +20,18 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 
 ## Requirements
 
-- **Windows** (x64)
-- **[OpenSCAD](https://openscad.org/downloads.html)** installed at `C:\Program Files\OpenSCAD\openscad.com`
+- **Windows**, **macOS**, or **Linux**
+- **[OpenSCAD](https://openscad.org/downloads.html)** installed locally
 - **Node.js 22+** and **npm 10+**
+
+Forge3D looks for OpenSCAD in common platform locations and on `PATH`. Set `FORGE3D_OPENSCAD_BIN` when your OpenSCAD executable lives somewhere custom.
+Set `FORGE3D_OPENSCAD_ARCH=x86_64` on macOS if a universal OpenSCAD build exposes an unstable native Apple Silicon renderer and you want Forge3D to force the Rosetta slice.
+
+On Apple Silicon Macs, prefer the current OpenSCAD snapshot because the stable Homebrew cask may be Intel-only:
+
+```bash
+brew install --cask openscad@snapshot
+```
 
 ---
 
@@ -30,7 +39,10 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 
 Published desktop installers will be available from the [Releases](https://github.com/StoneHub/forge3d-app/releases) page when release assets are uploaded. Until then, use the source setup below for development and local validation.
 
-> **Windows prerequisite:** [OpenSCAD](https://openscad.org/downloads.html) must be installed at the default path (`C:\Program Files\OpenSCAD\openscad.com`).
+> **Preview build note:** GitHub release automation can produce unsigned desktop installers. On macOS, unsigned builds may require explicit approval in System Settings before launch.
+>
+> **macOS OpenSCAD note:** Homebrew's stable OpenSCAD cask may require Gatekeeper approval and Rosetta because the stable cask can be Intel-based. The snapshot cask includes an Apple Silicon slice and is preferred for local Forge3D development.
+> If the snapshot app crashes during render on your Mac, run Forge3D with `FORGE3D_OPENSCAD_ARCH=x86_64` until the upstream native snapshot is stable.
 
 ---
 
@@ -46,9 +58,13 @@ npm run dev
 
 # Build installer → release/Forge3D Setup x.x.x.exe
 npm run dist
+
+# Capture deterministic release screenshot
+npm run build
+npm run capture:release-screenshot
 ```
 
-> **Build requirements:** Node.js 22+, npm 10+, Python 3.x with `setuptools` (`pip install setuptools`), and Visual Studio Build Tools (for native node-pty rebuild).
+> **Build requirements:** Node.js 22, npm 10+, OpenSCAD, Python 3.x with `setuptools` (`pip install setuptools`), and native build tools for `node-pty`.
 
 ---
 
@@ -130,6 +146,8 @@ forge3d-app/
 - [x] Smart templates with safe append / cursor / replace modes
 - [x] Resizable panels — drag handles between editor/viewport and editor/console
 - [x] Windows installer (NSIS) via `npm run dist`
+- [x] Deterministic release screenshot fixture and automation
+- [x] GitHub Actions release workflow for installer and screenshot artifacts
 - [x] MIT license, public repo
 - [ ] Reference parts / assembly layer for loading a second `.scad` beside the active model
 - [ ] Print Mode — bed arrangement + PrusaSlicer integration

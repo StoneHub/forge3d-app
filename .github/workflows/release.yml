@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, for manual release runs.
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: macos
+          - os: windows-latest
+            artifact: windows
+          - os: ubuntu-latest
+            artifact: linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install OpenSCAD on macOS
+        if: runner.os == 'macOS'
+        run: brew install --cask openscad@snapshot
+
+      - name: Install OpenSCAD on Windows
+        if: runner.os == 'Windows'
+        run: choco install openscad -y
+
+      - name: Install OpenSCAD on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openscad xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run node tests
+        run: npm run test:node
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Capture release screenshot
+        if: runner.os != 'Linux'
+        run: npm run capture:release-screenshot
+        env:
+          FORGE3D_OPENSCAD_ARCH: ${{ runner.os == 'macOS' && 'x86_64' || '' }}
+
+      - name: Capture release screenshot on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run capture:release-screenshot
+
+      - name: Package desktop app
+        run: npm run dist -- --publish never
+        env:
+          FORGE3D_OPENSCAD_ARCH: ${{ runner.os == 'macOS' && 'x86_64' || '' }}
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge3d-installers-${{ matrix.artifact }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.zip
+          if-no-files-found: error
+
+      - name: Upload release screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge3d-release-screenshots-${{ matrix.artifact }}
+          path: docs/screenshots/release/**
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-upload
+
+      - name: Prepare release notes
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Forge3D preview release.
+
+          Requirements:
+          - OpenSCAD must be installed locally for rendering.
+          - macOS builds are unsigned preview builds unless a signing identity is configured.
+          - Print Mode and slicer workflows remain planned work, not release features.
+
+          This release includes installer artifacts and deterministic release screenshots generated from `docs/release-assets/forge3d-showcase.scad`.
+          NOTES
+
+      - name: Create or update release
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease
+          else
+            gh release create "$RELEASE_TAG" --title "Forge3D $RELEASE_TAG" --notes-file release-notes.md --prerelease
+          fi
+
+          find release-upload -type f \( \
+            -name '*.dmg' -o \
+            -name '*.exe' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.rpm' -o \
+            -name '*.zip' -o \
+            -name '*.png' \
+          \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
