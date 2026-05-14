@@ -12,12 +12,19 @@ function isExecutableCandidate(candidate, existsSync) {
   }
 }
 
+function joinPathCandidate(dir, executableName, platform) {
+  return platform === 'win32'
+    ? path.win32.join(dir, executableName)
+    : path.posix.join(dir, executableName);
+}
+
 function pathCandidates(env = {}, platform = process.platform) {
   const delimiter = platform === 'win32' ? ';' : ':';
+  const executableName = platform === 'win32' ? 'openscad.exe' : 'openscad';
   return String(env.PATH || '')
     .split(delimiter)
     .filter(Boolean)
-    .map((dir) => path.join(dir, platform === 'win32' ? 'openscad.exe' : 'openscad'));
+    .map((dir) => joinPathCandidate(dir, executableName, platform));
 }
 
 export function buildOpenScadCandidates({ env = process.env, platform = process.platform } = {}) {

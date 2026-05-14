@@ -33,6 +33,18 @@ test('includes macOS app bundle, Homebrew, and PATH candidates on darwin', () =>
   ]);
 });
 
+test('uses simulated Windows path separators for PATH candidates', () => {
+  const candidates = buildOpenScadCandidates({
+    env: { PATH: 'C:\\Tools\\OpenSCAD;D:\\OpenSCAD' },
+    platform: 'win32',
+  });
+
+  assert.deepEqual(candidates.slice(-2), [
+    { path: 'C:\\Tools\\OpenSCAD\\openscad.exe', source: 'PATH' },
+    { path: 'D:\\OpenSCAD\\openscad.exe', source: 'PATH' },
+  ]);
+});
+
 test('returns clear diagnostics when OpenSCAD cannot be found', () => {
   const result = resolveOpenScadBin({
     env: { PATH: '/usr/local/bin' },
