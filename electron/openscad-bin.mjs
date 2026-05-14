@@ -13,8 +13,9 @@ function isExecutableCandidate(candidate, existsSync) {
 }
 
 function pathCandidates(env = {}, platform = process.platform) {
+  const delimiter = platform === 'win32' ? ';' : ':';
   return String(env.PATH || '')
-    .split(path.delimiter)
+    .split(delimiter)
     .filter(Boolean)
     .map((dir) => path.join(dir, platform === 'win32' ? 'openscad.exe' : 'openscad'));
 }
