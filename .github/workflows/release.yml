@@ -133,7 +133,15 @@ jobs:
             gh release create "$RELEASE_TAG" --title "Forge3D $RELEASE_TAG" --notes-file release-notes.md --prerelease
           fi
 
-          find release-upload -type f \( \
+          mkdir -p release-assets
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            if [ -e "release-assets/$name" ]; then
+              parent="$(basename "$(dirname "$asset")")"
+              name="${parent}-${name}"
+            fi
+            cp "$asset" "release-assets/$name"
+          done < <(find release-upload -type f \( \
             -name '*.dmg' -o \
             -name '*.exe' -o \
             -name '*.AppImage' -o \
@@ -141,4 +149,6 @@ jobs:
             -name '*.rpm' -o \
             -name '*.zip' -o \
             -name '*.png' \
-          \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          \) -print0)
+
+          find release-assets -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
