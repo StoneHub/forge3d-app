@@ -57,6 +57,7 @@ await new Promise((resolve, reject) => {
       FORGE3D_RELEASE_SCREENSHOT: '1',
       FORGE3D_RELEASE_SCREENSHOT_SCAD: scadPath,
       FORGE3D_RELEASE_SCREENSHOT_OUTPUT: outputPath,
+      ...(process.platform === 'linux' ? { ELECTRON_DISABLE_SANDBOX: '1' } : {}),
       ...(forceRosetta ? { FORGE3D_OPENSCAD_ARCH: 'x86_64' } : {}),
     },
     stdio: 'inherit',
