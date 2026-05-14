@@ -27,6 +27,8 @@ Forge3D wraps the OpenSCAD you already have installed into a modern, integrated 
 Forge3D looks for OpenSCAD in common platform locations and on `PATH`. Set `FORGE3D_OPENSCAD_BIN` when your OpenSCAD executable lives somewhere custom.
 Set `FORGE3D_OPENSCAD_ARCH=x86_64` on macOS if a universal OpenSCAD build exposes an unstable native Apple Silicon renderer and you want Forge3D to force the Rosetta slice.
 
+If OpenSCAD is not installed, Forge3D will show an in-app helper that points to the official OpenSCAD downloads page and community resources.
+
 On Apple Silicon Macs, prefer the current OpenSCAD snapshot because the stable Homebrew cask may be Intel-only:
 
 ```bash
