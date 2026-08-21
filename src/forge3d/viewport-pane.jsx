@@ -1,4 +1,13 @@
+import { useState } from 'react';
 import Icons from './icons.jsx';
+import {
+  BACKGROUND_PRESETS,
+  DEFAULT_RENDER_APPEARANCE,
+  MATERIAL_SWATCHES,
+  RENDER_APPEARANCE_CONTROLS,
+  getViewportBackgroundGradient,
+  normalizeRenderAppearance,
+} from './render-appearance.js';
 
 export default function ViewportPane({
   buildElapsedMs = 0,
@@ -11,12 +20,11 @@ export default function ViewportPane({
   onCaptureRender,
   selectedAssemblyPart,
   setViewSettings,
-  theme,
   viewSettings,
 }) {
-  const viewportBackground = theme === 'dark'
-    ? 'linear-gradient(180deg,#314156 0%, #1a2230 55%, #0c1018 100%)'
-    : 'linear-gradient(180deg,#f8fbff 0%, #e6edf5 58%, #d2dbe7 100%)';
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const appearance = normalizeRenderAppearance(viewSettings.appearance);
+  const viewportBackground = getViewportBackgroundGradient(colors, appearance.background);
   const buttonStyle = (active) => ({
     background: active ? `${colors.accent}33` : `${colors.bgDarker}cc`,
     border: `1px solid ${active ? colors.accent : colors.border}`,
@@ -39,6 +47,34 @@ export default function ViewportPane({
       ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
       : `${seconds}s`;
   };
+  const updateAppearance = (patch) => {
+    setViewSettings((settings) => ({
+      ...settings,
+      appearance: normalizeRenderAppearance({ ...settings.appearance, ...patch }),
+    }));
+  };
+  const labelStyle = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    color: colors.textMuted,
+    fontSize: '11px',
+    fontWeight: 800,
+  };
+  const rangeStyle = {
+    width: '100%',
+    accentColor: colors.accent,
+  };
+  const presetButtonStyle = (active) => ({
+    border: `1px solid ${active ? colors.accent : colors.border}`,
+    background: active ? `${colors.accent}22` : colors.bgDarker,
+    color: active ? colors.accent : colors.textMuted,
+    borderRadius: '7px',
+    padding: '6px 8px',
+    fontSize: '11px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  });
 
   return (
     <div style={{ flex: 1, minWidth: minViewportWidth, display: 'flex', flexDirection: 'column', position: 'relative', background: viewportBackground }}>
@@ -67,9 +103,93 @@ export default function ViewportPane({
           <button key={key} title={label} onClick={() => setViewSettings(settings => ({ ...settings, [key]: !settings[key] }))} style={buttonStyle(viewSettings[key])}><Icon /></button>
         ))}
         <button title="Capture Render" onClick={() => onCaptureRender?.()} style={buttonStyle(false)}><Icons.Camera /></button>
+        <button title="Render Appearance" onClick={() => setAppearanceOpen((open) => !open)} style={buttonStyle(appearanceOpen)}><Icons.Sliders /></button>
       </div>
 
-      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: colors.surfaceOverlay || `${colors.bg}dd`, borderRadius: '10px', padding: '8px 11px', fontSize: '11px', color: colors.textMuted, fontWeight: 700, backdropFilter: 'blur(10px)', border: `1px solid ${colors.borderHover}`, boxShadow: theme === 'dark' ? '0 8px 24px rgba(0,0,0,0.24)' : '0 8px 20px rgba(64,80,96,0.14)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      {appearanceOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '46px',
+            left: '10px',
+            zIndex: 12,
+            width: '250px',
+            background: colors.surfaceOverlay || `${colors.bg}f2`,
+            border: `1px solid ${colors.borderHover}`,
+            borderRadius: '8px',
+            boxShadow: colors.viewportAppearanceShadow,
+            backdropFilter: 'blur(14px)',
+            padding: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+            <div style={{ color: colors.textSoft, fontSize: '12px', fontWeight: 900 }}>Render look</div>
+            <button
+              type="button"
+              onClick={() => updateAppearance(DEFAULT_RENDER_APPEARANCE)}
+              style={{ border: `1px solid ${colors.border}`, background: colors.bgDarker, color: colors.textMuted, borderRadius: '7px', padding: '5px 7px', fontSize: '10px', fontWeight: 800, cursor: 'pointer' }}
+            >
+              Reset
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
+            {BACKGROUND_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => updateAppearance({ background: preset.id })}
+                style={presetButtonStyle(appearance.background === preset.id)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '7px', alignItems: 'center' }}>
+            {MATERIAL_SWATCHES.map((swatch) => (
+              <button
+                key={swatch.id}
+                type="button"
+                title={swatch.label}
+                onClick={() => updateAppearance({ material: swatch.id })}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '999px',
+                  border: `2px solid ${appearance.material === swatch.id ? colors.accent : colors.border}`,
+                  background: swatch.color,
+                  cursor: 'pointer',
+                  boxShadow: appearance.material === swatch.id ? `0 0 0 2px ${colors.accent}22` : 'none',
+                }}
+              />
+            ))}
+          </div>
+
+          {RENDER_APPEARANCE_CONTROLS.map((control) => (
+            <label key={control.key} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <span style={labelStyle}>
+                <span>{control.label}</span>
+                <span>{Math.round(appearance[control.key] * 100)}%</span>
+              </span>
+              <input
+                type="range"
+                min={control.min}
+                max={control.max}
+                step={control.step}
+                value={appearance[control.key]}
+                onChange={(event) => updateAppearance({ [control.key]: Number(event.target.value) })}
+                style={rangeStyle}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: colors.surfaceOverlay || `${colors.bg}dd`, borderRadius: '10px', padding: '8px 11px', fontSize: '11px', color: colors.textMuted, fontWeight: 700, backdropFilter: 'blur(10px)', border: `1px solid ${colors.borderHover}`, boxShadow: colors.viewportHudShadow, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         {mode === 'assembly' ? (
           <>
             <span>Orbit: LMB</span><span>Pan: RMB</span><span>Move: Amber handle</span><span>Rotate: Amber ring</span><span>Undo: Ctrl+Z</span><span>{selectedAssemblyPart ? `Selected: ${selectedAssemblyPart.name}` : 'Select a part to edit'}</span>
@@ -91,9 +211,7 @@ export default function ViewportPane({
             alignItems: 'center',
             justifyContent: 'center',
             pointerEvents: 'none',
-            background: theme === 'dark'
-              ? 'radial-gradient(circle at center, rgba(25,36,54,0.14), rgba(10,14,22,0.56))'
-              : 'radial-gradient(circle at center, rgba(255,255,255,0.2), rgba(214,224,236,0.52))',
+            background: colors.viewportBuildingOverlay,
           }}
         >
           <div

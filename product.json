@@ -1,0 +1,38 @@
+{
+  "slug": "forge3d",
+  "name": "Forge3D",
+  "version": "3.0.2",
+  "kind": "desktop-app",
+  "summary": "Desktop OpenSCAD modeling IDE with preview packages for Windows, macOS, and Linux.",
+  "status": "preview; v3.0.2 prerelease packages published",
+  "repo": "https://github.com/StoneHub/forge3d-app",
+  "liveUrl": "",
+  "releaseUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.0.2",
+  "downloadUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.0.2",
+  "supportUrl": "https://github.com/StoneHub/forge3d-app/issues",
+  "license": "MIT",
+  "platforms": ["Windows", "macOS", "Linux"],
+  "requirements": [
+    "OpenSCAD installed locally",
+    "The macOS v3.0.2 DMG is an unsigned development preview",
+    "Node.js 22+ and npm 10+ for source builds",
+    "Current source may contain changes newer than the published v3.0.2 artifacts"
+  ],
+  "highlights": [
+    "OpenSCAD editor with native OpenSCAD render loop",
+    "Three.js viewport with orbit, pan, zoom, grid, axes, and dimension overlays",
+    "Parameter controls from OpenSCAD variables and // @param annotations",
+    "File open/save, STL export, recent files, and workspace browser",
+    "Published v3.0.2 preview packages for Windows, macOS, and Linux"
+  ],
+  "screenshots": [
+    {
+      "src": "docs/screenshots/forge3d-dimensions-demo.png",
+      "alt": "Forge3D editor and 3D viewport with dimension brackets"
+    },
+    {
+      "src": "docs/screenshots/forge3d-electron-demo.png",
+      "alt": "Forge3D Electron desktop app interface"
+    }
+  ]
+}

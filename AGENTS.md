@@ -3,6 +3,18 @@
 ## What Is This?
 Forge3D is an Electron desktop parametric 3D modeling IDE for OpenSCAD `.scad` files. It is evolving into a **unified modeling-to-print pipeline**: edit `.scad` → render STL → arrange on print bed → slice → export G-code.
 
+## Public Direction
+
+Forge3D is one of Monroe's strongest portfolio anchors. Treat public-facing work here as proof that he can ship serious desktop/product engineering, not just experiments.
+
+Direction:
+
+- Emphasize practical CAD-to-print workflow value.
+- Prefer credible, working slices over broad claims about replacing mature CAD tools.
+- Keep README, screenshots, releases, and demos focused on what actually works today.
+- When improving public surfaces, connect the project to Monroe's broader story: Android/cloud/automation engineer building useful tools under real constraints.
+- Avoid over-indexing on AI language unless it directly improves the modeling workflow.
+
 ## Tech Stack
 - **Vite + React 18** — SPA, no router
 - **Three.js 0.170** — 3D viewport
@@ -51,11 +63,13 @@ npm run dist         # Package desktop app / installer
 ```
 
 ## Verification
-- There is currently no automated test suite or `npm test` script in this repo.
+- Node tests live under `scripts/*.test.mjs`; run them with `npm run test:node`.
+- There is no aggregate `npm test` script.
 - For renderer/UI changes, the default "done" bar is `npm run build` succeeding and the touched interaction behaving correctly in Electron.
 - For Electron main/preload changes, also run:
   - `node --check electron/main.mjs`
   - `node --check electron/preload.cjs`
+- For release workflow, packaging, or catalog metadata changes, run `npm run test:node` and verify the relevant GitHub Actions jobs before claiming cross-platform output.
 
 ## Branch Hygiene
 - Before editing files, check the current branch with `git status --short --branch` and compare it to both `main` and `origin/main`.

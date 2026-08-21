@@ -19,6 +19,14 @@ export function getThemeColors(theme = 'dark') {
         logoGlow: 'linear-gradient(135deg,#4fc3f7,#7c4dff)',
         btnHover: '#262b44',
         surfaceOverlay: 'rgba(16, 19, 31, 0.88)',
+        viewportBackgrounds: {
+          studio: ['#314156', '#1a2230', '#0c1018'],
+          soft: ['#2a3645', '#1c2530', '#10151d'],
+          dark: ['#1e2937', '#121923', '#080b10'],
+        },
+        viewportAppearanceShadow: '0 18px 42px rgba(0,0,0,0.32)',
+        viewportHudShadow: '0 8px 24px rgba(0,0,0,0.24)',
+        viewportBuildingOverlay: 'radial-gradient(circle at center, rgba(25,36,54,0.14), rgba(10,14,22,0.56))',
       }
     : {
         bg: '#f0f2f5',
@@ -39,5 +47,13 @@ export function getThemeColors(theme = 'dark') {
         logoGlow: 'linear-gradient(135deg,#1565c0,#4527a0)',
         btnHover: '#f0f0f0',
         surfaceOverlay: 'rgba(255, 255, 255, 0.92)',
+        viewportBackgrounds: {
+          studio: ['#f8fbff', '#e6edf5', '#d2dbe7'],
+          soft: ['#fbfcff', '#edf2f7', '#dfe7ef'],
+          dark: ['#dce6f0', '#c7d4e2', '#aebdca'],
+        },
+        viewportAppearanceShadow: '0 18px 38px rgba(48,64,80,0.18)',
+        viewportHudShadow: '0 8px 20px rgba(64,80,96,0.14)',
+        viewportBuildingOverlay: 'radial-gradient(circle at center, rgba(255,255,255,0.2), rgba(214,224,236,0.52))',
       };
 }
