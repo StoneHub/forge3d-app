@@ -2,7 +2,9 @@ import fs from 'fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const workflow = fs.readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+const workflow = fs
+  .readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
+  .replaceAll('\r\n', '\n');
 
 test('manual releases check out the requested tag', () => {
   assert.match(workflow, /tag:\n\s+description: Existing tag to publish, for manual release runs\.\n\s+required: true/);
