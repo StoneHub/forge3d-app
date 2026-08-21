@@ -18,6 +18,8 @@ test('pull requests exercise packaging without publishing a release', () => {
 });
 
 test('release screenshots are isolated by runner and remain optional', () => {
+  assert.match(workflow, /os: windows-2022/);
+  assert.doesNotMatch(workflow, /os: windows-latest/);
   assert.match(workflow, /screenshot: darwin/);
   assert.match(workflow, /screenshot: win32/);
   assert.match(workflow, /screenshot: linux/);

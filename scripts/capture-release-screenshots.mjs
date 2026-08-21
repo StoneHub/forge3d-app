@@ -1,14 +1,12 @@
 import { mkdir } from 'fs/promises';
 import { spawn } from 'child_process';
+import electronBin from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveOpenScadLaunch } from '../electron/openscad-bin.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const electronBin = process.platform === 'win32'
-  ? path.join(repoRoot, 'node_modules', '.bin', 'electron.cmd')
-  : path.join(repoRoot, 'node_modules', '.bin', 'electron');
 
 const defaultScadPath = path.join(repoRoot, 'docs', 'release-assets', 'forge3d-showcase.scad');
 const defaultOutputPath = path.join(

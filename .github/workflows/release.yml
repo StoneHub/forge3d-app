@@ -33,7 +33,7 @@ jobs:
           - os: macos-14
             artifact: macos
             screenshot: darwin
-          - os: windows-latest
+          - os: windows-2022
             artifact: windows
             screenshot: win32
           - os: ubuntu-latest
