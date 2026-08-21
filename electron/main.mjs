@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from 'electron'
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
@@ -25,6 +25,34 @@ const ZOOM_STEP = 0.1
 
 function isReleaseScreenshotMode() {
   return process.env.FORGE3D_RELEASE_SCREENSHOT === '1'
+}
+
+async function loadDevFeedbackExtension() {
+  const configuredPath = process.env.FORGE3D_FEEDBACK_EXTENSION
+  if (!configuredPath) return null
+  if (!isDev) {
+    throw new Error('FORGE3D_FEEDBACK_EXTENSION is development-only and cannot be used by a packaged app.')
+  }
+
+  const extensionPath = await fs.realpath(path.resolve(configuredPath))
+  const extensionStat = await fs.stat(extensionPath)
+  if (!extensionStat.isDirectory()) {
+    throw new Error(`Feedback extension path is not a directory: ${extensionPath}`)
+  }
+
+  const manifestPath = path.join(extensionPath, 'manifest.json')
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
+  if (manifest.manifest_version !== 3 || typeof manifest.name !== 'string') {
+    throw new Error(`Feedback extension manifest is not a named Manifest V3 extension: ${manifestPath}`)
+  }
+
+  const targetSession = session.defaultSession
+  const extension = targetSession.extensions?.loadExtension
+    ? await targetSession.extensions.loadExtension(extensionPath)
+    : await targetSession.loadExtension(extensionPath)
+
+  console.log(`[DevFeedback] Loaded ${extension.name} (${extension.id}) from ${extensionPath}`)
+  return extension
 }
 
 function buildStableChildProcessEnv(overrides = {}) {
@@ -1463,6 +1491,7 @@ ipcMain.handle('terminal:kill', () => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  await loadDevFeedbackExtension()
   await maybeGenerateStartPreviewsOnStartup()
   createWindow()
 })
