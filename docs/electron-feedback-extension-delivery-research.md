@@ -55,12 +55,14 @@ Sources:
 The Electron integration should be a deep module with a small interface:
 
 ```js
-import { installDevFeedback } from '@dev-feedback/electron/main'
+import { installElectronInspector } from '@dev-feedback/electron/main'
 
-installDevFeedback({
+installElectronInspector({
   app,
-  mainWindow,
-  projectRoot,
+  ipcMain,
+  getMainWindow: () => mainWin,
+  hostId: 'forge3d',
+  hostName: 'Forge3D',
 })
 ```
 
@@ -72,7 +74,7 @@ The package should own:
 - readable clipboard export after an explicit user action; and
 - the preload and IPC implementation needed by Electron.
 
-Forge3D should know only the installation call and stable Host App identity. Tests should cross that interface, not reach through it to Electron internals.
+Forge3D supplies Electron's `app` and `ipcMain` primitives plus a current-window callback once at the installer boundary. The package owns channel names, sender validation, persistence, and renderer behavior; Forge3D does not expose IPC to its renderer. Tests cross the package installer and built-preload boundaries instead of asserting package internals.
 
 The browser and Electron adapters should share the Capture Record constructor and validation. They should not share Chrome-specific activation code.
 
