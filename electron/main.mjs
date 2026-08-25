@@ -10,12 +10,15 @@ import { resolveOpenScadLaunch } from './openscad-bin.mjs'
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
 
 const require = createRequire(import.meta.url)
-const { installElectronInspector } = require('@dev-feedback/electron/main')
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
+let installElectronInspector = null
+if (isDev) {
+  ;({ installElectronInspector } = require('@dev-feedback/electron/main'))
+}
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
@@ -430,14 +433,13 @@ function createWindow() {
   })
 
   mainWin = win
-  if (!feedbackInspector) {
+  if (installElectronInspector && !feedbackInspector) {
     feedbackInspector = installElectronInspector({
       app,
       ipcMain,
       getMainWindow: () => mainWin,
       hostId: 'forge3d',
       hostName: 'Forge3D',
-      inboxRoot: path.join(app.getPath('downloads'), 'Forge3D'),
     })
   }
   buildAppMenu()

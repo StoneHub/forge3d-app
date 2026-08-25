@@ -288,7 +288,12 @@ export default function ViewportPane({
         </div>
       )}
 
-      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <canvas
+        ref={canvasRef}
+        aria-label="3D model viewport"
+        data-feature="3D viewport"
+        style={{ width: '100%', height: '100%', display: 'block' }}
+      />
     </div>
   );
 }

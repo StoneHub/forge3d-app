@@ -1,7 +1,9 @@
 const { contextBridge, ipcRenderer, clipboard } = require('electron')
-const { installElectronInspectorPreload } = require('@dev-feedback/electron/preload')
 
-installElectronInspectorPreload({ ipcRenderer })
+if (typeof __FORGE3D_FEEDBACK_INSPECTOR__ !== 'undefined' && __FORGE3D_FEEDBACK_INSPECTOR__) {
+  const { installElectronInspectorPreload } = require('@dev-feedback/electron/preload')
+  installElectronInspectorPreload({ ipcRenderer })
+}
 
 contextBridge.exposeInMainWorld('forgeAPI', {
   // File dialogs

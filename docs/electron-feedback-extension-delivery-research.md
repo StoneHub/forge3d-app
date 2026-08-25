@@ -6,7 +6,7 @@ Research and dogfood run: 2026-08-21
 
 Do not ship Dev Feedback Capture inside Forge3D as a Chrome extension.
 
-The browser extension remains the browser product. Electron apps should use a small development package that provides a Forge3D-owned **Capture feedback** menu action, reuses the Capture Record format, and hands records to the same local MCP companion.
+The browser extension remains the browser adapter. Electron apps should use a small development package that provides a Forge3D-owned **Inspect this app** menu action, reuses the Capture Record format, and keeps its own app-local History.
 
 Keep the unpacked-extension loader only as a compatibility experiment. Electron can load the directory, but the current extension does not initialize on Electron 33.
 
@@ -69,10 +69,10 @@ The package should own:
 - the Forge3D menu item and shortcut;
 - the renderer overlay and Region screenshot flow;
 - local Capture Record persistence;
-- export into the configured local MCP inbox; and
+- readable clipboard export after an explicit user action; and
 - the preload and IPC implementation needed by Electron.
 
-Forge3D should know only the installation call and the explicit project/inbox configuration. Tests should cross that interface, not reach through it to Electron internals.
+Forge3D should know only the installation call and stable Host App identity. Tests should cross that interface, not reach through it to Electron internals.
 
 The browser and Electron adapters should share the Capture Record constructor and validation. They should not share Chrome-specific activation code.
 
@@ -80,12 +80,12 @@ The browser and Electron adapters should share the Capture Record constructor an
 
 The adapter may capture only what Monroe explicitly selects or includes in a Region screenshot. Forge3D source, local paths, terminal text, build logs, and clipboard contents must not be gathered automatically.
 
-Records stay local until an explicit export or MCP import. Implementation and verification remain separate proof gates.
+Records stay local until the user explicitly copies History. The package does not choose or message a Codex task; Monroe pastes the Markdown into the destination he intends. Implementation and verification remain separate proof gates.
 
 ## Delivery sequence
 
 1. Build an Element-only development adapter and Forge3D menu entry.
-2. Dogfood selector, visible text, note, History, and MCP import in Forge3D.
+2. Dogfood feature identity, selector, safe accessibility text, note, and History in Forge3D.
 3. Add Region capture through Electron's `webContents.capturePage` behind the same package interface.
 4. Package the adapter with the host app only after the development workflow is useful.
 
@@ -100,14 +100,14 @@ Sources:
 
 ## Dogfood implementation
 
-Forge3D now consumes the first local `@dev-feedback/electron` package archive on this isolated branch. The Host App contributes one `Inspect this app` menu item and one preload hook. The package supplies Element selection, local History, Capture Record validation, and the explicit Downloads handoff.
+Forge3D now consumes the local `@dev-feedback/electron` package archive on this isolated branch. The Host App contributes one `Inspect this app` menu item, one preload hook, and explicit semantic labels such as `3D model viewport`. The package supplies Element selection, Feature Labels, local History, Capture Record validation, and explicit `Copy History` Markdown.
 
-Electron's sandboxed preload cannot load arbitrary npm modules at runtime. Forge3D therefore bundles its existing preload and the package hook with esbuild before dev, build, or packaging. Electron remains sandboxed with context isolation enabled and Node integration disabled.
+Electron's sandboxed preload cannot load arbitrary npm modules at runtime. Forge3D therefore bundles its existing preload and the package hook with esbuild for development. Production build and packaging commands generate a preload bundle without the dogfood package. Electron remains sandboxed with context isolation enabled and Node integration disabled.
 
 The vendored archive is a review artifact, not a registry release. It keeps the stacked Forge3D test reproducible while PR #14 remains open. A normal Forge3D release should depend on a published package or another immutable package source after the dogfood gate passes.
 
 ## Next gate
 
-Use `Inspect this app` or `CmdOrCtrl+Shift+.` in Forge3D, capture one real interface element, save a note, open History, and choose `Send to Codex`. Then import the newest handoff from `Downloads/Forge3D` through the existing local MCP companion.
+Use `Inspect this app` or `CmdOrCtrl+Shift+.` in Forge3D, capture one real interface element, save a note, open History, and choose `Copy History`. Confirm that the Feature Label identifies the selected interface and paste the Markdown into a chosen Codex task or issue.
 
 Keep implementation and verification separate. Region capture remains the next package slice after this Element workflow proves useful.
