@@ -12,6 +12,7 @@ import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mj
 let pty = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
+if (isDev) await import('@dev-feedback/electron/register')
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
@@ -386,6 +387,7 @@ function buildAppMenu() {
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setWindowZoomFactor(mainWin, 1) },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => adjustWindowZoomFactor(mainWin, ZOOM_STEP) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => adjustWindowZoomFactor(mainWin, -ZOOM_STEP) },
+        { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
     },

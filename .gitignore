@@ -1,4 +1,5 @@
 node_modules/
+electron/preload.bundle.cjs
 dist/
 /release/
 docs/screenshots/release/
