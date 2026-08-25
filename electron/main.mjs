@@ -1,12 +1,16 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { spawn, spawnSync } from 'child_process'
+import { createRequire } from 'module'
 import { resolveOpenScadLaunch } from './openscad-bin.mjs'
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
+
+const require = createRequire(import.meta.url)
+const { installElectronInspector } = require('@dev-feedback/electron/main')
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
@@ -25,34 +29,6 @@ const ZOOM_STEP = 0.1
 
 function isReleaseScreenshotMode() {
   return process.env.FORGE3D_RELEASE_SCREENSHOT === '1'
-}
-
-async function loadDevFeedbackExtension() {
-  const configuredPath = process.env.FORGE3D_FEEDBACK_EXTENSION
-  if (!configuredPath) return null
-  if (!isDev) {
-    throw new Error('FORGE3D_FEEDBACK_EXTENSION is development-only and cannot be used by a packaged app.')
-  }
-
-  const extensionPath = await fs.realpath(path.resolve(configuredPath))
-  const extensionStat = await fs.stat(extensionPath)
-  if (!extensionStat.isDirectory()) {
-    throw new Error(`Feedback extension path is not a directory: ${extensionPath}`)
-  }
-
-  const manifestPath = path.join(extensionPath, 'manifest.json')
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
-  if (manifest.manifest_version !== 3 || typeof manifest.name !== 'string') {
-    throw new Error(`Feedback extension manifest is not a named Manifest V3 extension: ${manifestPath}`)
-  }
-
-  const targetSession = session.defaultSession
-  const extension = targetSession.extensions?.loadExtension
-    ? await targetSession.extensions.loadExtension(extensionPath)
-    : await targetSession.loadExtension(extensionPath)
-
-  console.log(`[DevFeedback] Loaded ${extension.name} (${extension.id}) from ${extensionPath}`)
-  return extension
 }
 
 function buildStableChildProcessEnv(overrides = {}) {
@@ -414,6 +390,8 @@ function buildAppMenu() {
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setWindowZoomFactor(mainWin, 1) },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => adjustWindowZoomFactor(mainWin, ZOOM_STEP) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => adjustWindowZoomFactor(mainWin, -ZOOM_STEP) },
+        { type: 'separator' },
+        ...(feedbackInspector ? [feedbackInspector.menuItem()] : []),
         { role: 'togglefullscreen' },
       ],
     },
@@ -447,11 +425,21 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'preload.bundle.cjs'),
     },
   })
 
   mainWin = win
+  if (!feedbackInspector) {
+    feedbackInspector = installElectronInspector({
+      app,
+      ipcMain,
+      getMainWindow: () => mainWin,
+      hostId: 'forge3d',
+      hostName: 'Forge3D',
+      inboxRoot: path.join(app.getPath('downloads'), 'Forge3D'),
+    })
+  }
   buildAppMenu()
   win.setMenuBarVisibility(false)
   setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
@@ -1224,6 +1212,7 @@ ipcMain.handle('openscad:cancel', async (_event, { requestId } = {}) => {
 
 // ── Terminal PTY ────────────────────────────────────────────────────────────
 let ptyProcess = null
+let feedbackInspector = null
 let terminalSessionId = 0
 let terminalState = {
   status: 'idle',
@@ -1491,9 +1480,13 @@ ipcMain.handle('terminal:kill', () => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  await loadDevFeedbackExtension()
   await maybeGenerateStartPreviewsOnStartup()
   createWindow()
+})
+
+app.on('before-quit', () => {
+  feedbackInspector?.dispose()
+  feedbackInspector = null
 })
 
 app.on('window-all-closed', () => {

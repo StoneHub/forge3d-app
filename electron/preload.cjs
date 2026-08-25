@@ -1,4 +1,7 @@
 const { contextBridge, ipcRenderer, clipboard } = require('electron')
+const { installElectronInspectorPreload } = require('@dev-feedback/electron/preload')
+
+installElectronInspectorPreload({ ipcRenderer })
 
 contextBridge.exposeInMainWorld('forgeAPI', {
   // File dialogs

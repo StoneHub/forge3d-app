@@ -98,8 +98,16 @@ Sources:
 - [Electron process sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox)
 - [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
 
+## Dogfood implementation
+
+Forge3D now consumes the first local `@dev-feedback/electron` package archive on this isolated branch. The Host App contributes one `Inspect this app` menu item and one preload hook. The package supplies Element selection, local History, Capture Record validation, and the explicit Downloads handoff.
+
+Electron's sandboxed preload cannot load arbitrary npm modules at runtime. Forge3D therefore bundles its existing preload and the package hook with esbuild before dev, build, or packaging. Electron remains sandboxed with context isolation enabled and Node integration disabled.
+
+The vendored archive is a review artifact, not a registry release. It keeps the stacked Forge3D test reproducible while PR #14 remains open. A normal Forge3D release should depend on a published package or another immutable package source after the dogfood gate passes.
+
 ## Next gate
 
-Forge3D PR #14 is still a draft. This experiment is disposable and pinned to its clean tip. Durable adapter work should start from updated `main` after that release candidate merges.
+Use `Inspect this app` or `CmdOrCtrl+Shift+.` in Forge3D, capture one real interface element, save a note, open History, and choose `Send to Codex`. Then import the newest handoff from `Downloads/Forge3D` through the existing local MCP companion.
 
-The next implementation decision is whether the Electron adapter belongs in the Dev Feedback Capture repository as a package, or starts as a Forge3D-local module and moves only after a second Electron host exists. The recommended answer is the package now because the browser adapter is already the second implementation at the shared Capture Record seam.
+Keep implementation and verification separate. Region capture remains the next package slice after this Element workflow proves useful.
