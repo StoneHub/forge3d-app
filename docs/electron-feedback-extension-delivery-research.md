@@ -6,7 +6,7 @@ Research and dogfood run: 2026-08-21
 
 Do not ship Dev Feedback Capture inside Forge3D as a Chrome extension.
 
-The browser extension remains the browser adapter. Electron apps should use a small development package that provides a Forge3D-owned **Inspect this app** menu action, reuses the Capture Record format, and keeps its own app-local History.
+The browser extension remains the browser adapter. Electron apps should use a small development package that provides a development-only inspector shortcut, reuses the Capture Record format, and keeps its own app-local History.
 
 Keep the unpacked-extension loader only as a compatibility experiment. Electron can load the directory, but the current extension does not initialize on Electron 33.
 
@@ -52,29 +52,21 @@ Sources:
 
 ## Recommended package interface
 
-The Electron integration should be a deep module with a small interface:
+The Electron integration is a deep module with a one-line interface. Add it to the main-process entry before creating a window:
 
 ```js
-import { installElectronInspector } from '@dev-feedback/electron/main'
-
-installElectronInspector({
-  app,
-  ipcMain,
-  getMainWindow: () => mainWin,
-  hostId: 'forge3d',
-  hostName: 'Forge3D',
-})
+if (!app.isPackaged) await import('@dev-feedback/electron/register')
 ```
 
 The package should own:
 
-- the Forge3D menu item and shortcut;
-- the renderer overlay and Region screenshot flow;
+- the multi-window shortcut;
+- the Element-selection overlay;
 - local Capture Record persistence;
 - readable clipboard export after an explicit user action; and
 - the preload and IPC implementation needed by Electron.
 
-Forge3D supplies Electron's `app` and `ipcMain` primitives plus a current-window callback once at the installer boundary. The package owns channel names, sender validation, persistence, and renderer behavior; Forge3D does not expose IPC to its renderer. Tests cross the package installer and built-preload boundaries instead of asserting package internals.
+Forge3D supplies only the guarded import. The package owns session preload registration, window discovery, channel names, sender validation, persistence, and renderer behavior; Forge3D does not expose IPC to its renderer. Tests cross the registration and built-preload boundaries instead of asserting package internals.
 
 The browser and Electron adapters should share the Capture Record constructor and validation. They should not share Chrome-specific activation code.
 
@@ -86,7 +78,7 @@ Records stay local until the user explicitly copies History. The package does no
 
 ## Delivery sequence
 
-1. Build an Element-only development adapter and Forge3D menu entry.
+1. Build an Element-only development adapter and one-line Forge3D registration.
 2. Dogfood feature identity, selector, safe accessibility text, note, and History in Forge3D.
 3. Add Region capture through Electron's `webContents.capturePage` behind the same package interface.
 4. Package the adapter with the host app only after the development workflow is useful.
@@ -102,14 +94,14 @@ Sources:
 
 ## Dogfood implementation
 
-Forge3D now consumes the local `@dev-feedback/electron` package archive on this isolated branch. The Host App contributes one `Inspect this app` menu item, one preload hook, and explicit semantic labels such as `3D model viewport`. The package supplies Element selection, Feature Labels, local History, Capture Record validation, and explicit `Copy History` Markdown.
+Forge3D now consumes the local `@dev-feedback/electron` package archive on this isolated branch. The Host App contributes one development-only registration line and explicit semantic labels such as `3D model viewport`. The package supplies its session preload, multi-window shortcut, Element selection, Feature Labels, local History, Capture Record validation, and explicit `Copy History` Markdown.
 
-Electron's sandboxed preload cannot load arbitrary npm modules at runtime. Forge3D therefore bundles its existing preload and the package hook with esbuild for development. Production build and packaging commands generate a preload bundle without the dogfood package. Electron remains sandboxed with context isolation enabled and Node integration disabled.
+The package ships a self-contained sandbox-compatible preload and appends it to Electron's session preloads without replacing Forge3D's preload. The guarded import is inert in packaged apps, and the package remains a development dependency. Electron stays sandboxed with context isolation enabled and Node integration disabled.
 
 The vendored archive is a review artifact, not a registry release. It keeps the stacked Forge3D test reproducible while PR #14 remains open. A normal Forge3D release should depend on a published package or another immutable package source after the dogfood gate passes.
 
 ## Next gate
 
-Use `Inspect this app` or `CmdOrCtrl+Shift+.` in Forge3D, capture one real interface element, save a note, open History, and choose `Copy History`. Confirm that the Feature Label identifies the selected interface and paste the Markdown into a chosen Codex task or issue.
+Press `CmdOrCtrl+Shift+.` in Forge3D, capture one real interface element, save a note, open History, and choose `Copy History`. Confirm that the Feature Label identifies the selected interface and paste the Markdown into a chosen Codex task or issue.
 
 Keep implementation and verification separate. Region capture remains the next package slice after this Element workflow proves useful.

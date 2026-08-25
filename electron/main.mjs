@@ -5,20 +5,14 @@ import path from 'path'
 import os from 'os'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { spawn, spawnSync } from 'child_process'
-import { createRequire } from 'module'
 import { resolveOpenScadLaunch } from './openscad-bin.mjs'
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
-
-const require = createRequire(import.meta.url)
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
-let installElectronInspector = null
-if (isDev) {
-  ;({ installElectronInspector } = require('@dev-feedback/electron/main'))
-}
+if (isDev) await import('@dev-feedback/electron/register')
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
@@ -394,7 +388,6 @@ function buildAppMenu() {
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => adjustWindowZoomFactor(mainWin, ZOOM_STEP) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => adjustWindowZoomFactor(mainWin, -ZOOM_STEP) },
         { type: 'separator' },
-        ...(feedbackInspector ? [feedbackInspector.menuItem()] : []),
         { role: 'togglefullscreen' },
       ],
     },
@@ -428,20 +421,11 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.bundle.cjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
   mainWin = win
-  if (installElectronInspector && !feedbackInspector) {
-    feedbackInspector = installElectronInspector({
-      app,
-      ipcMain,
-      getMainWindow: () => mainWin,
-      hostId: 'forge3d',
-      hostName: 'Forge3D',
-    })
-  }
   buildAppMenu()
   win.setMenuBarVisibility(false)
   setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
@@ -1214,7 +1198,6 @@ ipcMain.handle('openscad:cancel', async (_event, { requestId } = {}) => {
 
 // ── Terminal PTY ────────────────────────────────────────────────────────────
 let ptyProcess = null
-let feedbackInspector = null
 let terminalSessionId = 0
 let terminalState = {
   status: 'idle',
@@ -1484,11 +1467,6 @@ ipcMain.handle('terminal:kill', () => {
 app.whenReady().then(async () => {
   await maybeGenerateStartPreviewsOnStartup()
   createWindow()
-})
-
-app.on('before-quit', () => {
-  feedbackInspector?.dispose()
-  feedbackInspector = null
 })
 
 app.on('window-all-closed', () => {
