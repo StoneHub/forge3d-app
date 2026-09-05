@@ -46,8 +46,8 @@ export default function BottomPane({
   allErrors,
   allWarnings,
   askAI,
-  buildTime,
   colors,
+  collapsed = false,
   jumpToLine,
   onActiveTabChange,
   onEnsureTerminalSession,
@@ -80,7 +80,7 @@ export default function BottomPane({
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: colors.bgDark }}>
-      <div style={{ height: '30px', minHeight: '30px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
+      <div style={{ height: '31px', minHeight: '31px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${colors.border}`, padding: '0 8px', gap: '2px' }}>
         {[
           { id: 'console', label: 'Console', count: result.logs.length },
           { id: 'errors', label: 'Problems', count: allErrors.length + allWarnings.length },
@@ -88,15 +88,18 @@ export default function BottomPane({
         ].map(({ id, label, count }) => (
           <button
             key={id}
+            aria-expanded={!collapsed && activeTab === id}
+            aria-controls="bottom-panel-content"
+            title={!collapsed && activeTab === id ? `Hide ${label}` : `Show ${label}`}
             onClick={() => {
               onActiveTabChange(id);
-              if (id === 'terminal') onFocusTerminal?.();
+              if (id === 'terminal' && (collapsed || activeTab !== id)) onFocusTerminal?.();
             }}
             style={{
-              background: activeTab === id ? colors.bgPanel : 'transparent',
+              background: !collapsed && activeTab === id ? colors.bgPanel : 'transparent',
               border: 'none',
-              borderBottom: activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent',
-              color: activeTab === id ? colors.textSoft : colors.textMuted,
+              borderBottom: !collapsed && activeTab === id ? `2px solid ${colors.accent}` : '2px solid transparent',
+              color: !collapsed && activeTab === id ? colors.textSoft : colors.textMuted,
               cursor: 'pointer',
               padding: '5px 10px',
               fontSize: '12px',
@@ -120,12 +123,11 @@ export default function BottomPane({
               <span>✦</span> Ask AI
             </button>
           )}
-          <Icons.Zap /><span>{buildTime}ms</span>
         </div>
       </div>
 
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <div style={panelStyle(activeTab === 'console')}>
+      <div id="bottom-panel-content" hidden={collapsed} style={{ minHeight: 0, flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <div inert={activeTab !== 'console' ? '' : undefined} aria-hidden={activeTab !== 'console'} style={panelStyle(activeTab === 'console')}>
           {result.logs.length === 0 && <div style={{ color: colors.textMuted, marginBottom: '6px', whiteSpace: 'pre-wrap' }}>{statusMessage}</div>}
           {result.logs.length === 0 && <div style={{ color: colors.textFaint }}>// Console output appears here...</div>}
           {result.logs.map((log, index) => (
@@ -136,7 +138,7 @@ export default function BottomPane({
           ))}
         </div>
 
-        <div style={panelStyle(activeTab === 'errors')}>
+        <div inert={activeTab !== 'errors' ? '' : undefined} aria-hidden={activeTab !== 'errors'} style={panelStyle(activeTab === 'errors')}>
           <>
             {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>No problems detected</div>}
             {showOpenScadSupport && (
@@ -221,10 +223,10 @@ export default function BottomPane({
           </>
         </div>
 
-        <div style={panelStyle(activeTab === 'terminal', { padding: '0' })}>
+        <div inert={activeTab !== 'terminal' ? '' : undefined} aria-hidden={activeTab !== 'terminal'} style={panelStyle(activeTab === 'terminal', { padding: '0' })}>
           <TerminalPane
             ref={terminalPaneRef}
-            active={activeTab === 'terminal'}
+            active={!collapsed && activeTab === 'terminal'}
             colors={colors}
             focusToken={terminalFocusToken}
             onEnsureSession={onEnsureTerminalSession}
