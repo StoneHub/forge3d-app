@@ -396,6 +396,8 @@ export default function Forge3D() {
   const [booleanOperandId, setBooleanOperandId] = useState(null);
   const [assemblyHistory, setAssemblyHistory] = useState(() => createHistoryState(DEFAULT_ASSEMBLY_SCENE));
   const assemblyScene = assemblyHistory.present;
+  const latestAssemblySceneRef = useRef(assemblyScene);
+  latestAssemblySceneRef.current = assemblyScene;
   const [assemblyMeasurement, setAssemblyMeasurement] = useState(DEFAULT_ASSEMBLY_MEASUREMENT);
   const [holeTool, setHoleTool] = useState(false);
   const [holePick, setHolePick] = useState(null);
@@ -1068,6 +1070,9 @@ export default function Forge3D() {
     try {
       setHoleError('');
       const payload = await runAssemblyBooleanOperation('subtract', target, cutter);
+      if (latestAssemblySceneRef.current.parts.find((part) => part.id === target.id) !== target) {
+        throw new Error('The target changed during the cut. Pick the surface again.');
+      }
       const derived = createAssemblyPart({
         name: `${target.name} · Ø${holeDiameter} hole`,
         source: { kind: 'derived', filePath: null },
@@ -1083,7 +1088,9 @@ export default function Forge3D() {
       setHolePick(null);
       setStatusMessage('Hole created. Original part and cutter retained in the scene.');
     } catch (error) {
-      setHoleError(error.message || 'Hole could not be cut.');
+      const message = error.message || 'Hole could not be cut.';
+      setHoleError(message);
+      setStatusMessage(message);
     }
   }, [holePreview, holeTarget, holeDiameter, holePick, booleanBusy, runAssemblyBooleanOperation, updateAssemblyScene]);
 

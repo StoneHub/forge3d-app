@@ -549,6 +549,7 @@ export function useThreeRenderer({
 
       syncSelection(resources, assemblyScene, selectedPartId, theme);
     }
+    resources.gizmoRoot.visible = !measurement?.enabled && !holeTool;
     syncMeasurement(resources, measurement, theme);
     if (holePreview) {
       const cutter = new THREE.Mesh(holePreview.geometry, new THREE.MeshBasicMaterial({ color: 0xff6b78, transparent: true, opacity: 0.45, depthWrite: false }));
@@ -572,7 +573,7 @@ export function useThreeRenderer({
     if (shouldReset) Object.assign(cameraStateRef.current, DEFAULT_CAMERA);
     if (shouldReset) updateCamera(resources.camera, cameraStateRef.current);
     if ((shouldReset || shouldFit) && box) frameBoundingBox(resources.camera, cameraStateRef.current, box);
-  }, [mode, viewSettings, stlGeometry, assemblyScene, selectedPartId, measurement, holePreview, resetViewSignal, fitViewSignal, theme]);
+  }, [mode, viewSettings, stlGeometry, assemblyScene, selectedPartId, measurement, holeTool, holePreview, resetViewSignal, fitViewSignal, theme]);
 
   return scene;
 }
