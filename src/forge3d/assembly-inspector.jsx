@@ -102,7 +102,6 @@ function formatMeasurementPoint(point) {
 }
 
 export default function AssemblyInspector({
-  autoRun,
   booleanBusy = false,
   booleanBusyLabel = 'Working...',
   booleanOperandId,
@@ -110,7 +109,6 @@ export default function AssemblyInspector({
   building,
   canRefreshCurrentRender,
   colors,
-  currentFileName,
   measurement,
   metrics,
   onBooleanOperandChange,
@@ -133,7 +131,7 @@ export default function AssemblyInspector({
   if (!part) {
     return (
       <div style={{ height: '100%', background: colors.bgDarker, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', color: colors.textMuted, fontSize: '13px', textAlign: 'center', lineHeight: 1.6 }}>
-        Select a part in the viewport or parts list to edit transforms, inspect dimensions, and measure spacing.
+        Select a part to inspect.
       </div>
     );
   }
@@ -156,13 +154,9 @@ export default function AssemblyInspector({
   return (
     <div style={{ height: '100%', background: colors.bgDarker, overflow: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Selected Part
-        </span>
-        <div style={{ fontSize: '18px', color: colors.textSoft, fontWeight: 800, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{part.name}</div>
+        <div title={sourceLabel} style={{ fontSize: '18px', color: colors.textSoft, fontWeight: 800, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{part.name}</div>
         <div style={{ fontSize: '11px', color: colors.textMuted, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <span>{sourceLabel}</span>
-          {partLocked && <span style={{ color: colors.warn, fontWeight: 800 }}>Locked for transforms and delete</span>}
+          {partLocked && <span style={{ color: colors.warn, fontWeight: 800 }}>Locked</span>}
         </div>
       </div>
 
@@ -211,11 +205,12 @@ export default function AssemblyInspector({
             )}
           </div>
         </div>
-        <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: 1.55 }}>
-          {formatMeasurementStatus(measurement)}
-        </div>
-        <MetricRow colors={colors} label="Latest Distance" value={measurementDistance} />
-        <MetricRow colors={colors} label="Draft Picks" value={`${measurementPoints.length} / 2`} />
+        {(measurement?.enabled || measurementPoints.length > 0) && (
+          <div style={{ fontSize: '11px', color: colors.textMuted }}>{formatMeasurementStatus(measurement)}</div>
+        )}
+        {(measurement?.distance != null || measurementHistory.length > 0) && (
+          <MetricRow colors={colors} label="Distance" value={measurementDistance} />
+        )}
         {measurementHistory.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
@@ -243,9 +238,6 @@ export default function AssemblyInspector({
       {part.source?.kind === 'active-render' && (
         <div style={{ border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <span style={{ fontSize: '12px', fontWeight: 800, color: colors.textSoft }}>Current Render Snapshot</span>
-          <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: 1.6 }}>
-            This part is frozen until you explicitly replace it with the latest successful Design render.
-          </div>
           <PanelButton
             colors={colors}
             disabled={!canRefreshCurrentRender}
@@ -258,7 +250,7 @@ export default function AssemblyInspector({
 
       <div style={{ border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '12px', fontWeight: 800, color: colors.textSoft }}>Current Design Parameters</span>
+          <span style={{ fontSize: '12px', fontWeight: 800, color: colors.textSoft }}>{parsedParams.length ? 'Design Parameters' : 'Design'}</span>
           <PanelButton
             colors={colors}
             disabled={building}
@@ -267,10 +259,7 @@ export default function AssemblyInspector({
             onClick={onBuildCurrentDesign}
           />
         </div>
-        <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: 1.6 }}>
-          Edit <span style={{ color: colors.textSoft, fontWeight: 700 }}>{currentFileName}</span> without leaving Assembly. {autoRun ? 'Auto-build is on, so param changes will re-render after a short pause.' : 'Auto-build is off, so click Render Latest Design after changing a value.'}
-        </div>
-        {parsedParams.length > 0 ? (
+        {parsedParams.length > 0 && (
           <div style={{ maxHeight: '260px', overflow: 'auto', paddingRight: '4px' }}>
             <ParamsSidebar
               colors={colors}
@@ -281,18 +270,11 @@ export default function AssemblyInspector({
               showLineMeta={false}
             />
           </div>
-        ) : (
-          <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: 1.6 }}>
-            No top-level OpenSCAD parameters were detected in the current file yet.
-          </div>
         )}
       </div>
 
       <div style={{ border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <span style={{ fontSize: '12px', fontWeight: 800, color: colors.textSoft }}>Mesh Booleans</span>
-        <div style={{ fontSize: '11px', color: colors.textMuted, lineHeight: 1.6 }}>
-          Pick another part, then create a derived mesh. The original inputs are kept hidden so you can recover them from the parts list.
-        </div>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
             Operand
