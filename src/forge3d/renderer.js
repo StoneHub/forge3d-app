@@ -1,4 +1,4 @@
-import { createMeasurementOverlay, updateMeasurementOverlay } from './measurement-overlay.js';
+import { createDimensionBracket, createMeasurementOverlay, updateMeasurementOverlay } from './measurement-overlay.js';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -83,45 +83,6 @@ function updateInfiniteGridPosition(group, targetX, targetZ) {
   major.position.z = Math.round(targetZ / majorStep) * majorStep;
 }
 
-function createDimensionBracket(start, end, offset, label, color) {
-  const group = new THREE.Group();
-  group.userData.forgeExcludeFromExport = true;
-  const material = new THREE.LineBasicMaterial({ color });
-  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), material);
-  line.userData.forgeExcludeFromExport = true;
-  group.add(line);
-  const direction = end.clone().sub(start).normalize();
-  const perpendicular = Math.abs(direction.x) > 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-  [start, end].forEach((point) => {
-    const tick = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        point.clone().add(perpendicular.clone().multiplyScalar(1.5)),
-        point.clone().add(perpendicular.clone().multiplyScalar(-1.5)),
-      ]),
-      material,
-    );
-    tick.userData.forgeExcludeFromExport = true;
-    group.add(tick);
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, 256, 64);
-  ctx.font = 'bold 32px Arial';
-  ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, 128, 32);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false }));
-  sprite.position.copy(start.clone().add(end).multiplyScalar(0.5).add(offset));
-  sprite.scale.set(8, 2, 1);
-  sprite.userData.forgeExcludeFromExport = true;
-  group.add(sprite);
-  return group;
-}
-
 function updateCamera(camera, state) {
   const x = state.panX + state.dist * Math.sin(state.theta) * Math.cos(state.phi);
   const y = state.panY + state.dist * Math.sin(state.phi);
@@ -167,19 +128,19 @@ function getAssemblyHandleColor(theme) {
   return theme === 'dark' ? 0xffd166 : 0xd99100;
 }
 
-function clearToolOverlay(resources) {
-  resources.measureRoot.traverse((object) => {
-    if (!object.userData.sharedGeometry) object.geometry?.dispose();
+function clearOverlay(root) {
+  root.traverse((object) => {
+    if (!object.userData.sharedGeometry && !object.isSprite) object.geometry?.dispose();
     if (object.material) {
       object.material.map?.dispose();
       object.material.dispose();
     }
   });
-  resources.measureRoot.clear();
+  root.clear();
 }
 
 function syncMeasurement(resources, measurement) {
-  clearToolOverlay(resources);
+  clearOverlay(resources.measureRoot);
   if (measurement?.enabled && measurement.points?.length) resources.measureRoot.add(createMeasurementOverlay(measurement));
 }
 
@@ -453,13 +414,15 @@ export function useThreeRenderer({
     window.addEventListener('resize', onResize);
     const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => onResize()) : null;
     resizeObserver?.observe(resizeTarget);
-    const animate = () => { resources.frameId = requestAnimationFrame(animate); updateInfiniteGridPosition(resources.grid, cameraStateRef.current.panX, cameraStateRef.current.panZ); camera.updateMatrixWorld(); updateMeasurementOverlay(resources.measureRoot, camera, canvas.clientWidth, canvas.clientHeight); renderer.render(nextScene, camera); };
+    const animate = () => { resources.frameId = requestAnimationFrame(animate); updateInfiniteGridPosition(resources.grid, cameraStateRef.current.panX, cameraStateRef.current.panZ); camera.updateMatrixWorld(); updateMeasurementOverlay(resources.measureRoot, camera, canvas.clientWidth, canvas.clientHeight); updateMeasurementOverlay(resources.dimRoot, camera, canvas.clientWidth, canvas.clientHeight); renderer.render(nextScene, camera); };
     animate();
     const resizeTimeoutId = window.setTimeout(onResize, 50);
     return () => {
       window.clearTimeout(resizeTimeoutId);
       cancelAnimationFrame(resources.frameId);
       resizeObserver?.disconnect();
+      clearOverlay(resources.measureRoot);
+      clearOverlay(resources.dimRoot);
       renderer.dispose();
       envTexture.dispose();
       resources.background?.dispose?.();
@@ -480,7 +443,7 @@ export function useThreeRenderer({
     applyViewportAppearance(resources, theme, appearance);
     resources.grid.visible = viewSettings.grid;
     resources.axes.visible = viewSettings.axes;
-    resources.dimRoot.clear();
+    clearOverlay(resources.dimRoot);
     if (mode === 'design') {
       resources.designRoot.clear();
       resources.displayMeshes = [];
@@ -488,7 +451,7 @@ export function useThreeRenderer({
       resources.assemblyMeshes = new Map();
       resources.selectionRoot.clear();
       resources.gizmoRoot.clear();
-      clearToolOverlay(resources);
+      clearOverlay(resources.measureRoot);
       if (stlGeometry) {
         const mesh = new THREE.Mesh(stlGeometry, createPartMaterial({ appearance, theme }));
         mesh.applyMatrix4(scadToViewportMatrix());
@@ -543,10 +506,9 @@ export function useThreeRenderer({
       const size = box.getSize(new THREE.Vector3());
       const min = box.min;
       const max = box.max;
-      const color = theme === 'dark' ? 0x4fc3f7 : 0x1565c0;
-      if (size.x > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(min.x, min.y - 3, max.z + 3), new THREE.Vector3(max.x, min.y - 3, max.z + 3), new THREE.Vector3(0, 0, 2), `${size.x.toFixed(1)}mm`, color));
-      if (size.z > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(max.x + 3, min.y - 3, min.z), new THREE.Vector3(max.x + 3, min.y - 3, max.z), new THREE.Vector3(2, 0, 0), `${size.z.toFixed(1)}mm`, color));
-      if (size.y > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(max.x + 3, min.y, min.z - 3), new THREE.Vector3(max.x + 3, max.y, min.z - 3), new THREE.Vector3(2, 0, 0), `${size.y.toFixed(1)}mm`, color));
+      if (size.x > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(min.x, min.y - 3, max.z + 3), new THREE.Vector3(max.x, min.y - 3, max.z + 3), new THREE.Vector3(0, 0, 2)));
+      if (size.z > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(max.x + 3, min.y - 3, min.z), new THREE.Vector3(max.x + 3, min.y - 3, max.z), new THREE.Vector3(2, 0, 0)));
+      if (size.y > 0.1) resources.dimRoot.add(createDimensionBracket(new THREE.Vector3(max.x + 3, min.y, min.z - 3), new THREE.Vector3(max.x + 3, max.y, min.z - 3), new THREE.Vector3(2, 0, 0)));
     }
     const shouldReset = signalsRef.current.reset !== resetViewSignal;
     const shouldFit = signalsRef.current.fit !== fitViewSignal;

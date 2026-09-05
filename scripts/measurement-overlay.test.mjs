@@ -33,3 +33,22 @@ test('measurement sprites behind the camera are hidden', () => {
   updateMeasurementOverlay(root, camera, 600, 600);
   assert.equal(marker.visible, false);
 });
+
+test('large dimension labels remain inside the viewport without accumulating offsets', () => {
+  const root = new THREE.Group();
+  const label = new THREE.Sprite();
+  label.position.set(8, 0, 0);
+  label.center.set(0.5, -0.35);
+  label.userData.labelAnchor = label.position.clone();
+  label.userData.measurePixelSize = [128, 32];
+  root.add(label);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+  camera.position.z = 10;
+  camera.updateMatrixWorld();
+  updateMeasurementOverlay(root, camera, 600, 600);
+  const firstPosition = label.position.clone();
+  const projected = label.position.clone().project(camera);
+  assert.ok((projected.x + 1) * 300 + 64 <= 592.000001);
+  updateMeasurementOverlay(root, camera, 600, 600);
+  assert.ok(firstPosition.distanceTo(label.position) < 1e-9);
+});

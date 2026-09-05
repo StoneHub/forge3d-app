@@ -17,7 +17,7 @@ function sprite(canvas, position, pixels, order) {
   return item;
 }
 
-export function createMeasurementOverlay(measurement) {
+export function createMeasurementOverlay(measurement, { labelOffset = new THREE.Vector3() } = {}) {
   const group = new THREE.Group();
   group.userData.forgeExcludeFromExport = true;
   const points = measurement.points.map((point) => new THREE.Vector3(...point.position));
@@ -44,8 +44,9 @@ export function createMeasurementOverlay(measurement) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, canvas.width / 2, 66);
-    const label = sprite(canvas, points[0].clone().add(points[1]).multiplyScalar(0.5), [canvas.width / 4, 32], 1003);
+    const label = sprite(canvas, points[0].clone().add(points[1]).multiplyScalar(0.5).add(labelOffset), [canvas.width / 4, 32], 1003);
     label.center.set(0.5, -0.35);
+    label.userData.labelAnchor = label.position.clone();
     group.add(label);
   }
   for (const point of points) {
@@ -60,15 +61,31 @@ export function createMeasurementOverlay(measurement) {
   return group;
 }
 
+export function createDimensionBracket(start, end, labelOffset) {
+  return createMeasurementOverlay({
+    points: [{ position: start.toArray() }, { position: end.toArray() }],
+    distance: start.distanceTo(end),
+  }, { labelOffset });
+}
+
 export function updateMeasurementOverlay(root, camera, width, height) {
   const viewPosition = new THREE.Vector3();
   root.traverse((item) => {
     if (item.isLine2) item.material.resolution.set(width, height);
     const pixels = item.userData.measurePixelSize;
     if (!pixels) return;
+    if (item.userData.labelAnchor) item.position.copy(item.userData.labelAnchor);
     viewPosition.copy(item.position).applyMatrix4(camera.matrixWorldInverse);
     item.visible = viewPosition.z < -camera.near;
     const worldPerPixel = 2 * Math.abs(viewPosition.z) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(height, 1);
     item.scale.set(pixels[0] * worldPerPixel, pixels[1] * worldPerPixel, 1);
+    if (item.userData.labelAnchor && item.visible) {
+      const projected = item.position.clone().project(camera);
+      const centerX = (projected.x + 1) * width / 2 + (0.5 - item.center.x) * pixels[0];
+      const centerY = (1 - projected.y) * height / 2 - (0.5 - item.center.y) * pixels[1];
+      const x = THREE.MathUtils.clamp(centerX, pixels[0] / 2 + 8, Math.max(pixels[0] / 2 + 8, width - pixels[0] / 2 - 8));
+      const y = THREE.MathUtils.clamp(centerY, pixels[1] / 2 + 8, Math.max(pixels[1] / 2 + 8, height - pixels[1] / 2 - 8));
+      item.position.add(new THREE.Vector3((x - centerX) * worldPerPixel, (centerY - y) * worldPerPixel, 0).applyQuaternion(camera.quaternion));
+    }
   });
 }
