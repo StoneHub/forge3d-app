@@ -1,3 +1,5 @@
+import { cloneMeasurementState, clearMeasurementDraft, appendMeasurementPick } from './forge3d/measurement.js';
+import { createHoleTool } from './forge3d/surface-hole.js';
 import { COLLAPSED_BOTTOM_PANEL_HEIGHT, DEFAULT_BOTTOM_PANEL_HEIGHT, clampBottomPanelHeight } from './forge3d/bottom-panel-layout.js';
 import { normalizeTransform as cloneTransformState } from './forge3d/assembly-transform.js';
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -335,7 +337,7 @@ const DEFAULT_ASSEMBLY_MEASUREMENT = {
   history: [],
 };
 
-const MAX_MEASUREMENT_HISTORY = 10;
+
 
 function snapMetric(value, step) {
   if (!step) return value;
@@ -352,90 +354,6 @@ function applyAssemblySnap(transform, snap) {
   return next;
 }
 
-function cloneMeasurementPoint(point = {}) {
-  return {
-    position: Array.isArray(point.position) ? [...point.position] : [0, 0, 0],
-    partId: point.partId || null,
-  };
-}
-
-function cloneMeasurementEntry(entry = {}) {
-  return {
-    id: entry.id || `measurement-${Date.now()}`,
-    distance: Number.isFinite(entry.distance) ? entry.distance : 0,
-    label: entry.label || 'Measurement',
-    createdAt: entry.createdAt || Date.now(),
-    points: Array.isArray(entry.points) ? entry.points.map(cloneMeasurementPoint) : [],
-  };
-}
-
-function cloneMeasurementState(measurement = {}) {
-  return {
-    enabled: measurement.enabled === true,
-    points: Array.isArray(measurement.points) ? measurement.points.map(cloneMeasurementPoint) : [],
-    distance: Number.isFinite(measurement.distance) ? measurement.distance : null,
-    history: Array.isArray(measurement.history) ? measurement.history.map(cloneMeasurementEntry) : [],
-  };
-}
-
-function computeMeasurementDistance(points = []) {
-  if (points.length < 2) return null;
-  const [start, end] = points;
-  return Math.hypot(
-    end.position[0] - start.position[0],
-    end.position[1] - start.position[1],
-    end.position[2] - start.position[2],
-  );
-}
-
-function clearMeasurementDraft(measurement = {}, { disable = true } = {}) {
-  const current = cloneMeasurementState(measurement);
-  return {
-    ...current,
-    enabled: disable ? false : current.enabled,
-    points: [],
-    distance: null,
-  };
-}
-
-function appendMeasurementPick(measurement = {}, point, resolvePartName) {
-  const current = cloneMeasurementState(measurement);
-  const nextPoints = [...current.points, cloneMeasurementPoint(point)].slice(-2);
-  const distance = computeMeasurementDistance(nextPoints);
-
-  if (nextPoints.length === 2 && Number.isFinite(distance)) {
-    const labels = nextPoints
-      .map((candidate) => resolvePartName(candidate.partId))
-      .filter(Boolean);
-    const entry = {
-      id: `measurement-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      distance,
-      label: labels.length === 2 && labels[0] !== labels[1] ? `${labels[0]} -> ${labels[1]}` : (labels[0] || 'Measurement'),
-      createdAt: Date.now(),
-      points: nextPoints,
-    };
-    return {
-      entry,
-      nextMeasurement: {
-        ...current,
-        enabled: true,
-        points: [],
-        distance: null,
-        history: [entry, ...current.history].slice(0, MAX_MEASUREMENT_HISTORY),
-      },
-    };
-  }
-
-  return {
-    entry: null,
-    nextMeasurement: {
-      ...current,
-      enabled: true,
-      points: nextPoints,
-      distance,
-    },
-  };
-}
 // ─── MAIN APP ────────────────────────────────────────────────────────
 export default function Forge3D() {
   const ACTIVITY_RAIL_WIDTH = 52;
@@ -477,7 +395,25 @@ export default function Forge3D() {
   const [assemblyScenePath, setAssemblyScenePath] = useState(null);
   const [booleanOperandId, setBooleanOperandId] = useState(null);
   const [assemblyHistory, setAssemblyHistory] = useState(() => createHistoryState(DEFAULT_ASSEMBLY_SCENE));
+  const assemblyScene = assemblyHistory.present;
+  const latestAssemblySceneRef = useRef(assemblyScene);
+  latestAssemblySceneRef.current = assemblyScene;
   const [assemblyMeasurement, setAssemblyMeasurement] = useState(DEFAULT_ASSEMBLY_MEASUREMENT);
+  const [holeTool, setHoleTool] = useState(false);
+  const [holePick, setHolePick] = useState(null);
+  const [holeDiameter, setHoleDiameter] = useState(5);
+  const [holeError, setHoleError] = useState('');
+  const holeTarget = assemblyScene.parts.find((part) => part.id === holePick?.partId);
+  const holePreview = useMemo(() => {
+    if (!holeTarget || !holePick || !holeTool) return null;
+    try { return createHoleTool(holeTarget, holePick, holeDiameter); } catch { return null; }
+  }, [holeTarget, holePick, holeDiameter, holeTool]);
+  useEffect(() => () => holePreview?.geometry.dispose(), [holePreview]);
+  useEffect(() => {
+    setAssemblyMeasurement(DEFAULT_ASSEMBLY_MEASUREMENT);
+    setHolePick(null);
+    setHoleTool(false);
+  }, [mode, stlGeometry, assemblyScene.parts]);
   const [assemblyBooleanState, setAssemblyBooleanState] = useState({ running: false, operation: null });
   const [building, setBuilding] = useState(false);
   const [lspDiagnostics, setLspDiagnostics] = useState({ errors: [], warnings: [], markers: [] });
@@ -532,7 +468,6 @@ export default function Forge3D() {
   const projectWorkingDirectory = useMemo(() => workspaceFolder || getParentDirectory(currentFilePath), [workspaceFolder, currentFilePath]);
   const documentSymbols = useMemo(() => extractOpenScadSymbols(code), [code]);
   const previewCode = code;
-  const assemblyScene = assemblyHistory.present;
   const selectedAssemblyPart = useMemo(
     () => assemblyScene.parts.find((part) => part.id === assemblyScene.selectedPartId) || null,
     [assemblyScene.parts, assemblyScene.selectedPartId],
@@ -731,7 +666,7 @@ export default function Forge3D() {
   }, []);
 
   const handleAssemblyMeasurementPick = useCallback((payload) => {
-    if (!payload?.point) return;
+    if (!payload?.position) return;
     let nextStatus = null;
     setAssemblyMeasurement((current) => {
       const { entry, nextMeasurement } = appendMeasurementPick(current, payload, resolveAssemblyPartName);
@@ -744,6 +679,8 @@ export default function Forge3D() {
   }, [resolveAssemblyPartName]);
 
   const handleMeasurementPrimaryAction = useCallback(() => {
+    setHoleTool(false);
+    setHolePick(null);
     let activating = false;
     setAssemblyMeasurement((current) => {
       const shouldActivate = !(current.enabled || current.points.length > 0);
@@ -1111,6 +1048,51 @@ export default function Forge3D() {
       setStatusMessage(`Boolean ${operation} failed: ${error.message}`);
     }
   }, [assemblyScene.parts, booleanBusy, booleanOperandId, queueAssemblyFitView, runAssemblyBooleanOperation, selectedAssemblyPart, updateAssemblyScene]);
+
+  const handleSurfacePick = useCallback((pick) => {
+    const target = assemblyScene.parts.find((part) => part.id === pick.partId);
+    if (!target || target.locked) {
+      setHoleError('Unlock the part before placing a hole.');
+      return;
+    }
+    setHolePick(pick);
+    setHoleError('');
+  }, [assemblyScene.parts]);
+
+  const handleApplyHole = useCallback(async () => {
+    if (!holePreview || !holeTarget || holeTarget.locked || booleanBusy) return;
+    const target = holeTarget;
+    const cutter = createAssemblyPart({
+      name: `Hole Ø${holeDiameter} mm`, source: { kind: 'hole', filePath: null },
+      geometry: holePreview.geometry, visible: false,
+      metadata: { hole: { ...holePick, diameter: holeDiameter }, scad: holePreview.scad },
+    });
+    try {
+      setHoleError('');
+      const payload = await runAssemblyBooleanOperation('subtract', target, cutter);
+      if (latestAssemblySceneRef.current.parts.find((part) => part.id === target.id) !== target) {
+        throw new Error('The target changed during the cut. Pick the surface again.');
+      }
+      const derived = createAssemblyPart({
+        name: `${target.name} · Ø${holeDiameter} hole`,
+        source: { kind: 'derived', filePath: null },
+        geometry: createAssemblyGeometryFromPayload(payload),
+        metadata: { derivedFrom: [target.id, cutter.id], operation: 'subtract', hole: cutter.metadata.hole, scad: holePreview.scad },
+      });
+      updateAssemblyScene((current) => {
+        // Never publish a stale result over a part changed during the worker run.
+        if (current.parts.find((part) => part.id === target.id) !== target) return current;
+        return { ...current, parts: [...current.parts.map((part) => part.id === target.id ? { ...part, visible: false } : part), cutter, derived], selectedPartId: derived.id };
+      });
+      setHoleTool(false);
+      setHolePick(null);
+      setStatusMessage('Hole created. Original part and cutter retained in the scene.');
+    } catch (error) {
+      const message = error.message || 'Hole could not be cut.';
+      setHoleError(message);
+      setStatusMessage(message);
+    }
+  }, [holePreview, holeTarget, holeDiameter, holePick, booleanBusy, runAssemblyBooleanOperation, updateAssemblyScene]);
 
   const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
     if (timeoutHandle) {
@@ -1845,6 +1827,9 @@ export default function Forge3D() {
     assemblyScene,
     selectedPartId: assemblyScene.selectedPartId,
     measurement: assemblyMeasurement,
+    holeTool,
+    holePreview,
+    onSurfacePick: handleSurfacePick,
     onAssemblyMeasurementPick: handleAssemblyMeasurementPick,
     onSelectAssemblyPart: selectAssemblyPart,
     onUpdateAssemblyPartTransform: updateAssemblyPartTransform,
@@ -2596,6 +2581,24 @@ export default function Forge3D() {
           minViewportWidth={MIN_VIEWPORT_WIDTH}
           mode={mode}
           onCaptureRender={handleCaptureRender}
+          measurement={assemblyMeasurement}
+          onToggleMeasure={handleMeasurementPrimaryAction}
+          canMeasure={mode === 'assembly' ? assemblyScene.parts.some((part) => part.visible !== false) : !!stlGeometry}
+          holeTool={holeTool}
+          holePick={holePick}
+          holeDiameter={holeDiameter}
+          onHoleDiameterChange={setHoleDiameter}
+          holePreview={holePreview}
+          holeError={holeError}
+          holeBusy={booleanBusy}
+          onToggleHole={() => {
+            setAssemblyMeasurement(DEFAULT_ASSEMBLY_MEASUREMENT);
+            setHolePick(null);
+            setHoleError('');
+            setHoleTool((current) => !current);
+          }}
+          onApplyHole={handleApplyHole}
+          onEnterAssembly={enterAssemblyMode}
           setViewSettings={setViewSettings}
           viewSettings={viewSettings}
         />

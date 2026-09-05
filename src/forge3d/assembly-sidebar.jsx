@@ -7,7 +7,7 @@ function SourceBadge({ colors, source }) {
       ? 'SCAD'
       : source?.kind === 'derived'
         ? 'Derived'
-        : 'STL';
+        : source?.kind === 'hole' ? 'Cutter' : 'STL';
 
   return (
     <span
