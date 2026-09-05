@@ -1,3 +1,4 @@
+import { COLLAPSED_BOTTOM_PANEL_HEIGHT, DEFAULT_BOTTOM_PANEL_HEIGHT, clampBottomPanelHeight } from './forge3d/bottom-panel-layout.js';
 import { normalizeTransform as cloneTransformState } from './forge3d/assembly-transform.js';
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
@@ -449,7 +450,6 @@ export default function Forge3D() {
   const [sidebarTab, setSidebarTab] = useState(initialWorkspace.activeActivity || (initialWorkspace.code.trim() ? 'workspace' : 'start'));
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
   const [renderProfile, setRenderProfile] = useState(initialWorkspace.renderProfile || 'quick');
-  const [buildTime, setBuildTime] = useState(0);
   const [buildElapsedMs, setBuildElapsedMs] = useState(0);
   const [buildStatusDetail, setBuildStatusDetail] = useState('');
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
@@ -498,7 +498,9 @@ export default function Forge3D() {
 
   // ─── Resizable panels ───────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState(initialPanelLayout.sidebarWidth ?? 240);
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(initialPanelLayout.bottomPanelHeight ?? 180);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(() => clampBottomPanelHeight(initialPanelLayout.bottomPanelHeight ?? DEFAULT_BOTTOM_PANEL_HEIGHT));
+  const lastExpandedBottomHeightRef = useRef(bottomPanelHeight > COLLAPSED_BOTTOM_PANEL_HEIGHT ? bottomPanelHeight : DEFAULT_BOTTOM_PANEL_HEIGHT);
+  const bottomPanelCollapsed = bottomPanelHeight === COLLAPSED_BOTTOM_PANEL_HEIGHT;
   const [editorWidth, setEditorWidth] = useState(initialPanelLayout.editorWidth ?? 480);
   const resizingRef = useRef(null); // null | 'sidebar' | 'bottom' | 'editor'
   const dragStartRef = useRef({});
@@ -506,12 +508,11 @@ export default function Forge3D() {
 
   const DEFAULT_SIDEBAR_WIDTH = 240;
   const DEFAULT_EDITOR_WIDTH = 480;
-  const DEFAULT_BOTTOM_PANEL_HEIGHT = 180;
   const MIN_SIDEBAR_WIDTH = 180;
   const MAX_SIDEBAR_WIDTH = 420;
   const MIN_EDITOR_WIDTH = 280;
   const MIN_VIEWPORT_WIDTH = 320;
-  const MIN_BOTTOM_PANEL_HEIGHT = 100;
+  const MIN_BOTTOM_PANEL_HEIGHT = COLLAPSED_BOTTOM_PANEL_HEIGHT;
 
   const buildIdRef = useRef(0);
   const buildStartRef = useRef(0);
@@ -607,9 +608,17 @@ export default function Forge3D() {
     setStartState((current) => ({ ...current, ...partialState }));
   }, []);
 
-  const focusTerminal = useCallback(() => {
-    setTerminalFocusToken((value) => value + 1);
+  const expandBottomPanel = useCallback(() => {
+    const maximum = Math.min(520, (appRef.current?.clientHeight || window.innerHeight) - 220);
+    setBottomPanelHeight((height) => clampBottomPanelHeight(
+      height === COLLAPSED_BOTTOM_PANEL_HEIGHT ? lastExpandedBottomHeightRef.current : height, maximum,
+    ));
   }, []);
+
+  const focusTerminal = useCallback(() => {
+    expandBottomPanel();
+    setTerminalFocusToken((value) => value + 1);
+  }, [expandBottomPanel]);
 
   const replaceRenderLogs = useCallback((nextLogs) => {
     renderLogBufferRef.current = nextLogs;
@@ -1188,7 +1197,6 @@ export default function Forge3D() {
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       latestRenderedGeometryRef.current = null;
       setBuilding(false);
-      setBuildTime(BUILD_TIMEOUT);
       setBuildStatusDetail(`Timed out after ${formatBuildElapsed(BUILD_TIMEOUT)}`);
       setCurrentRenderMeta({ profileId: null, sourceCode: null });
       setResult({
@@ -1214,7 +1222,6 @@ export default function Forge3D() {
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
       const elapsed = Math.round(performance.now() - buildStartRef.current);
-      setBuildTime(elapsed);
       setBuildElapsedMs(elapsed);
 
       if (response.error) {
@@ -1282,7 +1289,6 @@ export default function Forge3D() {
       if (buildIdRef.current !== id) return; // stale build
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
-      setBuildTime(Math.round(performance.now() - buildStartRef.current));
       latestRenderedGeometryRef.current = null;
       setStlGeometry(null);
       setCurrentRenderMeta({ profileId: null, sourceCode: null });
@@ -1771,7 +1777,11 @@ export default function Forge3D() {
       if (resizingRef.current === 'bottom') {
         const delta = dragStartRef.current.y - e.clientY;
         const maxBottomHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(520, appHeight - 220));
-        setBottomPanelHeight(Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maxBottomHeight, dragStartRef.current.bottomPanelHeight + delta)));
+        const nextHeight = clampBottomPanelHeight(dragStartRef.current.bottomPanelHeight + delta, maxBottomHeight);
+        if (nextHeight === COLLAPSED_BOTTOM_PANEL_HEIGHT && dragStartRef.current.bottomPanelHeight > COLLAPSED_BOTTOM_PANEL_HEIGHT) {
+          lastExpandedBottomHeightRef.current = dragStartRef.current.bottomPanelHeight;
+        }
+        setBottomPanelHeight(nextHeight);
       } else if (resizingRef.current === 'editor') {
         const delta = e.clientX - dragStartRef.current.x;
         const maxEditorWidth = Math.max(
@@ -1815,7 +1825,7 @@ export default function Forge3D() {
 
       setEditorWidth((current) => Math.max(MIN_EDITOR_WIDTH, Math.min(maxEditorWidth, current)));
       setSidebarWidth((current) => Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth, current)));
-      setBottomPanelHeight((current) => Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maxBottomHeight, current)));
+      setBottomPanelHeight((current) => clampBottomPanelHeight(current, maxBottomHeight));
     };
 
     clampLayout();
@@ -1892,6 +1902,23 @@ export default function Forge3D() {
     }
   }, [assemblyScenePath, currentFileName, forgeAPI, mode, scene]);
 
+  const toggleBottomPanel = () => {
+    if (bottomPanelCollapsed) {
+      expandBottomPanel();
+    } else {
+      lastExpandedBottomHeightRef.current = bottomPanelHeight;
+      setBottomPanelHeight(COLLAPSED_BOTTOM_PANEL_HEIGHT);
+    }
+  };
+
+  const handleBottomTabChange = (nextTab) => {
+    if (nextTab === activeTab) toggleBottomPanel();
+    else {
+      setActiveTab(nextTab);
+      if (bottomPanelCollapsed) expandBottomPanel();
+    }
+  };
+
   const jumpToLine = useCallback((lineNum) => {
     editorRef.current?.jumpToLine(lineNum);
   }, []);
@@ -1909,11 +1936,12 @@ export default function Forge3D() {
     }
     if (nextTab === 'terminal') {
       setActiveTab('terminal');
+      expandBottomPanel();
       if (terminalState?.status === 'running') {
         focusTerminal();
       }
     }
-  }, [focusTerminal, forgeAPI, sidebarTab, terminalState?.status, workspaceFolder]);
+  }, [expandBottomPanel, focusTerminal, forgeAPI, sidebarTab, terminalState?.status, workspaceFolder]);
 
   const handleChooseWorkspaceFolder = useCallback(async () => {
     const folder = await forgeAPI.setWorkspaceFolder();
@@ -2020,11 +2048,12 @@ export default function Forge3D() {
     setSidebarTab('terminal');
     setSidebarOpen(true);
     setActiveTab('terminal');
+    expandBottomPanel();
     const payload = await ensureTerminalSession();
     if (payload?.state?.status === 'running') {
       focusTerminal();
     }
-  }, [ensureTerminalSession, focusTerminal]);
+  }, [ensureTerminalSession, expandBottomPanel, focusTerminal]);
 
   const handlePreferredShellChange = useCallback((nextShellId) => {
     setPreferredShellId(nextShellId || null);
@@ -2517,7 +2546,7 @@ export default function Forge3D() {
           {/* Bottom panel drag handle */}
           <div
             onMouseDown={(e) => startResize('bottom', e)}
-            onDoubleClick={() => setBottomPanelHeight(DEFAULT_BOTTOM_PANEL_HEIGHT)}
+            onDoubleClick={toggleBottomPanel}
             title="Resize bottom panel"
             style={{ height: '8px', cursor: 'row-resize', background: 'transparent', borderTop: `1px solid ${colors.border}`, flexShrink: 0, transition: 'background 0.15s', position: 'relative' }}
             onMouseEnter={e => { e.currentTarget.style.background = `${colors.accent}33`; }}
@@ -2525,16 +2554,16 @@ export default function Forge3D() {
           >
             <div style={{ position: 'absolute', left: '50%', top: '1px', width: '56px', height: '4px', transform: 'translateX(-50%)', borderRadius: '999px', background: `${colors.borderHover}88` }} />
           </div>
-          <div style={{ height: bottomPanelHeight, minHeight: MIN_BOTTOM_PANEL_HEIGHT }}>
+          <div style={{ height: bottomPanelHeight, minHeight: MIN_BOTTOM_PANEL_HEIGHT, flexShrink: 0, overflow: 'hidden' }}>
             <BottomPane
               activeTab={activeTab}
               allErrors={allErrors}
               allWarnings={allWarnings}
               askAI={askAI}
-              buildTime={buildTime}
+              collapsed={bottomPanelCollapsed}
               colors={colors}
               jumpToLine={jumpToLine}
-              onActiveTabChange={setActiveTab}
+              onActiveTabChange={handleBottomTabChange}
               onEnsureTerminalSession={ensureTerminalSession}
               onFocusTerminal={focusTerminal}
               result={result}
