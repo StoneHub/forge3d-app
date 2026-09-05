@@ -3,6 +3,8 @@ import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
+import { randomUUID } from 'node:crypto'
+import { createScadSourceRenderer, formatScadFailure } from './scad-source.mjs'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { spawn, spawnSync } from 'child_process'
 import { resolveOpenScadLaunch } from './openscad-bin.mjs'
@@ -501,7 +503,7 @@ function getRenderScratchDir() {
 }
 
 function buildRenderPaths() {
-  const ts = Date.now()
+  const ts = randomUUID()
   const scratchDir = getRenderScratchDir()
 
   return {
@@ -561,7 +563,10 @@ function emitOpenScadProgress(webContents, payload) {
 }
 
 async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd = undefined, requestId = null, webContents = null, defineOverrides = [] } = {}) {
-  const env = buildStableChildProcessEnv()
+  // OpenSCAD resolves includes relative to the generated file, not just cwd.
+  const env = buildStableChildProcessEnv(cwd ? {
+    OPENSCADPATH: [cwd, process.env.OPENSCADPATH].filter(Boolean).join(path.delimiter),
+  } : {})
   let stdout = ''
   let stderr = ''
   let renderSucceeded = false
@@ -727,6 +732,7 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
             stlBuffer,
             stdout,
             stderr,
+            command,
           })
         })
       })
@@ -739,55 +745,15 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
   }
 }
 
-function formatRenderFailure(err, { inputPath, sourceName = 'Current buffer' } = {}) {
-  const replaceInputPath = (value) => {
-    if (!value) return ''
-    let next = String(value)
-    if (inputPath) {
-      next = next.split(inputPath).join(sourceName)
-      next = next.split(path.basename(inputPath)).join(sourceName)
-    }
-    return next.trim()
-  }
+const renderScadSource = createScadSourceRenderer({
+  renderInput: renderScadInput,
+  createPaths: buildRenderPaths,
+})
 
-  const parts = [err?.stderr, err?.stdout, err?.message]
-    .map(replaceInputPath)
-    .filter(Boolean)
-
-  return [...new Set(parts)].join('\n') || 'OpenSCAD render failed.'
+function renderScadCode(code, options = {}) {
+  return renderScadSource({ ...options, code })
 }
 
-async function renderScadCode(code, { sourceName = 'Current buffer', sourcePath = null, requestId = null, webContents = null, defineOverrides = [] } = {}) {
-  const { inputPath, outputPath } = buildRenderPaths()
-  const cwd = sourcePath && !String(sourcePath).includes('.asar')
-    ? path.dirname(sourcePath)
-    : undefined
-  const startedAt = Date.now()
-
-  try {
-    await fs.writeFile(inputPath, code, 'utf8')
-    const result = await renderScadInput(inputPath, outputPath, {
-      removeInput: true,
-      cwd,
-      requestId,
-      webContents,
-      defineOverrides,
-    })
-    return {
-      ...result,
-      command: buildRenderCommand(inputPath, outputPath, defineOverrides),
-      elapsedMs: Date.now() - startedAt,
-      debugSourcePath: null,
-      sourceName,
-    }
-  } catch (err) {
-    err.forgeMessage = formatRenderFailure(err, { inputPath, sourceName })
-    err.command = buildRenderCommand(inputPath, outputPath, defineOverrides)
-    err.debugSourcePath = inputPath
-    err.elapsedMs = Date.now() - startedAt
-    throw err
-  }
-}
 // ── File dialogs ─────────────────────────────────────────────────────────────
 function buildCaptureFileName() {
   const now = new Date()
@@ -880,7 +846,8 @@ ipcMain.handle('assembly:importPart', async (_event, options = {}) => {
       stlBuffer = await fs.readFile(filePath)
       sourceKind = 'stl-file'
     } else if (extension === '.scad') {
-      stlBuffer = await renderScadInput(filePath, { cwd: path.dirname(filePath) })
+      const rendered = await renderScadSource({ sourcePath: filePath, sourceName: path.basename(filePath) })
+      stlBuffer = rendered.stlBuffer
       sourceKind = 'scad-file'
     } else {
       return { error: `Unsupported file type: ${extension}` }
@@ -898,7 +865,7 @@ ipcMain.handle('assembly:importPart', async (_event, options = {}) => {
       stl: Array.from(stlBuffer),
     }
   } catch (err) {
-    return { error: err.stderr || err.stdout || err.message || String(err) }
+    return { error: err.forgeMessage || err.stderr || err.stdout || err.message || String(err) }
   }
 })
 
@@ -1167,7 +1134,7 @@ ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath,
       elapsedMs: renderResult.elapsedMs,
     }
   } catch (err) {
-    const msg = err.forgeMessage || formatRenderFailure(err, { sourceName })
+    const msg = err.forgeMessage || formatScadFailure(err, { sourceName })
     return {
       error: msg,
       stdout: err.stdout || '',
