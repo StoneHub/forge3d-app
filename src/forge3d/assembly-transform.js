@@ -38,9 +38,20 @@ export function applyAssemblyTransform(object, transform) {
   object.updateMatrixWorld(true);
 }
 
+export function getGeometryWorldBox(geometry, matrix) {
+  const positions = geometry?.getAttribute('position');
+  if (!positions) return null;
+  const box = new THREE.Box3();
+  const point = new THREE.Vector3();
+  for (let index = 0; index < positions.count; index += 1) {
+    point.fromBufferAttribute(positions, index).applyMatrix4(matrix);
+    box.expandByPoint(point);
+  }
+  return box;
+}
+
 export function getAssemblyPartWorldBox(part) {
-  if (!part?.geometry?.boundingBox) return null;
-  return part.geometry.boundingBox.clone().applyMatrix4(buildAssemblyTransformMatrix(part.transform));
+  return getGeometryWorldBox(part?.geometry, buildAssemblyTransformMatrix(part?.transform));
 }
 
 export function createFloorAlignedTransform(part, overrides = {}) {

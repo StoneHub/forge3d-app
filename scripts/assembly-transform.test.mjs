@@ -49,6 +49,17 @@ test('normalization and scene round-trip preserve finite transforms without shar
   assert.ok(mesh.matrix.elements.every(Number.isFinite));
 });
 
+test('rotated curved geometry touches the floor rather than its oversized local bounding box', () => {
+  const part = createAssemblyPart({ geometry: new THREE.SphereGeometry(1, 32, 16),
+    transform: { position: [8, 12, 3], rotation: [0, 0, 45], scale: [1, 1, 1] } });
+  const transform = createFloorAlignedTransform(part);
+  const mesh = new THREE.Mesh(part.geometry);
+  applyAssemblyTransform(mesh, transform);
+  const actual = new THREE.Box3().setFromObject(mesh, true);
+  assert.ok(Math.abs(actual.min.y) < 1e-6, `Sphere floats ${actual.min.y} above floor`);
+  near(getAssemblyPartWorldBox({ ...part, transform }).min.toArray(), actual.min.toArray());
+});
+
 test('source and viewport coordinate conversions are inverses', () => {
   const source = new THREE.Vector3(3, 5, 7);
   const viewport = source.clone().applyMatrix4(scadToViewportMatrix());

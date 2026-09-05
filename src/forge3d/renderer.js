@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { getAssemblyPartWorldBox, applyAssemblyTransform, scadToViewportMatrix } from './assembly-transform.js';
+import { getAssemblyPartWorldBox, getGeometryWorldBox, applyAssemblyTransform, scadToViewportMatrix } from './assembly-transform.js';
 import { getMaterialSwatch, getViewportBackgroundStops, normalizeRenderAppearance } from './render-appearance.js';
 import { getThemeColors } from './theme.js';
 
@@ -152,8 +152,12 @@ function buildBox(meshes) {
   let hasMesh = false;
   meshes.forEach((mesh) => {
     if (!mesh.visible) return;
-    box.union(new THREE.Box3().setFromObject(mesh));
-    hasMesh = true;
+    mesh.updateMatrixWorld(true);
+    const bounds = getGeometryWorldBox(mesh.geometry, mesh.matrixWorld);
+    if (bounds && !bounds.isEmpty()) {
+      box.union(bounds);
+      hasMesh = true;
+    }
   });
   return hasMesh ? box : null;
 }
@@ -197,12 +201,12 @@ function syncSelection(resources, assemblyScene, selectedPartId, theme) {
   const selectedMesh = resources.assemblyMeshes.get(selectedPartId);
   if (!selectedPart || !selectedMesh) return;
   selectedMesh.updateMatrixWorld(true);
-  const helper = new THREE.BoxHelper(selectedMesh, theme === 'dark' ? 0x4fc3f7 : 0x1565c0);
+  const box = getAssemblyPartWorldBox(selectedPart);
+  if (!box || box.isEmpty()) return;
+  const helper = new THREE.Box3Helper(box, theme === 'dark' ? 0x4fc3f7 : 0x1565c0);
   helper.userData.forgeExcludeFromExport = true;
   resources.selectionRoot.add(helper);
   if (selectedPart.locked) return;
-  const box = getAssemblyPartWorldBox(selectedPart);
-  if (!box || box.isEmpty()) return;
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const handleColor = getAssemblyHandleColor(theme);
@@ -396,7 +400,7 @@ export function useThreeRenderer({
           const delta = THREE.MathUtils.radToDeg(Math.atan2(point.z - interaction.center.z, point.x - interaction.center.x) - interaction.angle);
           interaction.next = { ...interaction.start, rotation: [interaction.start.rotation[0], snapValue(interaction.start.rotation[1] + delta, step), interaction.start.rotation[2]] };
         }
-        applyTransform(mesh, interaction.next);
+        applyAssemblyTransform(mesh, interaction.next);
         syncSelection(resources, { parts: current.assemblyScene.parts.map((candidate) => candidate.id === part.id ? { ...candidate, transform: interaction.next } : candidate) }, part.id, theme);
         return;
       }
