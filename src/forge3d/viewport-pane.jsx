@@ -35,13 +35,15 @@ export default function ViewportPane({
   viewSettings,
 }) {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const appearance = normalizeRenderAppearance(viewSettings.appearance);
   const viewportBackground = getViewportBackgroundGradient(colors, appearance.background);
   const buttonStyle = (active) => ({
     background: active ? `${colors.accent}33` : `${colors.bgDarker}cc`,
     border: `1px solid ${active ? colors.accent : colors.border}`,
     color: active ? colors.accent : colors.textMuted,
-    padding: '5px 8px',
+    padding: '7px 10px',
+    minHeight: '32px',
     borderRadius: '5px',
     cursor: 'pointer',
     display: 'flex',
@@ -106,26 +108,28 @@ export default function ViewportPane({
         }
       `}</style>
       <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px', flexWrap: 'wrap', right: '10px' }}>
-        {[
-          { icon: Icons.Grid, key: 'grid', label: 'Grid' },
-          { icon: Icons.Layers, key: 'axes', label: 'Axes' },
-          { icon: Icons.Eye, key: 'wireframe', label: 'Edges' },
-          { icon: Icons.Ruler, key: 'dimensions', label: 'Dimensions' }
-        ].map(({ icon: Icon, key, label }) => (
-          <button key={key} title={label} onClick={() => setViewSettings(settings => ({ ...settings, [key]: !settings[key] }))} style={buttonStyle(viewSettings[key])}><Icon /></button>
-        ))}
         <button title="Measure between two surface points" aria-pressed={!!measurement?.enabled} disabled={!canMeasure || building || holeBusy} onClick={onToggleMeasure} style={buttonStyle(measurement?.enabled)}><Icons.Ruler /> Measure</button>
         <button title={mode === 'assembly' ? 'Place a round through-hole on a surface' : 'Open Assembly to place a hole'} aria-pressed={holeTool} disabled={!canMeasure || building || holeBusy} onClick={mode === 'assembly' ? onToggleHole : onEnterAssembly} style={buttonStyle(holeTool)}>⊖ Hole</button>
-        <button title="Capture Render" onClick={() => onCaptureRender?.()} style={buttonStyle(false)}><Icons.Camera /></button>
-        <button title="Render Appearance" onClick={() => setAppearanceOpen((open) => !open)} style={buttonStyle(appearanceOpen)}><Icons.Sliders /></button>
+        <button title="View options" aria-expanded={viewMenuOpen} aria-controls="viewport-view-options" onClick={() => { setViewMenuOpen((open) => !open); setAppearanceOpen(false); }} style={buttonStyle(viewMenuOpen)}><Icons.Eye /> View ▾</button>
       </div>
+
+      {viewMenuOpen && (
+        <div id="viewport-view-options" role="group" aria-label="View options" onKeyDown={(event) => { if (event.key === 'Escape') setViewMenuOpen(false); }} style={{ position: 'absolute', top: '52px', left: '10px', zIndex: 12, width: '220px', padding: '10px', borderRadius: '9px', border: `1px solid ${colors.border}`, background: colors.surfaceOverlay || colors.bg, boxShadow: colors.viewportAppearanceShadow, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+          {[
+            { key: 'grid', label: 'Grid' }, { key: 'axes', label: 'Axes' },
+            { key: 'wireframe', label: 'Edges' }, { key: 'dimensions', label: 'Dimensions' },
+          ].map(({ key, label }) => <button key={key} aria-pressed={!!viewSettings[key]} onClick={() => setViewSettings((settings) => ({ ...settings, [key]: !settings[key] }))} style={buttonStyle(viewSettings[key])}>{label}</button>)}
+          <button onClick={() => { setAppearanceOpen(true); setViewMenuOpen(false); }} style={{ ...buttonStyle(false), gridColumn: '1 / -1' }}><Icons.Sliders /> Appearance</button>
+          <button onClick={() => { onCaptureRender?.(); setViewMenuOpen(false); }} style={{ ...buttonStyle(false), gridColumn: '1 / -1' }}><Icons.Camera /> Capture render</button>
+        </div>
+      )}
 
       {(measurement?.enabled || holeTool) && (
         <div style={{ position: 'absolute', bottom: '12px', left: '12px', right: '12px', zIndex: 11, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ pointerEvents: 'auto', maxWidth: '100%', background: colors.surfaceOverlay || colors.bg, border: `1px solid ${colors.border}`, borderRadius: '9px', padding: '10px 12px', color: colors.textSoft, fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {measurement?.enabled ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span role="status">{measurement.distance != null ? `${measurement.distance.toFixed(2)} mm` : measurement.points.length === 1 ? 'Pick second point' : 'Pick first point'}</span>
+                <span role="status" style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{measurement.distance != null ? `${measurement.distance.toFixed(2)} mm` : measurement.points.length === 1 ? 'Pick second point' : 'Pick first point'}</span>
                 <button onClick={onToggleMeasure} style={buttonStyle(false)}>Done</button>
               </div>
             ) : (

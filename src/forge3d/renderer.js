@@ -1,3 +1,4 @@
+import { createMeasurementOverlay, updateMeasurementOverlay } from './measurement-overlay.js';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -166,10 +167,6 @@ function getAssemblyHandleColor(theme) {
   return theme === 'dark' ? 0xffd166 : 0xd99100;
 }
 
-function getMeasurementColor(theme) {
-  return theme === 'dark' ? 0xffd166 : 0xd99100;
-}
-
 function clearToolOverlay(resources) {
   resources.measureRoot.traverse((object) => {
     if (!object.userData.sharedGeometry) object.geometry?.dispose();
@@ -181,25 +178,9 @@ function clearToolOverlay(resources) {
   resources.measureRoot.clear();
 }
 
-function syncMeasurement(resources, measurement, theme) {
+function syncMeasurement(resources, measurement) {
   clearToolOverlay(resources);
-  if (!measurement?.enabled || !measurement.points?.length) return;
-  const markerGeometry = new THREE.SphereGeometry(0.6, 16, 16);
-  const markerMaterial = new THREE.MeshBasicMaterial({ color: getMeasurementColor(theme), depthTest: false });
-  measurement.points.forEach((point) => {
-    const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-    marker.position.set(point.position[0], point.position[1], point.position[2]);
-    marker.userData.forgeExcludeFromExport = true;
-    resources.measureRoot.add(marker);
-  });
-  if (measurement.points.length === 2) {
-    resources.measureRoot.add(createDimensionBracket(
-      new THREE.Vector3(...measurement.points[0].position),
-      new THREE.Vector3(...measurement.points[1].position),
-      new THREE.Vector3(0, 2, 0),
-      `${measurement.distance.toFixed(2)} mm`, getMeasurementColor(theme),
-    ));
-  }
+  if (measurement?.enabled && measurement.points?.length) resources.measureRoot.add(createMeasurementOverlay(measurement));
 }
 
 function syncSelection(resources, assemblyScene, selectedPartId, theme) {
@@ -472,7 +453,7 @@ export function useThreeRenderer({
     window.addEventListener('resize', onResize);
     const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => onResize()) : null;
     resizeObserver?.observe(resizeTarget);
-    const animate = () => { resources.frameId = requestAnimationFrame(animate); updateInfiniteGridPosition(resources.grid, cameraStateRef.current.panX, cameraStateRef.current.panZ); renderer.render(nextScene, camera); };
+    const animate = () => { resources.frameId = requestAnimationFrame(animate); updateInfiniteGridPosition(resources.grid, cameraStateRef.current.panX, cameraStateRef.current.panZ); camera.updateMatrixWorld(); updateMeasurementOverlay(resources.measureRoot, camera, canvas.clientWidth, canvas.clientHeight); renderer.render(nextScene, camera); };
     animate();
     const resizeTimeoutId = window.setTimeout(onResize, 50);
     return () => {
@@ -550,7 +531,7 @@ export function useThreeRenderer({
       syncSelection(resources, assemblyScene, selectedPartId, theme);
     }
     resources.gizmoRoot.visible = !measurement?.enabled && !holeTool;
-    syncMeasurement(resources, measurement, theme);
+    syncMeasurement(resources, measurement);
     if (holePreview) {
       const cutter = new THREE.Mesh(holePreview.geometry, new THREE.MeshBasicMaterial({ color: 0xff6b78, transparent: true, opacity: 0.45, depthWrite: false }));
       cutter.userData.forgeExcludeFromExport = true;
