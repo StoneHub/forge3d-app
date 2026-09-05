@@ -475,6 +475,7 @@ export default function Forge3D() {
   const appRef = useRef(null);
   const contentRef = useRef(null);
   const canvasRef = useRef(null);
+  const releaseScreenshotStartedRef = useRef(false);
   const timerRef = useRef(null);
   const editorRef = useRef(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -1167,6 +1168,9 @@ export default function Forge3D() {
   // ─── Native build (Electron → openscad.com IPC) ──────────────────────
   const runCode = useCallback(async (options = {}) => {
     const targetProfile = getRenderProfileConfig(options.profileId || renderProfile);
+    const sourceCode = options.codeOverride ?? previewCode;
+    const sourceName = options.sourceName || currentFileName || DEFAULT_FILE_NAME;
+    const sourcePath = options.sourcePath ?? currentFilePath ?? null;
     const id = ++buildIdRef.current;
     const requestId = `render-${Date.now()}-${id}`;
     renderRequestIdRef.current = requestId;
@@ -1176,7 +1180,7 @@ export default function Forge3D() {
     setBuilding(true);
     setBuildElapsedMs(0);
     setBuildStatusDetail('Preparing render...');
-    setStatusMessage(`Rendering ${currentFileName || DEFAULT_FILE_NAME} (${targetProfile.label})...`);
+    setStatusMessage(`Rendering ${sourceName} (${targetProfile.label})...`);
     setResult((current) => ({
       ...current,
       logs: [],
@@ -1206,9 +1210,9 @@ export default function Forge3D() {
     buildTimeoutRef.current = timeoutHandle;
 
     try {
-      const response = await forgeAPI.renderOpenSCAD(previewCode, {
-        sourceName: currentFileName || DEFAULT_FILE_NAME,
-        sourcePath: currentFilePath || null,
+      const response = await forgeAPI.renderOpenSCAD(sourceCode, {
+        sourceName,
+        sourcePath,
         requestId,
         defineOverrides: targetProfile.defineOverrides,
       });
@@ -1224,7 +1228,7 @@ export default function Forge3D() {
         latestRenderedGeometryRef.current = null;
         setStlGeometry(null);
         setCurrentRenderMeta({ profileId: null, sourceCode: null });
-        const diagnostics = buildRenderDiagnostics(response, previewCode);
+        const diagnostics = buildRenderDiagnostics(response, sourceCode);
         const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
         const lifecycleLogs = [
           ...renderLogBufferRef.current,
@@ -1240,12 +1244,12 @@ export default function Forge3D() {
         let triangleCount = 0;
         try {
           triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
-          setCurrentRenderMeta({ profileId: targetProfile.id, sourceCode: previewCode });
+          setCurrentRenderMeta({ profileId: targetProfile.id, sourceCode });
         } catch (loadError) {
           latestRenderedGeometryRef.current = null;
           setStlGeometry(null);
           setCurrentRenderMeta({ profileId: null, sourceCode: null });
-          const diagnostics = createRenderStageError('STL ingest', loadError, response, previewCode);
+          const diagnostics = createRenderStageError('STL ingest', loadError, response, sourceCode);
           const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
           setResult({
             objects: [],
@@ -1259,7 +1263,7 @@ export default function Forge3D() {
           setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed during STL ingest. See Problems for details.');
           return false;
         }
-        const diagnostics = buildRenderDiagnostics(response, previewCode);
+        const diagnostics = buildRenderDiagnostics(response, sourceCode);
         setResult({
           objects: [],
           logs: [
@@ -1298,7 +1302,7 @@ export default function Forge3D() {
         debugSourcePath: err.debugSourcePath || null,
         elapsedMs: err.elapsedMs || null,
       };
-      const diagnostics = buildRenderDiagnostics(failureResponse, previewCode);
+      const diagnostics = buildRenderDiagnostics(failureResponse, sourceCode);
       const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
       setResult({
         objects: [],
@@ -1439,6 +1443,68 @@ export default function Forge3D() {
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
 
   useEffect(() => {
+    if (releaseScreenshotStartedRef.current) return;
+    releaseScreenshotStartedRef.current = true;
+
+    let cancelled = false;
+
+    async function runReleaseScreenshotFlow() {
+      const launchContext = await forgeAPI.getLaunchContext?.();
+      const screenshotConfig = launchContext?.releaseScreenshot;
+      if (!screenshotConfig?.enabled) return;
+
+      try {
+        if (!screenshotConfig.scadPath) {
+          throw new Error('FORGE3D_RELEASE_SCREENSHOT_SCAD is required.');
+        }
+
+        const snapshot = await forgeAPI.readFileSnapshot(screenshotConfig.scadPath);
+        if (!snapshot?.exists || snapshot.error) {
+          throw new Error(snapshot?.error || `Unable to read ${screenshotConfig.scadPath}`);
+        }
+
+        const fileName = snapshot.name || DEFAULT_FILE_NAME;
+        setAutoRun(false);
+        setMode('design');
+        setSidebarTab('workspace');
+        setActiveTab('console');
+        resetAssemblyState();
+        queueAutoFitView();
+        replaceCodeWithoutHistory(snapshot.content);
+        setSavedCode(snapshot.content);
+        setComparisonCode(snapshot.content);
+        setCurrentFileName(fileName);
+        setCurrentFilePath(snapshot.filePath);
+        setStatusMessage(`Preparing release screenshot for ${fileName}`);
+
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        const ok = await runCode({
+          profileId: 'final',
+          codeOverride: snapshot.content,
+          sourceName: fileName,
+          sourcePath: snapshot.filePath,
+        });
+        await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+
+        if (!cancelled) {
+          await forgeAPI.notifyReleaseScreenshotReady?.({ ok });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          await forgeAPI.notifyReleaseScreenshotReady?.({ ok: false, error: err.message });
+        }
+      }
+    }
+
+    runReleaseScreenshotFlow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [forgeAPI, queueAutoFitView, replaceCodeWithoutHistory, resetAssemblyState, runCode]);
+
+  useEffect(() => {
     if (!building) {
       setBuildElapsedMs(0);
       return;
@@ -1462,6 +1528,8 @@ export default function Forge3D() {
     if (payload.phase === 'started') {
       const introLogs = [
         `OpenSCAD started for ${currentFileName || DEFAULT_FILE_NAME} (${currentBuildProfileRef.current.label})`,
+        payload.launchMode ? `OpenSCAD launch mode: ${payload.launchMode}` : null,
+        payload.launchWarning ? `OpenSCAD launch warning: ${payload.launchWarning}` : null,
         payload.command ? `OpenSCAD command: ${payload.command}` : null,
         payload.defineOverrides?.length ? `Render overrides: ${payload.defineOverrides.join(', ')}` : null,
         payload.inputPath ? `Debug source: ${payload.inputPath}` : null,
@@ -2539,7 +2607,6 @@ export default function Forge3D() {
           onCaptureRender={handleCaptureRender}
           selectedAssemblyPart={selectedAssemblyPart}
           setViewSettings={setViewSettings}
-          theme={theme}
           viewSettings={viewSettings}
         />
       </div>

@@ -3,16 +3,18 @@ import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
 import os from 'os'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { spawn, spawnSync } from 'child_process'
+import { resolveOpenScadLaunch } from './openscad-bin.mjs'
+import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
+if (isDev) await import('@dev-feedback/electron/register')
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
-const OPENSCAD_BIN = 'C:\\Program Files\\OpenSCAD\\openscad.com'
 const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
 
 // ── Config (userData JSON) ──────────────────────────────────────────────────
@@ -21,6 +23,10 @@ const MAX_RECENT_FILES = 10
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.5
 const ZOOM_STEP = 0.1
+
+function isReleaseScreenshotMode() {
+  return process.env.FORGE3D_RELEASE_SCREENSHOT === '1'
+}
 
 function buildStableChildProcessEnv(overrides = {}) {
   const userProfile = process.env.USERPROFILE || os.homedir()
@@ -381,6 +387,7 @@ function buildAppMenu() {
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setWindowZoomFactor(mainWin, 1) },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => adjustWindowZoomFactor(mainWin, ZOOM_STEP) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => adjustWindowZoomFactor(mainWin, -ZOOM_STEP) },
+        { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
     },
@@ -423,15 +430,39 @@ function createWindow() {
   win.setMenuBarVisibility(false)
   setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
 
-  if (isDev) {
-    win.loadURL('http://localhost:5173')
+  const useDevServer = isDev && !isReleaseScreenshotMode()
+  const packagedEntryPath = path.join(__dirname, '..', 'dist', 'index.html')
+  const rendererEntryUrl = useDevServer
+    ? 'http://localhost:5173'
+    : pathToFileURL(packagedEntryPath).href
+
+  if (useDevServer) {
+    win.loadURL(rendererEntryUrl)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    win.loadFile(packagedEntryPath)
   }
 
   win.webContents.on('did-finish-load', () => {
     notifyZoomChange(win, getWindowZoomFactor(win))
+  })
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url).catch((err) => console.warn('[Navigation] Failed to open external URL:', err.message))
+    }
+    return { action: 'deny' }
+  })
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAllowedRendererNavigation(url, {
+      isDev: useDevServer,
+      packagedEntryUrl: rendererEntryUrl,
+    })) return
+    event.preventDefault()
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url).catch((err) => console.warn('[Navigation] Failed to open external URL:', err.message))
+    }
   })
 
   win.webContents.on('before-input-event', (event, input) => {
@@ -488,11 +519,36 @@ function buildRenderArgs(inputPath, outputPath, defineOverrides = []) {
   ]
 }
 
-function buildRenderCommand(inputPath, outputPath, defineOverrides = []) {
+function getOpenScadResolution() {
+  return resolveOpenScadLaunch({
+    env: process.env,
+    platform: process.platform,
+  })
+}
+
+function buildRenderCommand(inputPath, outputPath, defineOverrides = [], launch = null) {
+  const openscadLaunch = launch || getOpenScadResolution()
+  const bin = openscadLaunch.command || 'openscad'
   const renderedArgs = buildRenderArgs(inputPath, outputPath, defineOverrides)
     .map((entry) => `"${entry}"`)
     .join(' ')
-  return `"${OPENSCAD_BIN}" ${renderedArgs}`
+  const prefixArgs = openscadLaunch.argsPrefix?.length
+    ? ` ${openscadLaunch.argsPrefix.map((entry) => `"${entry}"`).join(' ')}`
+    : ''
+  return `"${bin}"${prefixArgs} ${renderedArgs}`
+}
+
+function buildOpenScadSpawnArgs(launch, inputPath, outputPath, defineOverrides = []) {
+  return [
+    ...(launch.argsPrefix || []),
+    ...buildRenderArgs(inputPath, outputPath, defineOverrides),
+  ]
+}
+
+function formatShellCommand(command, args = []) {
+  return `"${command}" ${args
+    .map((entry) => `"${entry}"`)
+    .join(' ')}`
 }
 
 function emitOpenScadProgress(webContents, payload) {
@@ -519,11 +575,23 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
 
   try {
     await ensureNativeToolUserFolders(env)
-    const command = buildRenderCommand(inputPath, outputPath, defineOverrides)
     const startedAt = Date.now()
+    const openscadLaunch = getOpenScadResolution()
+    const command = buildRenderCommand(inputPath, outputPath, defineOverrides, openscadLaunch)
+    if (!openscadLaunch.command) {
+      const err = new Error(openscadLaunch.message)
+      err.code = 'ENOENT'
+      err.stdout = stdout
+      err.stderr = openscadLaunch.message
+      err.command = command
+      err.debugSourcePath = inputPath
+      err.elapsedMs = Date.now() - startedAt
+      throw err
+    }
 
     return await new Promise((resolve, reject) => {
-      const child = spawn(OPENSCAD_BIN, buildRenderArgs(inputPath, outputPath, defineOverrides), {
+      const spawnArgs = buildOpenScadSpawnArgs(openscadLaunch, inputPath, outputPath, defineOverrides)
+      const child = spawn(openscadLaunch.command, spawnArgs, {
         cwd,
         env,
         windowsHide: true,
@@ -572,8 +640,10 @@ async function renderScadInput(inputPath, outputPath, { removeInput = false, cwd
       emitOpenScadProgress(webContents, {
         requestId,
         phase: 'started',
-        command,
+        command: formatShellCommand(openscadLaunch.command, spawnArgs),
         defineOverrides,
+        launchMode: openscadLaunch.archMode || null,
+        launchWarning: openscadLaunch.launchWarning || null,
         inputPath,
         outputPath,
         cwd: cwd || null,
@@ -888,8 +958,56 @@ ipcMain.handle('viewport:saveCapture', async (_event, payload = {}) => {
   return { filePath, name: path.basename(filePath) }
 })
 
+ipcMain.handle('app:getLaunchContext', () => ({
+  releaseScreenshot: {
+    enabled: isReleaseScreenshotMode(),
+    scadPath: process.env.FORGE3D_RELEASE_SCREENSHOT_SCAD || null,
+    outputPath: process.env.FORGE3D_RELEASE_SCREENSHOT_OUTPUT || null,
+  },
+}))
+
+ipcMain.handle('releaseScreenshot:ready', async (event, payload = {}) => {
+  if (!isReleaseScreenshotMode()) return { captured: false, reason: 'not-in-release-screenshot-mode' }
+
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const outputPath = process.env.FORGE3D_RELEASE_SCREENSHOT_OUTPUT
+  const delayMs = Number.parseInt(process.env.FORGE3D_RELEASE_SCREENSHOT_DELAY_MS || '900', 10)
+
+  if (!payload.ok) {
+    console.error('[ReleaseScreenshot] Renderer reported failure:', payload.error || 'unknown error')
+    app.exit(1)
+    return { captured: false, reason: 'renderer-failed' }
+  }
+
+  if (!win || win.isDestroyed()) {
+    console.error('[ReleaseScreenshot] BrowserWindow is not available')
+    app.exit(1)
+    return { captured: false, reason: 'window-missing' }
+  }
+
+  if (!outputPath) {
+    console.error('[ReleaseScreenshot] FORGE3D_RELEASE_SCREENSHOT_OUTPUT is required')
+    app.exit(1)
+    return { captured: false, reason: 'output-missing' }
+  }
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, Number.isFinite(delayMs) ? delayMs : 900))
+    await fs.mkdir(path.dirname(outputPath), { recursive: true })
+    const image = await win.webContents.capturePage()
+    await fs.writeFile(outputPath, image.toPNG())
+    console.log('[ReleaseScreenshot] Captured', outputPath)
+    app.quit()
+    return { captured: true, outputPath }
+  } catch (err) {
+    console.error('[ReleaseScreenshot] Capture failed:', err.message)
+    app.exit(1)
+    return { captured: false, reason: err.message }
+  }
+})
+
 ipcMain.handle('system:openExternal', async (_event, url) => {
-  if (!url) return false
+  if (!isAllowedExternalUrl(url)) return false
   await shell.openExternal(url)
   return true
 })

@@ -1,6 +1,8 @@
 node_modules/
+electron/preload.bundle.cjs
 dist/
-release/
+/release/
+docs/screenshots/release/
 coverage/
 *.local
 .env

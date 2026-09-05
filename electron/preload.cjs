@@ -76,6 +76,8 @@ contextBridge.exposeInMainWorld('forgeAPI', {
 
   // Viewport capture
   saveViewportCapture: (payload) => ipcRenderer.invoke('viewport:saveCapture', payload),
+  getLaunchContext: () => ipcRenderer.invoke('app:getLaunchContext'),
+  notifyReleaseScreenshotReady: (payload) => ipcRenderer.invoke('releaseScreenshot:ready', payload),
 
   // System helpers
   openExternalUrl: (url) => ipcRenderer.invoke('system:openExternal', url),

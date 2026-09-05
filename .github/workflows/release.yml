@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'build/**'
+      - 'electron/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, for manual release runs.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: macos
+            screenshot: darwin
+          - os: windows-2022
+            artifact: windows
+            screenshot: win32
+          - os: ubuntu-latest
+            artifact: linux
+            screenshot: linux
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install OpenSCAD on macOS
+        if: runner.os == 'macOS'
+        run: brew install --cask openscad@snapshot
+
+      - name: Install OpenSCAD on Windows
+        if: runner.os == 'Windows'
+        run: choco install openscad -y
+
+      - name: Install OpenSCAD on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openscad xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run node tests
+        run: npm run test:node
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Capture release screenshot
+        if: runner.os != 'Linux'
+        timeout-minutes: 5
+        continue-on-error: true
+        run: npm run capture:release-screenshot
+
+      - name: Capture release screenshot on Linux
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        continue-on-error: true
+        run: xvfb-run --auto-servernum npm run capture:release-screenshot
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
+
+      - name: Report macOS release mode
+        if: runner.os == 'macOS'
+        run: npm run verify:mac-release
+
+      - name: Package desktop app
+        run: npm run dist -- --publish never
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge3d-installers-${{ matrix.artifact }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.zip
+          if-no-files-found: error
+
+      - name: Upload release screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge3d-release-screenshots-${{ matrix.artifact }}
+          path: docs/screenshots/release/forge3d-showcase-${{ matrix.screenshot }}.png
+          if-no-files-found: warn
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-upload
+
+      - name: Prepare release notes
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Forge3D preview release.
+
+          Requirements:
+          - OpenSCAD must be installed locally for rendering.
+          - macOS DMGs are unsigned native Apple Silicon development previews. Gatekeeper may require manual approval or quarantine removal after download.
+          - Print Mode and slicer workflows remain planned work, not release features.
+
+          This release includes installer artifacts. When screenshot capture succeeds, it also includes the current platform image generated from `docs/release-assets/forge3d-showcase.scad`.
+          NOTES
+
+      - name: Create or update release
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease
+          else
+            gh release create "$RELEASE_TAG" --title "Forge3D $RELEASE_TAG" --notes-file release-notes.md --prerelease
+          fi
+
+          mkdir -p release-assets
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            if [ -e "release-assets/$name" ]; then
+              parent="$(basename "$(dirname "$asset")")"
+              name="${parent}-${name}"
+            fi
+            cp "$asset" "release-assets/$name"
+          done < <(find release-upload -type f \( \
+            -name '*.dmg' -o \
+            -name '*.exe' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.rpm' -o \
+            -name '*.zip' -o \
+            -name '*.png' \
+          \) -print0)
+
+          find release-assets -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber

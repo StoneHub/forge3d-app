@@ -2,6 +2,7 @@
 // File open/save lives in the preload bridge via forgeAPI IPC.
 
 import { EXAMPLES } from './examples.js';
+import { DEFAULT_RENDER_APPEARANCE, normalizeRenderAppearance } from './render-appearance.js';
 
 export const STORAGE_KEY = 'forge3d.workspace.v1';
 export const DEFAULT_FILE_NAME = 'main.scad';
@@ -84,7 +85,7 @@ export function getDefaultWorkspace() {
   return {
     code: '',
     lastSavedCode: '',
-    viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true },
+    viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true, appearance: { ...DEFAULT_RENDER_APPEARANCE } },
     autoRun: false,
     renderProfile: 'quick',
     currentFileName: DEFAULT_FILE_NAME,
@@ -118,7 +119,11 @@ export function loadWorkspace() {
       autoRun: false,
       renderProfile: parsed.renderProfile === 'final' ? 'final' : 'quick',
       lastSavedCode: parsed.lastSavedCode ?? parsed.code ?? '',
-      viewSettings: { ...getDefaultWorkspace().viewSettings, ...(parsed.viewSettings || {}) },
+      viewSettings: {
+        ...getDefaultWorkspace().viewSettings,
+        ...(parsed.viewSettings || {}),
+        appearance: normalizeRenderAppearance(parsed.viewSettings?.appearance),
+      },
       panelLayout: { ...DEFAULT_PANEL_LAYOUT, ...(parsed.panelLayout || {}) },
       startState: {
         ...DEFAULT_START_STATE,

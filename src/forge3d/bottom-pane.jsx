@@ -1,5 +1,11 @@
 import { useRef } from 'react';
 import Icons from './icons.jsx';
+import {
+  OFFICIAL_OPENSCAD_DOWNLOAD_URL,
+  OFFICIAL_OPENSCAD_SUPPORT_URL,
+  buildOpenScadSupportMessage,
+  shouldShowOpenScadSupport,
+} from './openscad-support.js';
 import TerminalPane from './terminal.jsx';
 
 function getIssueMessage(entry) {
@@ -53,6 +59,10 @@ export default function BottomPane({
   terminalState,
 }) {
   const terminalPaneRef = useRef(null);
+  const showOpenScadSupport = shouldShowOpenScadSupport(allErrors);
+  const openExternal = (url) => {
+    window.forgeAPI?.openExternalUrl?.(url);
+  };
 
   const panelStyle = (visible, extra = {}) => ({
     position: 'absolute',
@@ -129,6 +139,35 @@ export default function BottomPane({
         <div style={panelStyle(activeTab === 'errors')}>
           <>
             {allErrors.length === 0 && allWarnings.length === 0 && <div style={{ color: colors.success }}>No problems detected</div>}
+            {showOpenScadSupport && (
+              <div style={{ border: `1px solid ${colors.accent}55`, background: `${colors.accent}12`, borderRadius: '10px', padding: '11px 12px', marginBottom: '10px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <span style={{ color: colors.accent, flexShrink: 0, marginTop: '1px' }}><Icons.Cube /></span>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                  <div style={{ color: colors.textSoft, fontSize: '12px', fontWeight: 900, fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+                    OpenSCAD is required for rendering
+                  </div>
+                  <div style={{ color: colors.textMuted, whiteSpace: 'normal', wordBreak: 'normal', fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: '11px', lineHeight: 1.45 }}>
+                    {buildOpenScadSupportMessage()}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
+                    <button
+                      type="button"
+                      onClick={() => openExternal(OFFICIAL_OPENSCAD_DOWNLOAD_URL)}
+                      style={{ background: `${colors.accent}22`, border: `1px solid ${colors.accent}88`, borderRadius: '7px', color: colors.accent, cursor: 'pointer', padding: '5px 9px', fontSize: '11px', fontWeight: 800 }}
+                    >
+                      Official download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openExternal(OFFICIAL_OPENSCAD_SUPPORT_URL)}
+                      style={{ background: colors.bgDarker, border: `1px solid ${colors.border}`, borderRadius: '7px', color: colors.textMuted, cursor: 'pointer', padding: '5px 9px', fontSize: '11px', fontWeight: 800 }}
+                    >
+                      OpenSCAD community
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {allErrors.map((rawError, index) => {
               const message = getIssueMessage(rawError);
               const detail = getIssueDetail(rawError);
