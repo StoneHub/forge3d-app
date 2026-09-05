@@ -17,6 +17,19 @@ export default function ViewportPane({
   colors,
   minViewportWidth,
   mode = 'design',
+  measurement,
+  onToggleMeasure,
+  canMeasure = false,
+  holeTool = false,
+  holePick,
+  holeDiameter,
+  onHoleDiameterChange,
+  holePreview,
+  holeError,
+  holeBusy = false,
+  onToggleHole,
+  onApplyHole,
+  onEnterAssembly,
   onCaptureRender,
   setViewSettings,
   viewSettings,
@@ -92,7 +105,7 @@ export default function ViewportPane({
           50% { transform: translateY(-8px); }
         }
       `}</style>
-      <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px' }}>
+      <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, display: 'flex', gap: '4px', flexWrap: 'wrap', right: '10px' }}>
         {[
           { icon: Icons.Grid, key: 'grid', label: 'Grid' },
           { icon: Icons.Layers, key: 'axes', label: 'Axes' },
@@ -101,9 +114,36 @@ export default function ViewportPane({
         ].map(({ icon: Icon, key, label }) => (
           <button key={key} title={label} onClick={() => setViewSettings(settings => ({ ...settings, [key]: !settings[key] }))} style={buttonStyle(viewSettings[key])}><Icon /></button>
         ))}
+        <button title="Measure between two surface points" aria-pressed={!!measurement?.enabled} disabled={!canMeasure || building || holeBusy} onClick={onToggleMeasure} style={buttonStyle(measurement?.enabled)}><Icons.Ruler /> Measure</button>
+        <button title={mode === 'assembly' ? 'Place a round through-hole on a surface' : 'Open Assembly to place a hole'} aria-pressed={holeTool} disabled={!canMeasure || building || holeBusy} onClick={mode === 'assembly' ? onToggleHole : onEnterAssembly} style={buttonStyle(holeTool)}>⊖ Hole</button>
         <button title="Capture Render" onClick={() => onCaptureRender?.()} style={buttonStyle(false)}><Icons.Camera /></button>
         <button title="Render Appearance" onClick={() => setAppearanceOpen((open) => !open)} style={buttonStyle(appearanceOpen)}><Icons.Sliders /></button>
       </div>
+
+      {(measurement?.enabled || holeTool) && (
+        <div style={{ position: 'absolute', bottom: '12px', left: '12px', right: '12px', zIndex: 11, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ pointerEvents: 'auto', maxWidth: '100%', background: colors.surfaceOverlay || colors.bg, border: `1px solid ${colors.border}`, borderRadius: '9px', padding: '10px 12px', color: colors.textSoft, fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {measurement?.enabled ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span role="status">{measurement.distance != null ? `${measurement.distance.toFixed(2)} mm` : measurement.points.length === 1 ? 'Pick second point' : 'Pick first point'}</span>
+                <button onClick={onToggleMeasure} style={buttonStyle(false)}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span>{holePick ? 'Through-hole' : 'Pick a surface'}</span>
+                  <label>Ø <input aria-label="Hole diameter (mm)" type="number" min="0.01" max="10000" step="0.1" disabled={holeBusy} value={holeDiameter} onChange={(event) => onHoleDiameterChange(Number(event.target.value))} style={{ width: '65px', color: colors.textSoft, background: colors.bgDarker, border: `1px solid ${colors.border}`, padding: '5px', borderRadius: '4px' }} /> mm</label>
+                  <button disabled={!holePreview || holeBusy} onClick={onApplyHole} style={buttonStyle(true)}>{holeBusy ? 'Cutting…' : 'Cut hole'}</button>
+                  <button disabled={holeBusy} onClick={onToggleHole} style={buttonStyle(false)}>Cancel</button>
+                </div>
+                {holeError && <span role="alert" style={{ color: colors.error }}>{holeError}</span>}
+                {holePick && !holePreview && <span role="alert">Enter a diameter greater than 0 and at most 10000 mm.</span>}
+                {holePreview && <details><summary style={{ cursor: 'pointer' }}>OpenSCAD cutter</summary><textarea aria-label="OpenSCAD cutter" readOnly value={holePreview.scad} style={{ width: '100%', height: '150px', boxSizing: 'border-box', marginTop: '8px', background: colors.bgDarker, color: colors.textSoft, border: `1px solid ${colors.border}`, fontFamily: 'monospace', fontSize: '11px' }} /></details>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {appearanceOpen && (
         <div
@@ -281,7 +321,7 @@ export default function ViewportPane({
         aria-label="3D model viewport"
         title={mode === 'assembly' ? 'Drag the amber handle to move; drag the ring to rotate. Right-drag to pan.' : 'Drag to orbit; right-drag to pan; scroll to zoom.'}
         data-feature="3D viewport"
-        style={{ width: '100%', height: '100%', display: 'block' }}
+        style={{ width: '100%', height: '100%', display: 'block', cursor: measurement?.enabled || holeTool ? 'crosshair' : 'auto' }}
       />
     </div>
   );

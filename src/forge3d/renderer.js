@@ -170,8 +170,19 @@ function getMeasurementColor(theme) {
   return theme === 'dark' ? 0xffd166 : 0xd99100;
 }
 
-function syncMeasurement(resources, measurement, theme) {
+function clearToolOverlay(resources) {
+  resources.measureRoot.traverse((object) => {
+    if (!object.userData.sharedGeometry) object.geometry?.dispose();
+    if (object.material) {
+      object.material.map?.dispose();
+      object.material.dispose();
+    }
+  });
   resources.measureRoot.clear();
+}
+
+function syncMeasurement(resources, measurement, theme) {
+  clearToolOverlay(resources);
   if (!measurement?.enabled || !measurement.points?.length) return;
   const markerGeometry = new THREE.SphereGeometry(0.6, 16, 16);
   const markerMaterial = new THREE.MeshBasicMaterial({ color: getMeasurementColor(theme), depthTest: false });
@@ -182,15 +193,12 @@ function syncMeasurement(resources, measurement, theme) {
     resources.measureRoot.add(marker);
   });
   if (measurement.points.length === 2) {
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(...measurement.points[0].position),
-        new THREE.Vector3(...measurement.points[1].position),
-      ]),
-      new THREE.LineBasicMaterial({ color: getMeasurementColor(theme), depthTest: false }),
-    );
-    line.userData.forgeExcludeFromExport = true;
-    resources.measureRoot.add(line);
+    resources.measureRoot.add(createDimensionBracket(
+      new THREE.Vector3(...measurement.points[0].position),
+      new THREE.Vector3(...measurement.points[1].position),
+      new THREE.Vector3(0, 2, 0),
+      `${measurement.distance.toFixed(2)} mm`, getMeasurementColor(theme),
+    ));
   }
 }
 
@@ -251,6 +259,9 @@ export function useThreeRenderer({
   assemblyScene = null,
   selectedPartId = null,
   measurement = null,
+  holeTool = false,
+  holePreview = null,
+  onSurfacePick,
   onSelectAssemblyPart,
   onAssemblyMeasurementPick,
   onUpdateAssemblyPartTransform,
@@ -263,7 +274,7 @@ export function useThreeRenderer({
   const latestRef = useRef({});
   const signalsRef = useRef({ reset: resetViewSignal, fit: fitViewSignal });
 
-  latestRef.current = { mode, assemblyScene, selectedPartId, measurement, onAssemblyMeasurementPick, onSelectAssemblyPart, onUpdateAssemblyPartTransform };
+  latestRef.current = { holeTool, onSurfacePick, mode, assemblyScene, selectedPartId, measurement, onAssemblyMeasurementPick, onSelectAssemblyPart, onUpdateAssemblyPartTransform };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -344,7 +355,9 @@ export function useThreeRenderer({
     };
     const onMouseDown = (event) => {
       const current = latestRef.current;
-      if (current.mode === 'assembly') {
+      if (event.button === 0 && (current.measurement?.enabled || current.holeTool)) {
+        interactionRef.current = { type: 'pick', x: event.clientX, y: event.clientY, moved: false };
+      } else if (current.mode === 'assembly' && event.button === 0) {
         const selected = current.assemblyScene?.parts?.find((part) => part.id === current.selectedPartId);
         const gizmoHit = getIntersections(resources.gizmoRoot.children, event)[0];
         if (gizmoHit && selected && !selected.locked) {
@@ -356,16 +369,6 @@ export function useThreeRenderer({
             interactionRef.current = gizmoHit.object.userData.gizmoType === 'move'
               ? { type: 'move', partId: selected.id, plane, point, start: { ...selected.transform, position: [...selected.transform.position], rotation: [...selected.transform.rotation], scale: [...selected.transform.scale] } }
               : { type: 'rotate', partId: selected.id, plane, center, angle: Math.atan2(point.z - center.z, point.x - center.x), start: { ...selected.transform, position: [...selected.transform.position], rotation: [...selected.transform.rotation], scale: [...selected.transform.scale] } };
-            return;
-          }
-        }
-        if (current.measurement?.enabled) {
-          const hit = getIntersections(Array.from(resources.assemblyMeshes.values()), event)[0];
-          if (hit) {
-            current.onAssemblyMeasurementPick?.({
-              point: [hit.point.x, hit.point.y, hit.point.z],
-              partId: hit.object?.userData?.partId || null,
-            });
             return;
           }
         }
@@ -382,7 +385,10 @@ export function useThreeRenderer({
     };
     const onMouseMove = (event) => {
       const interaction = interactionRef.current;
-      if (interaction) {
+      if (interaction?.type === 'pick') {
+        if (Math.hypot(event.clientX - interaction.x, event.clientY - interaction.y) > 4) interaction.moved = true;
+      }
+      if (interaction && interaction.type !== 'pick') {
         const current = latestRef.current;
         const part = current.assemblyScene?.parts?.find((candidate) => candidate.id === interaction.partId);
         const mesh = resources.assemblyMeshes.get(interaction.partId);
@@ -425,7 +431,19 @@ export function useThreeRenderer({
       }
       updateCamera(camera, cameraStateRef.current);
     };
-    const onMouseUp = () => {
+    const onMouseUp = (event) => {
+      const interaction = interactionRef.current;
+      const current = latestRef.current;
+      if (event.target === canvas && interaction?.type === 'pick' && !interaction.moved && event.button === 0) {
+        const hit = getIntersections(resources.displayMeshes, event)[0];
+        if (hit) {
+          const payload = { position: hit.point.toArray(), partId: hit.object.userData.partId || null };
+          if (current.holeTool && hit.face) {
+            payload.normal = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize().toArray();
+            current.onSurfacePick?.(payload);
+          } else if (current.measurement?.enabled) current.onAssemblyMeasurementPick?.(payload);
+        }
+      }
       if (interactionRef.current?.next) latestRef.current.onUpdateAssemblyPartTransform?.(interactionRef.current.partId, interactionRef.current.next);
       interactionRef.current = null;
       cameraStateRef.current.down = false;
@@ -489,7 +507,7 @@ export function useThreeRenderer({
       resources.assemblyMeshes = new Map();
       resources.selectionRoot.clear();
       resources.gizmoRoot.clear();
-      resources.measureRoot.clear();
+      clearToolOverlay(resources);
       if (stlGeometry) {
         const mesh = new THREE.Mesh(stlGeometry, createPartMaterial({ appearance, theme }));
         mesh.applyMatrix4(scadToViewportMatrix());
@@ -528,8 +546,15 @@ export function useThreeRenderer({
           resources.assemblyRoot.add(edges);
         }
       });
-      syncMeasurement(resources, measurement, theme);
+
       syncSelection(resources, assemblyScene, selectedPartId, theme);
+    }
+    syncMeasurement(resources, measurement, theme);
+    if (holePreview) {
+      const cutter = new THREE.Mesh(holePreview.geometry, new THREE.MeshBasicMaterial({ color: 0xff6b78, transparent: true, opacity: 0.45, depthWrite: false }));
+      cutter.userData.forgeExcludeFromExport = true;
+      cutter.userData.sharedGeometry = true;
+      resources.measureRoot.add(cutter);
     }
     const box = buildBox(resources.displayMeshes);
     if (viewSettings.dimensions && box) {
@@ -547,7 +572,7 @@ export function useThreeRenderer({
     if (shouldReset) Object.assign(cameraStateRef.current, DEFAULT_CAMERA);
     if (shouldReset) updateCamera(resources.camera, cameraStateRef.current);
     if ((shouldReset || shouldFit) && box) frameBoundingBox(resources.camera, cameraStateRef.current, box);
-  }, [mode, viewSettings, stlGeometry, assemblyScene, selectedPartId, measurement, resetViewSignal, fitViewSignal, theme]);
+  }, [mode, viewSettings, stlGeometry, assemblyScene, selectedPartId, measurement, holePreview, resetViewSignal, fitViewSignal, theme]);
 
   return scene;
 }

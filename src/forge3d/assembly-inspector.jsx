@@ -89,6 +89,7 @@ function formatMeasurementStatus(measurement) {
   if (measurement?.enabled) {
     if (points.length === 0) return 'Click the first point in the viewport.';
     if (points.length === 1) return 'Click the second point to log the measurement.';
+    if (points.length === 2) return 'Click to start another measurement.';
   }
   if (measurement?.history?.length) {
     return `Last logged ${measurement.history[0].distance.toFixed(2)} mm.`;
@@ -159,6 +160,13 @@ export default function AssemblyInspector({
           {partLocked && <span style={{ color: colors.warn, fontWeight: 800 }}>Locked</span>}
         </div>
       </div>
+
+      {part.metadata?.scad && (
+        <details style={{ color: colors.textMuted, fontSize: '12px' }}>
+          <summary style={{ cursor: 'pointer' }}>OpenSCAD cutter</summary>
+          <textarea aria-label="Saved OpenSCAD cutter" readOnly value={part.metadata.scad} style={{ width: '100%', height: '160px', boxSizing: 'border-box', marginTop: '8px', background: colors.bgDarker, color: colors.textSoft, border: `1px solid ${colors.border}`, fontFamily: 'monospace', fontSize: '11px' }} />
+        </details>
+      )}
 
       <div style={{ border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
