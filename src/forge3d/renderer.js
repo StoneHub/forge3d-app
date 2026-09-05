@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { getAssemblyPartWorldBox } from './assembly.js';
+import { getAssemblyPartWorldBox, getGeometryWorldBox, applyAssemblyTransform, scadToViewportMatrix } from './assembly-transform.js';
 import { getMaterialSwatch, getViewportBackgroundStops, normalizeRenderAppearance } from './render-appearance.js';
 import { getThemeColors } from './theme.js';
 
@@ -147,24 +147,17 @@ function snapValue(value, step) {
   return step ? Math.round(value / step) * step : value;
 }
 
-function applyTransform(mesh, transform) {
-  mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
-  mesh.rotation.set(
-    THREE.MathUtils.degToRad(transform.rotation[0] || 0),
-    THREE.MathUtils.degToRad(transform.rotation[1] || 0),
-    THREE.MathUtils.degToRad(transform.rotation[2] || 0),
-  );
-  mesh.scale.set(transform.scale?.[0] ?? 1, transform.scale?.[1] ?? 1, transform.scale?.[2] ?? 1);
-  mesh.updateMatrixWorld(true);
-}
-
 function buildBox(meshes) {
   const box = new THREE.Box3();
   let hasMesh = false;
   meshes.forEach((mesh) => {
     if (!mesh.visible) return;
-    box.union(new THREE.Box3().setFromObject(mesh));
-    hasMesh = true;
+    mesh.updateMatrixWorld(true);
+    const bounds = getGeometryWorldBox(mesh.geometry, mesh.matrixWorld);
+    if (bounds && !bounds.isEmpty()) {
+      box.union(bounds);
+      hasMesh = true;
+    }
   });
   return hasMesh ? box : null;
 }
@@ -208,12 +201,12 @@ function syncSelection(resources, assemblyScene, selectedPartId, theme) {
   const selectedMesh = resources.assemblyMeshes.get(selectedPartId);
   if (!selectedPart || !selectedMesh) return;
   selectedMesh.updateMatrixWorld(true);
-  const helper = new THREE.BoxHelper(selectedMesh, theme === 'dark' ? 0x4fc3f7 : 0x1565c0);
+  const box = getAssemblyPartWorldBox(selectedPart);
+  if (!box || box.isEmpty()) return;
+  const helper = new THREE.Box3Helper(box, theme === 'dark' ? 0x4fc3f7 : 0x1565c0);
   helper.userData.forgeExcludeFromExport = true;
   resources.selectionRoot.add(helper);
   if (selectedPart.locked) return;
-  const box = getAssemblyPartWorldBox(selectedPart);
-  if (!box || box.isEmpty()) return;
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const handleColor = getAssemblyHandleColor(theme);
@@ -407,7 +400,7 @@ export function useThreeRenderer({
           const delta = THREE.MathUtils.radToDeg(Math.atan2(point.z - interaction.center.z, point.x - interaction.center.x) - interaction.angle);
           interaction.next = { ...interaction.start, rotation: [interaction.start.rotation[0], snapValue(interaction.start.rotation[1] + delta, step), interaction.start.rotation[2]] };
         }
-        applyTransform(mesh, interaction.next);
+        applyAssemblyTransform(mesh, interaction.next);
         syncSelection(resources, { parts: current.assemblyScene.parts.map((candidate) => candidate.id === part.id ? { ...candidate, transform: interaction.next } : candidate) }, part.id, theme);
         return;
       }
@@ -499,7 +492,7 @@ export function useThreeRenderer({
       resources.measureRoot.clear();
       if (stlGeometry) {
         const mesh = new THREE.Mesh(stlGeometry, createPartMaterial({ appearance, theme }));
-        mesh.rotation.x = -Math.PI / 2;
+        mesh.applyMatrix4(scadToViewportMatrix());
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         resources.designRoot.add(mesh);
@@ -519,7 +512,7 @@ export function useThreeRenderer({
       (assemblyScene?.parts || []).forEach((part) => {
         if (part.visible === false) return;
         const mesh = new THREE.Mesh(part.geometry, createPartMaterial({ appearance, selected: part.id === selectedPartId, locked: part.locked, theme }));
-        applyTransform(mesh, part.transform);
+        applyAssemblyTransform(mesh, part.transform);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.partId = part.id;

@@ -1,3 +1,4 @@
+import { normalizeTransform as cloneTransformState } from './forge3d/assembly-transform.js';
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
 import Icons from "./forge3d/icons.jsx";
@@ -334,14 +335,6 @@ const DEFAULT_ASSEMBLY_MEASUREMENT = {
 };
 
 const MAX_MEASUREMENT_HISTORY = 10;
-
-function cloneTransformState(transform = {}) {
-  return {
-    position: Array.isArray(transform.position) ? [...transform.position] : [0, 0, 0],
-    rotation: Array.isArray(transform.rotation) ? [...transform.rotation] : [0, 0, 0],
-    scale: Array.isArray(transform.scale) ? [...transform.scale] : [1, 1, 1],
-  };
-}
 
 function snapMetric(value, step) {
   if (!step) return value;
