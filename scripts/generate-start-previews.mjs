@@ -21,6 +21,12 @@ if (openscadLaunch.launchWarning) {
 }
 
 const jobs = [
+  ['math-trefoil-knot', 'src/forge3d/start-catalog/scad/math/trefoil_knot.scad'],
+  ['math-superformula-vessel', 'src/forge3d/start-catalog/scad/math/superformula_vessel.scad'],
+  ['math-phyllotaxis-rosette', 'src/forge3d/start-catalog/scad/math/phyllotaxis_rosette.scad'],
+  ['math-recursive-canopy', 'src/forge3d/start-catalog/scad/math/recursive_canopy.scad'],
+  ['math-wave-interference', 'src/forge3d/start-catalog/scad/math/wave_interference.scad'],
+  ['math-hyperboloid-lantern', 'src/forge3d/start-catalog/scad/math/hyperboloid_lantern.scad'],
   ['example-magnetic-letters', 'src/forge3d/start-catalog/scad/examples/magnetic_letters_pro.scad'],
   ['example-chess-pawn', 'src/forge3d/start-catalog/scad/examples/chess_pawn.scad'],
   ['example-impossible-ring', 'src/forge3d/start-catalog/scad/examples/impossible_ring_showcase.scad'],
@@ -38,6 +44,12 @@ const jobs = [
   ['learning-sphere-starter', 'src/forge3d/start-catalog/scad/learning/sphere_starter.scad'],
   ['learning-triangle-plate', 'src/forge3d/start-catalog/scad/learning/triangle_plate.scad'],
 ];
+
+// Render a small subset without touching the rest of the checked-in gallery.
+const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice(7).split(',');
+if (only?.some((id) => !jobs.some(([jobId]) => id === jobId))) {
+  throw new Error('Unknown preview id in --only');
+}
 
 async function shouldRenderJob(inputRelativePath, outputFileName) {
   if (force || !changedOnly) return true;
@@ -104,6 +116,7 @@ await mkdir(previewDir, { recursive: true });
 let renderedCount = 0;
 
 for (const [id, relativePath] of jobs) {
+  if (only && !only.includes(id)) continue;
   if (!(await shouldRenderJob(relativePath, id))) {
     process.stdout.write(`Skipping ${id} (up to date)\n`);
     continue;

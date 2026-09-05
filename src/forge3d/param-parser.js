@@ -247,7 +247,7 @@ export function parseParams(code) {
 
     // Read actual value from the assignment line if found
     if (assignmentLine >= 0) {
-      const assignMatch = lines[assignmentLine].match(new RegExp(`^(\\s*${name}\\s*=\\s*)(.+?)(\\s*;.*)?$`));
+      const assignMatch = lines[assignmentLine].match(new RegExp(`^(\\s*${name}\\s*=\\s*)(.+?)(\\s*;[^\\n]*)?$`));
       if (assignMatch) {
         const actualRaw = assignMatch[2].trim();
         if (type === 'number' && !isNaN(parseFloat(actualRaw))) {
@@ -479,7 +479,8 @@ export function applyParamChange(code, paramName, newValue) {
   // Find and replace in the assignment line
   const lineIdx = param.assignmentLine - 1;
   const line = lines[lineIdx];
-  const assignRegex = new RegExp(`^(\\s*${escapeRegex(param.name)}\\s*=\\s*)(.+?)(\\s*;.*)$`);
+  // Preserve inline comments and a possible CR from Windows CRLF lines.
+  const assignRegex = new RegExp(`^(\\s*${escapeRegex(param.name)}\\s*=\\s*)(.+?)(\\s*;[^\\n]*)$`);
   const match = line.match(assignRegex);
   if (match) {
     lines[lineIdx] = `${match[1]}${formatted}${match[3]}`;

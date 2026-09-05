@@ -77,6 +77,7 @@ npm run capture:release-screenshot
 - **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
 - **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
 - **Automatic dimension brackets** — CAD-style measurement overlays showing width, depth, and height of rendered objects
+- **[Math Lab](docs/math-lab.md)** — six original, editable studies in knots, recursion, wave interference, polar curves, phyllotaxis, and ruled surfaces (current source)
 - **Smart templates** — categorized OpenSCAD templates with safe append, cursor, and replace workflows
 - **Resilient params workflow** — top-level params are detected anywhere in the file, including after appended template blocks
 - **OpenSCAD LSP** — bundled `openscad-lsp` binary, diagnostics appear in Problems tab as you type
