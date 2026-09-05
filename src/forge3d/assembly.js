@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { parseSTL } from './stl-parser.js';
 
-const ASSEMBLY_ROTATION = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+import { normalizeTransform, getAssemblyPartWorldBox, scadToViewportMatrix } from './assembly-transform.js';
+export { buildAssemblyTransformMatrix, getAssemblyPartWorldBox, createFloorAlignedTransform, createCenteredTransform } from './assembly-transform.js';
 
 function roundMetric(value, precision = 3) {
   const factor = 10 ** precision;
@@ -13,14 +14,6 @@ function makePartId() {
     return `part-${crypto.randomUUID()}`;
   }
   return `part-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
-function normalizeTransform(transform = {}) {
-  return {
-    position: Array.isArray(transform.position) ? [...transform.position] : [0, 0, 0],
-    rotation: Array.isArray(transform.rotation) ? [...transform.rotation] : [0, 0, 0],
-    scale: Array.isArray(transform.scale) ? [...transform.scale] : [1, 1, 1],
-  };
 }
 
 function createGeometryFromArrays(vertices, normals) {
@@ -47,14 +40,14 @@ export function createAssemblyGeometryFromPayload(payload) {
 export function createAssemblyGeometryFromStlBytes(bytes) {
   const parsed = parseSTL(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   const geometry = createGeometryFromArrays(parsed.vertices, parsed.normals);
-  geometry.applyMatrix4(ASSEMBLY_ROTATION);
+  geometry.applyMatrix4(scadToViewportMatrix());
   geometry.computeBoundingBox();
   return geometry;
 }
 
 export function createAssemblyGeometryFromDesignGeometry(geometry) {
   const nextGeometry = geometry.clone();
-  nextGeometry.applyMatrix4(ASSEMBLY_ROTATION);
+  nextGeometry.applyMatrix4(scadToViewportMatrix());
   nextGeometry.computeBoundingBox();
   return nextGeometry;
 }
@@ -110,25 +103,6 @@ export function duplicateAssemblyPart(part) {
   });
 }
 
-export function buildAssemblyTransformMatrix(transform = {}) {
-  const normalized = normalizeTransform(transform);
-  const position = new THREE.Vector3(...normalized.position);
-  const rotation = new THREE.Euler(
-    THREE.MathUtils.degToRad(normalized.rotation[0] || 0),
-    THREE.MathUtils.degToRad(normalized.rotation[1] || 0),
-    THREE.MathUtils.degToRad(normalized.rotation[2] || 0),
-    'XYZ',
-  );
-  const quaternion = new THREE.Quaternion().setFromEuler(rotation);
-  const scale = new THREE.Vector3(...normalized.scale);
-  return new THREE.Matrix4().compose(position, quaternion, scale);
-}
-
-export function getAssemblyPartWorldBox(part) {
-  if (!part?.geometry?.boundingBox) return null;
-  return part.geometry.boundingBox.clone().applyMatrix4(buildAssemblyTransformMatrix(part.transform));
-}
-
 export function getAssemblyPartMetrics(part) {
   const worldBox = getAssemblyPartWorldBox(part);
   if (!worldBox || worldBox.isEmpty()) return null;
@@ -159,31 +133,6 @@ export function getAssemblyPartMetrics(part) {
       z: roundMetric(worldBox.max.z, 2),
     },
   };
-}
-
-export function createFloorAlignedTransform(part, overrides = {}) {
-  const transform = normalizeTransform(part?.transform);
-  const metrics = getAssemblyPartMetrics({ ...part, transform });
-  const nextPosition = Array.isArray(overrides.position) ? [...overrides.position] : [...transform.position];
-  if (metrics) {
-    nextPosition[1] -= metrics.floorDistance;
-  }
-  return {
-    ...transform,
-    ...overrides,
-    position: nextPosition,
-  };
-}
-
-export function createCenteredTransform(part, overrides = {}) {
-  const transform = normalizeTransform(part?.transform);
-  const metrics = getAssemblyPartMetrics({ ...part, transform });
-  const nextPosition = Array.isArray(overrides.position) ? [...overrides.position] : [...transform.position];
-  if (metrics) {
-    nextPosition[0] -= metrics.center.x;
-    nextPosition[2] -= metrics.center.z;
-  }
-  return createFloorAlignedTransform({ ...part, transform: { ...transform, position: nextPosition } }, overrides);
 }
 
 export function serializeAssemblyScene(assemblyScene = {}) {

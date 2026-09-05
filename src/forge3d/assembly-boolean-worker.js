@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CSG } from 'three-csg-ts';
+import { applyAssemblyTransform } from './assembly-transform.js';
 
 function buildGeometry(payload = {}) {
   const geometry = new THREE.BufferGeometry();
@@ -7,18 +8,6 @@ function buildGeometry(payload = {}) {
   geometry.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(payload.normal || []), 3));
   geometry.computeBoundingBox();
   return geometry;
-}
-
-function applyTransform(mesh, transform = {}) {
-  const position = Array.isArray(transform.position) ? transform.position : [0, 0, 0];
-  const rotation = Array.isArray(transform.rotation) ? transform.rotation : [0, 0, 0];
-  mesh.position.set(...position);
-  mesh.rotation.set(
-    THREE.MathUtils.degToRad(rotation[0] || 0),
-    THREE.MathUtils.degToRad(rotation[1] || 0),
-    THREE.MathUtils.degToRad(rotation[2] || 0),
-  );
-  mesh.updateMatrix();
 }
 
 function serializeGeometry(geometry) {
@@ -44,8 +33,8 @@ self.onmessage = (event) => {
   try {
     const meshA = new THREE.Mesh(buildGeometry(primary?.geometry), new THREE.MeshStandardMaterial());
     const meshB = new THREE.Mesh(buildGeometry(operand?.geometry), new THREE.MeshStandardMaterial());
-    applyTransform(meshA, primary?.transform);
-    applyTransform(meshB, operand?.transform);
+    applyAssemblyTransform(meshA, primary?.transform);
+    applyAssemblyTransform(meshB, operand?.transform);
 
     const resultMesh = operation === 'union'
       ? CSG.union(meshA, meshB)

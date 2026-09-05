@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { getAssemblyPartWorldBox } from './assembly.js';
+import { getAssemblyPartWorldBox, applyAssemblyTransform, scadToViewportMatrix } from './assembly-transform.js';
 import { getMaterialSwatch, getViewportBackgroundStops, normalizeRenderAppearance } from './render-appearance.js';
 import { getThemeColors } from './theme.js';
 
@@ -145,17 +145,6 @@ function getPointerNdc(event, canvas) {
 
 function snapValue(value, step) {
   return step ? Math.round(value / step) * step : value;
-}
-
-function applyTransform(mesh, transform) {
-  mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
-  mesh.rotation.set(
-    THREE.MathUtils.degToRad(transform.rotation[0] || 0),
-    THREE.MathUtils.degToRad(transform.rotation[1] || 0),
-    THREE.MathUtils.degToRad(transform.rotation[2] || 0),
-  );
-  mesh.scale.set(transform.scale?.[0] ?? 1, transform.scale?.[1] ?? 1, transform.scale?.[2] ?? 1);
-  mesh.updateMatrixWorld(true);
 }
 
 function buildBox(meshes) {
@@ -499,7 +488,7 @@ export function useThreeRenderer({
       resources.measureRoot.clear();
       if (stlGeometry) {
         const mesh = new THREE.Mesh(stlGeometry, createPartMaterial({ appearance, theme }));
-        mesh.rotation.x = -Math.PI / 2;
+        mesh.applyMatrix4(scadToViewportMatrix());
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         resources.designRoot.add(mesh);
@@ -519,7 +508,7 @@ export function useThreeRenderer({
       (assemblyScene?.parts || []).forEach((part) => {
         if (part.visible === false) return;
         const mesh = new THREE.Mesh(part.geometry, createPartMaterial({ appearance, selected: part.id === selectedPartId, locked: part.locked, theme }));
-        applyTransform(mesh, part.transform);
+        applyAssemblyTransform(mesh, part.transform);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.partId = part.id;
