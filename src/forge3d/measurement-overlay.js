@@ -17,7 +17,7 @@ function sprite(canvas, position, pixels, order) {
   return item;
 }
 
-export function createMeasurementOverlay(measurement) {
+export function createMeasurementOverlay(measurement, { labelOffset = new THREE.Vector3() } = {}) {
   const group = new THREE.Group();
   group.userData.forgeExcludeFromExport = true;
   const points = measurement.points.map((point) => new THREE.Vector3(...point.position));
@@ -44,7 +44,7 @@ export function createMeasurementOverlay(measurement) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, canvas.width / 2, 66);
-    const label = sprite(canvas, points[0].clone().add(points[1]).multiplyScalar(0.5), [canvas.width / 4, 32], 1003);
+    const label = sprite(canvas, points[0].clone().add(points[1]).multiplyScalar(0.5).add(labelOffset), [canvas.width / 4, 32], 1003);
     label.center.set(0.5, -0.35);
     group.add(label);
   }
@@ -58,6 +58,13 @@ export function createMeasurementOverlay(measurement) {
     group.add(sprite(canvas, point, [22, 22], 1002));
   }
   return group;
+}
+
+export function createDimensionBracket(start, end, labelOffset) {
+  return createMeasurementOverlay({
+    points: [{ position: start.toArray() }, { position: end.toArray() }],
+    distance: start.distanceTo(end),
+  }, { labelOffset });
 }
 
 export function updateMeasurementOverlay(root, camera, width, height) {
