@@ -2326,17 +2326,6 @@ export default function Forge3D() {
                         ? 'Terminal'
                         : 'Params'}
               </div>
-              <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '4px', lineHeight: 1.5 }}>
-                {mode === 'assembly'
-                  ? 'Import parts, manage visibility and locks, and save or reopen assembly scenes.'
-                  : sidebarTab === 'start'
-                    ? 'Basics, recipes, and larger templates in one learning-focused surface.'
-                    : sidebarTab === 'workspace'
-                      ? 'Project files, recent files, and local modeling setup.'
-                      : sidebarTab === 'terminal'
-                        ? 'Manage the live integrated terminal session and shell preference.'
-                        : 'Live parameters parsed from the current file.'}
-              </div>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
               {mode === 'assembly' ? (
@@ -2426,25 +2415,12 @@ export default function Forge3D() {
           <div style={{ height: '32px', minHeight: '32px', background: colors.bgDarker, borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px' }}>
             {mode === 'assembly' ? (
               <>
-                <Icons.Cube /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>Assembly Inspector</span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>
-                  {assemblyScene.parts.length} part{assemblyScene.parts.length === 1 ? '' : 's'}
-                </span>
-                <span style={{ fontSize: '11px', color: canUndoAssembly || canRedoAssembly ? colors.accent : colors.textMuted, background: canUndoAssembly || canRedoAssembly ? `${colors.accent}22` : 'transparent', border: canUndoAssembly || canRedoAssembly ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>
-                  {assemblyHistory.past.length} undo · {assemblyHistory.future.length} redo
-                </span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
-                  Drag the amber handle to move • amber ring to rotate • Right drag pans
-                </span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>
-                  {selectedAssemblyPart ? selectedAssemblyPart.name : 'No selection'}
-                </span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
+                <span style={{ display: 'inline-flex', flexShrink: 0 }}><Icons.Cube /></span>
+                <span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700, whiteSpace: 'nowrap' }}>Inspector</span>
               </>
             ) : (
               <>
-                <Icons.File /><span style={{ fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>{currentFileName}{isDirty ? ' *' : ''}</span>
-                <span style={{ fontSize: '11px', color: canUndo || canRedo ? colors.accent : colors.textMuted, background: canUndo || canRedo ? `${colors.accent}22` : 'transparent', border: canUndo || canRedo ? `1px solid ${colors.accent}44` : `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 700 }}>{history.past.length} undo · {history.future.length} redo</span>
+                <Icons.File /><span title={currentFileName} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', color: colors.textMuted, fontWeight: 700 }}>{currentFileName}{isDirty ? ' *' : ''}</span>
                 <button
                   onClick={() => setShowDiffEditor((value) => !value)}
                   disabled={!hasComparisonDiff}
@@ -2460,11 +2436,6 @@ export default function Forge3D() {
                     fontWeight: 700,
                   }}
                 >Diff</button>
-                <span style={{ fontSize: '11px', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '3px 8px', fontWeight: 600 }}>
-                  Start lives in the left rail • Ghost: Alt+/ • Tab • Ctrl+Right • Ctrl+Shift+Right
-                </span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, marginLeft: 'auto', fontWeight: 600 }}>{code.split("\n").length} lines</span>
-                <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 600 }}>{Math.round(editorWidth)}px</span>
               </>
             )}
           </div>
@@ -2490,7 +2461,6 @@ export default function Forge3D() {
             )}
             {mode === 'assembly' ? (
               <AssemblyInspector
-                autoRun={autoRun}
                 booleanBusy={booleanBusy}
                 booleanBusyLabel={assemblyBooleanState.operation ? `${assemblyBooleanState.operation}...` : 'Working...'}
                 booleanOperandId={booleanOperandId}
@@ -2498,7 +2468,6 @@ export default function Forge3D() {
                 building={building}
                 canRefreshCurrentRender={canRefreshCurrentRender}
                 colors={colors}
-                currentFileName={currentFileName}
                 measurement={assemblyMeasurement}
                 metrics={selectedAssemblyMetrics}
                 onBooleanOperandChange={setBooleanOperandId}
@@ -2598,7 +2567,6 @@ export default function Forge3D() {
           minViewportWidth={MIN_VIEWPORT_WIDTH}
           mode={mode}
           onCaptureRender={handleCaptureRender}
-          selectedAssemblyPart={selectedAssemblyPart}
           setViewSettings={setViewSettings}
           viewSettings={viewSettings}
         />

@@ -18,7 +18,6 @@ export default function ViewportPane({
   minViewportWidth,
   mode = 'design',
   onCaptureRender,
-  selectedAssemblyPart,
   setViewSettings,
   viewSettings,
 }) {
@@ -189,17 +188,6 @@ export default function ViewportPane({
         </div>
       )}
 
-      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: colors.surfaceOverlay || `${colors.bg}dd`, borderRadius: '10px', padding: '8px 11px', fontSize: '11px', color: colors.textMuted, fontWeight: 700, backdropFilter: 'blur(10px)', border: `1px solid ${colors.borderHover}`, boxShadow: colors.viewportHudShadow, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        {mode === 'assembly' ? (
-          <>
-            <span>Orbit: LMB</span><span>Pan: RMB</span><span>Move: Amber handle</span><span>Rotate: Amber ring</span><span>Undo: Ctrl+Z</span><span>{selectedAssemblyPart ? `Selected: ${selectedAssemblyPart.name}` : 'Select a part to edit'}</span>
-          </>
-        ) : (
-          <>
-            <span>Orbit: LMB</span><span>Build: Shift+Enter</span><span>Undo: Ctrl+Z</span><span>Redo: Ctrl+Y</span><span>Zoom: Ctrl+= / - / 0</span>
-          </>
-        )}
-      </div>
 
       {building && (
         <div
@@ -291,6 +279,7 @@ export default function ViewportPane({
       <canvas
         ref={canvasRef}
         aria-label="3D model viewport"
+        title={mode === 'assembly' ? 'Drag the amber handle to move; drag the ring to rotate. Right-drag to pan.' : 'Drag to orbit; right-drag to pan; scroll to zoom.'}
         data-feature="3D viewport"
         style={{ width: '100%', height: '100%', display: 'block' }}
       />
