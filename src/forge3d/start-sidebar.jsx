@@ -62,7 +62,7 @@ function renderPreview(colors, item) {
             textTransform: 'uppercase',
           }}
         >
-          {item.section}
+          {getStartSectionLabel(item.section)}
         </div>
       </div>
     );
@@ -139,7 +139,7 @@ export default function StartSidebar({ colors, onInsertItem, onOpenExternal, onS
           <span>Start</span>
         </div>
         <div style={{ marginTop: '8px', color: colors.textMuted, fontSize: '12px', lineHeight: 1.55 }}>
-          Preview-first examples, construction helpers, and references. Use examples to replace the file, snippets to insert at the cursor, and safe blocks to merge into what you already have.
+          Choose a model and explore its parameters.
         </div>
         <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
           <input

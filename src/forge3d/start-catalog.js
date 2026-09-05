@@ -1,3 +1,15 @@
+import trefoilKnotCode from './start-catalog/scad/math/trefoil_knot.scad?raw';
+import trefoilKnotPreview from './start-catalog/previews/math-trefoil-knot.png';
+import superformulaVesselCode from './start-catalog/scad/math/superformula_vessel.scad?raw';
+import superformulaVesselPreview from './start-catalog/previews/math-superformula-vessel.png';
+import phyllotaxisRosetteCode from './start-catalog/scad/math/phyllotaxis_rosette.scad?raw';
+import phyllotaxisRosettePreview from './start-catalog/previews/math-phyllotaxis-rosette.png';
+import recursiveCanopyCode from './start-catalog/scad/math/recursive_canopy.scad?raw';
+import recursiveCanopyPreview from './start-catalog/previews/math-recursive-canopy.png';
+import waveInterferenceCode from './start-catalog/scad/math/wave_interference.scad?raw';
+import waveInterferencePreview from './start-catalog/previews/math-wave-interference.png';
+import hyperboloidLanternCode from './start-catalog/scad/math/hyperboloid_lantern.scad?raw';
+import hyperboloidLanternPreview from './start-catalog/previews/math-hyperboloid-lantern.png';
 import angleBracketCode from './start-catalog/scad/helpers/angle_bracket.scad?raw';
 import ballSocketMountCode from './start-catalog/scad/helpers/ball_socket_mount.scad?raw';
 import chessPawnCode from './start-catalog/scad/examples/chess_pawn.scad?raw';
@@ -34,10 +46,11 @@ import openscadExamplesPreview from './start-catalog/previews/library-openscad-e
 import openscadObjectsPreview from './start-catalog/previews/library-openscad-objects.svg';
 import threadlibPreview from './start-catalog/previews/library-threadlib.svg';
 
-const SECTION_ORDER = ['examples', 'helpers', 'learning', 'libraries'];
+const SECTION_ORDER = ['math', 'examples', 'helpers', 'learning', 'libraries'];
 
 export const START_SECTIONS = [
   { id: 'all', label: 'All' },
+  { id: 'math', label: 'Math Lab' },
   { id: 'examples', label: 'Examples' },
   { id: 'helpers', label: 'Construction Helpers' },
   { id: 'learning', label: 'Learning' },
@@ -45,6 +58,90 @@ export const START_SECTIONS = [
 ];
 
 export const START_CATALOG = [
+  {
+    id: 'math-trefoil-knot',
+    section: 'math',
+    kind: 'example',
+    name: 'Trefoil Knot',
+    summary: 'Sweep a tube along a space curve using moving frames and wrapped mesh indices.',
+    tags: ['topology', 'sweep', 'vectors'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: trefoilKnotCode,
+    previewImage: trefoilKnotPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'math-superformula-vessel',
+    section: 'math',
+    kind: 'example',
+    name: 'Superformula Vessel',
+    summary: 'Turn a polar equation into a twisted vessel with an offset wall.',
+    tags: ['polar', 'superformula', 'extrusion'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: superformulaVesselCode,
+    previewImage: superformulaVesselPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'math-phyllotaxis-rosette',
+    section: 'math',
+    kind: 'example',
+    name: 'Phyllotaxis Rosette',
+    summary: 'Grow a sunflower pattern with the golden angle and square-root spacing.',
+    tags: ['golden angle', 'spiral', 'growth'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: phyllotaxisRosetteCode,
+    previewImage: phyllotaxisRosettePreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'math-recursive-canopy',
+    section: 'math',
+    kind: 'example',
+    name: 'Recursive Canopy',
+    summary: 'Grow a branching sculpture with recursion and local coordinate frames.',
+    tags: ['recursion', 'fractals', 'transforms'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: recursiveCanopyCode,
+    previewImage: recursiveCanopyPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'math-wave-interference',
+    section: 'math',
+    kind: 'example',
+    name: 'Wave Interference',
+    summary: 'Sample two radial waves into a closed, tactile height-field mesh.',
+    tags: ['waves', 'height field', 'polyhedron'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: waveInterferenceCode,
+    previewImage: waveInterferencePreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
+  {
+    id: 'math-hyperboloid-lantern',
+    section: 'math',
+    kind: 'example',
+    name: 'Hyperboloid Lantern',
+    summary: 'Build a curved lattice from two families of straight rods.',
+    tags: ['ruled surface', 'lattice', 'trigonometry'],
+    sourceType: 'builtin',
+    primaryAction: 'openExample',
+    code: hyperboloidLanternCode,
+    previewImage: hyperboloidLanternPreview,
+    license: 'MIT',
+    sourceRepoUrl: null,
+  },
   {
     id: 'example-magnetic-letters',
     section: 'examples',
