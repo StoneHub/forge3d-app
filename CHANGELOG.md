@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 3.1.0 - 2026-09-09
+
+Forge3D v3.1.0 adds a practical assembly workflow while keeping OpenSCAD source portable and editable.
+
+### Included
+
+- Measure between two model surfaces with a persistent session log.
+- Place round through-holes while retaining the original part and cutter in the assembly scene.
+- Read automatic dimensions and picked distances with consistent, zoom-independent labels.
+- Use a cleaner assembly inspector and compact Measure, Hole, and View controls.
+- Collapse Console, Problems, and Terminal completely to their tab bar.
+- Explore six editable Math Lab studies in knots, recursion, waves, polar curves, phyllotaxis, and ruled surfaces.
+- Import SCAD through native OpenSCAD with relative dependencies, preserve assembly transforms, and export STL with corrected coordinates.
+
+### Preview limitations
+
+- OpenSCAD must be installed separately.
+- The Apple Silicon DMG is unsigned and unnotarized; Gatekeeper may require manual approval.
+- OpenSCAD language-server support is limited to Windows development builds. Packaged Windows support and macOS/Linux binaries remain follow-up work.
+- Print Mode, integrated slicing, surface sketches, and compact Merge/Split tools remain planned.
+
 - Reconciled the v3.0.2 release work with the main branch.
 - Made manual release runs check out the requested tag.
 - Isolated optional release screenshots by operating system.

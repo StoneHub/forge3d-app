@@ -2,7 +2,7 @@
 
 A desktop OpenSCAD IDE built with Electron. Write parametric code, render it with the native OpenSCAD executable, and export STL for your slicer.
 
-![Version](https://img.shields.io/badge/version-3.0.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Version](https://img.shields.io/badge/version-3.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -41,7 +41,7 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-The [v3.0.2 prerelease](https://github.com/StoneHub/forge3d-app/releases/tag/v3.0.2) has a Windows installer, a Linux AppImage, and an unsigned native Apple Silicon DMG. GitHub Actions built those packages from commit `c5ad9ef` on May 14, 2026. The current source contains changes newer than those artifacts.
+The [v3.1.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.1.0) has a Windows installer, a Linux AppImage, and an unsigned native Apple Silicon DMG.
 
 > **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. Downloaded macOS DMGs are unsigned development previews, so Gatekeeper may report the app as damaged or require manual approval. For the cleanest macOS path, build from source.
 >
@@ -80,7 +80,7 @@ npm run capture:release-screenshot
 - **[Math Lab](docs/math-lab.md)** — six original, editable studies in knots, recursion, wave interference, polar curves, phyllotaxis, and ruled surfaces (current source)
 - **Smart templates** — categorized OpenSCAD templates with safe append, cursor, and replace workflows
 - **Resilient params workflow** — top-level params are detected anywhere in the file, including after appended template blocks
-- **OpenSCAD LSP** — bundled `openscad-lsp` binary, diagnostics appear in Problems tab as you type
+- **OpenSCAD LSP on Windows development builds** — diagnostics appear in Problems as you type; packaged Windows support and macOS/Linux binaries remain follow-up work
 - **Syntax-highlighted editor** — bracket matching, auto-close, auto-indent, tab-to-spaces
 - **Three.js viewport** — orbit (LMB), pan (RMB), zoom (scroll), grid, axes, edge overlay, dimensions
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder

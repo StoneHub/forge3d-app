@@ -137,11 +137,20 @@ jobs:
       - name: Prepare release notes
         run: |
           cat > release-notes.md <<'NOTES'
-          Forge3D preview release.
+          Forge3D v3.1.0 adds a practical assembly workflow to its native OpenSCAD editor.
+
+          Highlights:
+          - Measure between two model surfaces and keep a session log.
+          - Place non-destructive round through-holes while retaining source parts and cutters.
+          - Read automatic dimensions and picked distances with consistent, zoom-independent labels.
+          - Use a cleaner assembly inspector, compact viewport tools, and a fully collapsible bottom panel.
+          - Explore six editable Math Lab studies in knots, recursion, waves, polar curves, phyllotaxis, and ruled surfaces.
+          - Import SCAD with relative dependencies and export corrected STL coordinates.
 
           Requirements:
           - OpenSCAD must be installed locally for rendering.
           - macOS DMGs are unsigned native Apple Silicon development previews. Gatekeeper may require manual approval or quarantine removal after download.
+          - OpenSCAD language-server support is limited to Windows development builds. Packaged Windows support and macOS/Linux binaries remain follow-up work.
           - Print Mode and slicer workflows remain planned work, not release features.
 
           This release includes installer artifacts. When screenshot capture succeeds, it also includes the current platform image generated from `docs/release-assets/forge3d-showcase.scad`.
