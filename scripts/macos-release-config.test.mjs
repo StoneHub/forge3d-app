@@ -14,7 +14,7 @@ test('macOS releases are native arm64 unsigned development preview DMGs', () => 
     ? macConfig.target.find((target) => target?.target === 'dmg')
     : null;
 
-  assert.equal(packageConfig.version, '3.0.2');
+  assert.equal(packageConfig.version, '3.1.0');
   assert.deepEqual(dmgTarget, { target: 'dmg', arch: ['arm64'] });
   assert.match(macConfig.artifactName, /unsigned-dev-preview/);
   assert.equal(macConfig.identity, null);
