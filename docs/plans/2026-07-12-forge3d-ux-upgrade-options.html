@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%237187ff'/%3E%3Cpath d='M19 18h28v8H27v7h17v8H27v13h-8z' fill='%23080b13'/%3E%3C/svg%3E">
+  <title>Forge3D UX Upgrade Options — 2026-07-12</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f4f7ff;
+      --muted: #a9b2c8;
+      --faint: #727c94;
+      --panel: #121827;
+      --panel-2: #191f32;
+      --line: #2c3650;
+      --cyan: #55d8ff;
+      --blue: #7187ff;
+      --violet: #ad7cff;
+      --amber: #ffbf69;
+      --green: #6ee7b7;
+      --red: #ff8296;
+      --page: #080b13;
+      --max: 1240px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% -5%, rgba(85, 216, 255, .16), transparent 34rem),
+        radial-gradient(circle at 90% 12%, rgba(173, 124, 255, .12), transparent 30rem),
+        var(--page);
+      color: var(--ink);
+      font: 15px/1.58 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--cyan); }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+
+    .skip {
+      position: fixed; left: 1rem; top: -5rem; z-index: 100;
+      padding: .75rem 1rem; border-radius: .5rem; background: white; color: #111;
+    }
+    .skip:focus { top: 1rem; }
+
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(8, 11, 19, .86);
+      backdrop-filter: blur(18px);
+    }
+    .topbar-inner {
+      max-width: var(--max); margin: auto; min-height: 64px; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .03em; }
+    .mark {
+      display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--blue), var(--cyan)); color: #07101a;
+      box-shadow: 0 0 30px rgba(85,216,255,.25);
+    }
+    nav { display: flex; gap: 6px; flex-wrap: wrap; }
+    nav a { padding: 8px 10px; color: var(--muted); text-decoration: none; border-radius: 8px; }
+    nav a:hover { background: var(--panel); color: var(--ink); }
+
+    main { max-width: var(--max); margin: auto; padding: 72px 24px 120px; }
+    .hero { display: grid; grid-template-columns: 1.28fr .72fr; gap: 34px; align-items: end; margin-bottom: 72px; }
+    .eyebrow { color: var(--cyan); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { max-width: 900px; margin: 12px 0 18px; font-size: clamp(42px, 7vw, 86px); line-height: .98; letter-spacing: -.055em; }
+    h2 { margin: 0 0 20px; font-size: clamp(28px, 4vw, 46px); line-height: 1.08; letter-spacing: -.035em; }
+    h3 { margin: 0 0 10px; font-size: 22px; line-height: 1.2; }
+    h4 { margin: 0 0 6px; font-size: 15px; }
+    .lede { max-width: 760px; color: var(--muted); font-size: 19px; }
+    .hero-note { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(145deg, rgba(25,31,50,.8), rgba(18,24,39,.55)); }
+    .hero-note strong { display: block; color: var(--green); margin-bottom: 6px; }
+    .meta { color: var(--faint); font-size: 12px; }
+
+    section { scroll-margin-top: 90px; margin-top: 92px; }
+    .section-head { max-width: 800px; margin-bottom: 28px; }
+    .section-head p { color: var(--muted); font-size: 17px; }
+    .grid { display: grid; gap: 18px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .card { border: 1px solid var(--line); background: rgba(18,24,39,.82); border-radius: 18px; padding: 22px; }
+    .card p:last-child { margin-bottom: 0; }
+    .stat { font-size: 28px; font-weight: 800; letter-spacing: -.04em; }
+    .stat-label { color: var(--muted); }
+    .signal { border-left: 3px solid var(--cyan); }
+    .warning { border-left: 3px solid var(--amber); }
+    .risk { border-left: 3px solid var(--red); }
+    .good { color: var(--green); }
+    .muted { color: var(--muted); }
+    .chip {
+      display: inline-flex; align-items: center; min-height: 28px; padding: 3px 9px; margin: 2px;
+      border: 1px solid var(--line); border-radius: 999px; background: #0c1120; color: var(--muted); font-size: 12px;
+    }
+    .chip.cyan { border-color: rgba(85,216,255,.45); color: var(--cyan); }
+    .chip.amber { border-color: rgba(255,191,105,.5); color: var(--amber); }
+    .chip.green { border-color: rgba(110,231,183,.45); color: var(--green); }
+
+    .evidence { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
+    .evidence th, .evidence td { padding: 13px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .evidence th { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+    .evidence tr:last-child td { border-bottom: 0; }
+    code { color: #b9eaff; font-family: "SFMono-Regular", Consolas, monospace; font-size: .92em; }
+
+    .direction { position: relative; overflow: hidden; padding: 0; }
+    .direction::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--accent); }
+    .direction-body { padding: 24px; }
+    .direction-label { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+    .option-id { color: var(--accent); font-weight: 900; font-size: 12px; letter-spacing: .12em; }
+    .recommended { padding: 5px 9px; border-radius: 999px; background: rgba(110,231,183,.13); color: var(--green); font-size: 11px; font-weight: 800; }
+    .choice {
+      display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; padding: 14px;
+      border: 1px solid var(--line); border-radius: 12px; background: rgba(5,8,15,.45);
+    }
+    .choice input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+
+    .mock {
+      min-height: 330px; margin-top: 20px; padding: 9px; border: 1px solid #36405a; border-radius: 14px;
+      background: #080c16; box-shadow: inset 0 0 40px rgba(0,0,0,.4); font-size: 10px; color: #aeb7cb;
+    }
+    .mock-top { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 7px; border-bottom: 1px solid #2b3449; }
+    .mock-logo { color: var(--accent); font-weight: 900; }
+    .mock-pill { padding: 4px 7px; border: 1px solid #2b3449; border-radius: 6px; }
+    .mock-cta { margin-left: auto; padding: 5px 9px; border-radius: 6px; background: var(--accent); color: #081019; font-weight: 900; }
+    .mock-shell { display: grid; grid-template-columns: 22% 38% 40%; height: 275px; }
+    .mock-pane { padding: 9px; border-right: 1px solid #252d40; overflow: hidden; }
+    .mock-pane:last-child { border-right: 0; }
+    .mock-title { margin-bottom: 8px; color: #eef2ff; font-weight: 800; }
+    .mock-row { margin-bottom: 6px; padding: 6px; border: 1px solid #293349; border-radius: 6px; }
+    .mock-row.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .mock-code { line-height: 1.75; color: #dcb477; white-space: nowrap; }
+    .mock-code .kw { color: #7ed4ff; }
+    .viewport {
+      position: relative; display: grid; place-items: center; overflow: hidden;
+      background: linear-gradient(150deg, #152237, #090e19 70%);
+    }
+    .grid-floor { position: absolute; inset: 55% -20% -25%; transform: perspective(180px) rotateX(58deg); background-size: 18px 18px; background-image: linear-gradient(#28405b 1px, transparent 1px), linear-gradient(90deg,#28405b 1px,transparent 1px); opacity: .65; }
+    .object { position: relative; z-index: 2; width: 86px; height: 86px; transform: rotate(30deg) skew(-5deg); border: 2px solid var(--accent); border-radius: 16px 45px 18px 36px; background: color-mix(in srgb, var(--accent) 26%, #cfeaff); box-shadow: 20px 22px 45px rgba(0,0,0,.5); }
+    .guide { position: absolute; z-index: 3; padding: 8px; border: 1px solid var(--accent); border-radius: 8px; background: #0c1321e8; color: white; }
+    .guide.bottom { left: 9px; right: 9px; bottom: 9px; }
+    .guide.top { left: 9px; right: 9px; top: 9px; }
+
+    .score { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    .score th, .score td { padding: 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; }
+    .score tr:last-child td { border-bottom: 0; }
+    .score th:last-child, .score td:last-child { border-right: 0; }
+    .score th { background: #111728; color: var(--muted); }
+    .stars { color: var(--amber); letter-spacing: 2px; white-space: nowrap; }
+
+    .phase { display: grid; grid-template-columns: 74px 1fr; gap: 20px; padding: 22px 0; border-top: 1px solid var(--line); }
+    .phase:first-child { border-top: 0; }
+    .phase-id { color: var(--cyan); font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .phase ul { margin-bottom: 0; }
+
+    .question { margin-bottom: 16px; }
+    .question label { display: block; margin-bottom: 7px; font-weight: 800; }
+    .question textarea, .question input[type="text"] {
+      width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+      background: #090e19; color: var(--ink); resize: vertical;
+    }
+    .question textarea { min-height: 86px; }
+    .checks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .checks label { display: flex; gap: 9px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 9px; font-weight: 500; }
+    .checks input { margin-top: 3px; accent-color: var(--cyan); }
+    .action-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    .button { padding: 11px 16px; border: 1px solid var(--line); border-radius: 9px; background: #151c2d; color: var(--ink); font-weight: 800; }
+    .button.primary { border: 0; background: linear-gradient(135deg, var(--cyan), var(--blue)); color: #07101a; }
+    #summary { min-height: 170px; margin-top: 16px; white-space: pre-wrap; color: #cbd4e9; font-family: "SFMono-Regular", Consolas, monospace; }
+
+    .footer { margin-top: 90px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--faint); }
+
+    @media (max-width: 920px) {
+      .hero, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      nav { display: none; }
+      .mock-shell { grid-template-columns: 31% 69%; }
+      .mock-pane:nth-child(2) { display: none; }
+      .checks { grid-template-columns: 1fr; }
+      .score { display: block; overflow-x: auto; }
+    }
+    @media print {
+      :root { color-scheme: light; --ink:#101521; --muted:#465065; --faint:#667087; --panel:#fff; --panel-2:#f4f6fb; --line:#cad1df; --page:#fff; }
+      body { background: white; }
+      .topbar, .action-row { display: none; }
+      main { padding: 20px; }
+      section { break-inside: avoid; margin-top: 48px; }
+      .direction { break-inside: avoid; }
+      .mock { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to audit</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="mark" aria-hidden="true">F3</span> Forge3D decision brief</div>
+      <nav aria-label="Document sections">
+        <a href="#audit">Audit</a><a href="#directions">Directions</a><a href="#compare">Compare</a><a href="#plan">Plan</a><a href="#decide">Decide</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">UX + product audit · 2026-07-12</div>
+        <h1>Make Forge3D feel like one confident tool.</h1>
+        <p class="lede">Forge3D already has more product than its public story admits. The highest-value upgrade is to turn its capable Design and Assembly surfaces into one legible maker journey—then ship that truth cleanly before expanding toward Print Mode.</p>
+      </div>
+      <aside class="hero-note">
+        <strong>Recommended: Direction A</strong>
+        Guided Maker Flow preserves the serious IDE, exposes Assembly at the right moment, and gives first-run users an obvious path from an idea to a measured, exportable part.
+        <div class="meta" style="margin-top:12px">Planning artifact only. No product code, branch, release, or deployment was changed.</div>
+      </aside>
+    </div>
+
+    <section id="audit">
+      <div class="section-head">
+        <div class="eyebrow">01 · Evidence</div>
+        <h2>What exists today</h2>
+        <p>This audit distinguishes checked-in product capability from public/release truth. That boundary matters because the local feature set has advanced faster than the status and catalog narrative.</p>
+      </div>
+
+      <div class="grid grid-3">
+        <article class="card signal"><div class="stat">2</div><div class="stat-label">working modes in source</div><p>Design Mode and Assembly Mode are both represented in the current checkout. Print Mode remains future-facing.</p></article>
+        <article class="card signal"><div class="stat">3.0.2</div><div class="stat-label">latest GitHub prerelease</div><p>GitHub lists v3.0.2 as a prerelease, while <code>product.json</code> still says 3.0.1 and “no public installer assets.”</p></article>
+        <article class="card warning"><div class="stat">18</div><div class="stat-label">local commits beyond origin/main</div><p>The current feature/release branch contains substantial work not represented by the remote default branch. Reconcile release truth before a UX launch.</p></article>
+      </div>
+
+      <div class="card" style="margin-top:18px; overflow-x:auto">
+        <table class="evidence">
+          <thead><tr><th>Surface</th><th>Evidence in repo</th><th>UX implication</th></tr></thead>
+          <tbody>
+            <tr><td>Core design</td><td><code>Forge3D.jsx</code>, Monaco editor, native OpenSCAD IPC, render profiles, Params, Problems, Terminal</td><td>This is already a credible desktop IDE. Do not flatten it into a toy “easy CAD” app.</td></tr>
+            <tr><td>Start experience</td><td>Start catalog, previews, Quick Start, smart insertion, workspace browser</td><td>There are multiple ways to begin, but users need a clearer recommendation among them.</td></tr>
+            <tr><td>Assembly</td><td>SCAD/STL import, part list, transforms, floor actions, measurement, booleans in a worker, undo/redo, scene save/open</td><td>The old roadmap language “build toward Assembly” undersells what is already present.</td></tr>
+            <tr><td>Public proof</td><td>README screenshots focus on Design; <code>product.json</code> is stale; GitHub prereleases exist</td><td>The strongest differentiator—code-to-mesh plus assembly—is not yet presented as a coherent product story.</td></tr>
+            <tr><td>Architecture</td><td>Most application state remains centralized in <code>Forge3D.jsx</code></td><td>Large UX changes should first stabilize mode/state boundaries to avoid compounding complexity.</td></tr>
+            <tr><td>Release posture</td><td>Unsigned macOS preview, native OpenSCAD dependency, cross-platform packaging scripts</td><td>Onboarding must explain prerequisites without turning first run into a wall of setup text.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:18px">
+        <article class="card signal">
+          <h3>What is working well</h3>
+          <p><span class="chip green">native OpenSCAD</span><span class="chip green">real geometry</span><span class="chip green">measurement</span><span class="chip green">local-first</span></p>
+          <ul>
+            <li>The split editor/viewport layout matches the job and communicates technical credibility.</li>
+            <li>Automatic dimensions and Final-versus-Quick rendering create practical maker value.</li>
+            <li>Assembly keeps edits non-destructive and makes STL work possible without forcing code changes.</li>
+            <li>The Start catalog, Params UI, and integrated diagnostics bridge novice and expert use.</li>
+          </ul>
+        </article>
+        <article class="card risk">
+          <h3>Where users may hesitate</h3>
+          <p><span class="chip amber">too many entry points</span><span class="chip amber">mode discovery</span><span class="chip amber">release mismatch</span></p>
+          <ul>
+            <li>Start, Workspace, Quick Start, Templates, Params, and examples compete without a single recommended path.</li>
+            <li>Assembly appears as a toolbar action, but its value and prerequisite (“Final render”) are not explained as a journey.</li>
+            <li>Dense chrome uses small controls and low-contrast secondary text that can punish new users and low-vision users.</li>
+            <li>Public docs and catalog data do not reliably describe the checked-in capability or actual releases.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="directions">
+      <div class="section-head">
+        <div class="eyebrow">02 · Choose a product posture</div>
+        <h2>Three distinct upgrade directions</h2>
+        <p>These are intentionally different bets. Each reuses Forge3D’s current architecture and avoids premature Print Mode expansion.</p>
+      </div>
+
+      <div class="grid" style="gap:28px">
+        <article class="card direction" style="--accent:var(--cyan)">
+          <div class="direction-body">
+            <div class="direction-label"><div><div class="option-id">OPTION A</div><h3>Guided Maker Flow</h3></div><span class="recommended">BEST PATH</span></div>
+            <p class="lede" style="font-size:17px">Keep the professional IDE, but add an outcome-based welcome and a visible progression: <b>Start → Design → Final Render → Assemble → Export</b>.</p>
+            <div class="grid grid-2">
+              <div><h4>Core changes</h4><ul><li>First-run “What are you making?” chooser</li><li>Contextual next-step rail above status bar</li><li>Assembly readiness card after Final render</li><li>One consolidated Start surface</li><li>Short, dismissible prerequisite checks</li></ul></div>
+              <div><h4>Best for</h4><p>New makers who need direction, without slowing experienced OpenSCAD users.</p><h4>Risk</h4><p>Guidance can become noisy. It must disappear once the user demonstrates the workflow.</p></div>
+            </div>
+            <div class="mock" aria-label="Wireframe for Guided Maker Flow">
+              <div class="mock-top"><span class="mock-logo">FORGE3D</span><span class="mock-pill">1 Design ✓</span><span class="mock-pill" style="border-color:var(--cyan);color:var(--cyan)">2 Assemble</span><span class="mock-pill">3 Export</span><span class="mock-cta">Final Render</span></div>
+              <div class="mock-shell">
+                <div class="mock-pane"><div class="mock-title">Start here</div><div class="mock-row active">Create from a recipe</div><div class="mock-row">Open a .scad file</div><div class="mock-row">Inspect an STL</div><div class="mock-row">Resume workspace</div><p>Recommended based on your last task</p></div>
+                <div class="mock-pane"><div class="mock-title">mounting-bracket.scad</div><div class="mock-code"><span class="kw">width</span> = 42;<br><span class="kw">height</span> = 26;<br><span class="kw">module</span> bracket() {<br>&nbsp;&nbsp;difference() { … }<br>}</div></div>
+                <div class="mock-pane viewport"><div class="guide top"><b>Ready to assemble</b><br>Final geometry is current · 42 × 26 × 12 mm</div><div class="object"></div><div class="grid-floor"></div><div class="guide bottom">Next: add another part, measure fit, or export STL</div></div>
+              </div>
+            </div>
+            <label class="choice"><input type="checkbox" name="direction" value="A — Guided Maker Flow"><span><b>Select Option A</b><br><span class="muted">Prioritize coherent onboarding and handoffs between existing capabilities.</span></span></label>
+          </div>
+        </article>
+
+        <article class="card direction" style="--accent:var(--amber)">
+          <div class="direction-body">
+            <div class="direction-label"><div><div class="option-id">OPTION B</div><h3>Builder-First Workbench</h3></div></div>
+            <p class="lede" style="font-size:17px">Position Forge3D as the missing Mac-native quick STL workbench. Launch into a project hub where “Inspect / combine an STL” is as prominent as “Write OpenSCAD.”</p>
+            <div class="grid grid-2">
+              <div><h4>Core changes</h4><ul><li>Project hub with Design and Builder entry cards</li><li>Assembly as a first-class start mode</li><li>Inspector-first right rail</li><li>Recent STL and scene history</li><li>Measurement and boolean recipes</li></ul></div>
+              <div><h4>Best for</h4><p>Users missing Microsoft 3D Builder for quick measure, merge, cut, orient, and export jobs.</p><h4>Risk</h4><p>The product may look like a mesh editor with an attached IDE, weakening its differentiated OpenSCAD identity.</p></div>
+            </div>
+            <div class="mock" aria-label="Wireframe for Builder-First Workbench">
+              <div class="mock-top"><span class="mock-logo">FORGE3D</span><span class="mock-pill">Design</span><span class="mock-pill" style="border-color:var(--amber);color:var(--amber)">Builder</span><span class="mock-cta">Add part</span></div>
+              <div class="mock-shell" style="grid-template-columns:25% 50% 25%">
+                <div class="mock-pane"><div class="mock-title">Assembly Parts</div><div class="mock-row active">bracket-body.stl</div><div class="mock-row">mount-insert.stl</div><div class="mock-row">+ Add SCAD / STL</div><p>Scene: bracket-fit.forge3dscene</p></div>
+                <div class="mock-pane viewport"><div class="guide top">Move · Rotate · Measure · Union · Subtract</div><div class="object" style="transform:translateX(-25px) rotate(25deg)"></div><div class="object" style="width:54px;height:54px;transform:translate(18px,20px) rotate(-12deg);opacity:.72"></div><div class="grid-floor"></div><div class="guide bottom">Distance 8.42 mm · Pick 2 of 2</div></div>
+                <div class="mock-pane"><div class="mock-title">Inspector</div><div class="mock-row active">Dimensions<br>42 × 26 × 12 mm</div><div class="mock-row">Position<br>X 0 · Y 0 · Z 12</div><div class="mock-row">Boolean<br>Primary − Operand</div></div>
+              </div>
+            </div>
+            <label class="choice"><input type="checkbox" name="direction" value="B — Builder-First Workbench"><span><b>Select Option B</b><br><span class="muted">Lead the product with STL inspection and assembly jobs.</span></span></label>
+          </div>
+        </article>
+
+        <article class="card direction" style="--accent:var(--violet)">
+          <div class="direction-body">
+            <div class="direction-label"><div><div class="option-id">OPTION C</div><h3>Power-User Studio</h3></div></div>
+            <p class="lede" style="font-size:17px">Lean into Forge3D as a serious programmable modeling environment: command palette, layout presets, richer source navigation, history, and persistent project sessions.</p>
+            <div class="grid grid-2">
+              <div><h4>Core changes</h4><ul><li>Command palette and searchable actions</li><li>Modeling / Debug / Assembly layouts</li><li>Source outline and symbol navigator</li><li>Snapshot timeline and safe restore</li><li>Saved workspace sessions</li></ul></div>
+              <div><h4>Best for</h4><p>Repeat users who spend hours in OpenSCAD and want IDE-grade speed, recovery, and keyboard control.</p><h4>Risk</h4><p>High implementation surface and limited help for someone who does not yet know what to do first.</p></div>
+            </div>
+            <div class="mock" aria-label="Wireframe for Power-User Studio">
+              <div class="mock-top"><span class="mock-logo">FORGE3D</span><span class="mock-pill">Modeling layout</span><span class="mock-pill">⌘K Commands</span><span class="mock-cta">Build</span></div>
+              <div class="mock-shell">
+                <div class="mock-pane"><div class="mock-title">Outline</div><div class="mock-row">▾ Parameters</div><div class="mock-row active">▾ Modules<br>&nbsp;&nbsp;bracket()<br>&nbsp;&nbsp;mount_holes()</div><div class="mock-row">▸ History · 14 snapshots</div></div>
+                <div class="mock-pane"><div class="mock-title">bracket.scad · Saved</div><div class="mock-code"><span class="kw">module</span> bracket() {<br>&nbsp;&nbsp;difference() {<br>&nbsp;&nbsp;&nbsp;&nbsp;body();<br>&nbsp;&nbsp;&nbsp;&nbsp;mount_holes();<br>&nbsp;&nbsp;}<br>}</div><div class="mock-row" style="margin-top:22px">Problems 0 · Terminal · Build log 24</div></div>
+                <div class="mock-pane viewport"><div class="guide top">Command palette: “measure…”</div><div class="object"></div><div class="grid-floor"></div><div class="guide bottom">Layout saved · Quick render · Zoom 100%</div></div>
+              </div>
+            </div>
+            <label class="choice"><input type="checkbox" name="direction" value="C — Power-User Studio"><span><b>Select Option C</b><br><span class="muted">Prioritize expert efficiency, navigation, and recovery.</span></span></label>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="compare">
+      <div class="section-head"><div class="eyebrow">03 · Tradeoffs</div><h2>Decision matrix</h2><p>Scores reflect the current repo: capable Assembly code, dense desktop chrome, stale public narrative, and centralized app state.</p></div>
+      <table class="score">
+        <thead><tr><th>Criterion</th><th>A · Guided</th><th>B · Builder-first</th><th>C · Power-user</th></tr></thead>
+        <tbody>
+          <tr><td>First-run clarity</td><td class="stars">★★★★★</td><td class="stars">★★★★☆</td><td class="stars">★★☆☆☆</td></tr>
+          <tr><td>Preserves OpenSCAD identity</td><td class="stars">★★★★★</td><td class="stars">★★★☆☆</td><td class="stars">★★★★★</td></tr>
+          <tr><td>Leverages work already built</td><td class="stars">★★★★★</td><td class="stars">★★★★★</td><td class="stars">★★★☆☆</td></tr>
+          <tr><td>Speed to a coherent release</td><td class="stars">★★★★☆</td><td class="stars">★★★☆☆</td><td class="stars">★★☆☆☆</td></tr>
+          <tr><td>Expert efficiency</td><td class="stars">★★★☆☆</td><td class="stars">★★★★☆</td><td class="stars">★★★★★</td></tr>
+          <tr><td>Architecture risk</td><td>Low–medium</td><td>Medium</td><td>High</td></tr>
+          <tr><td>Primary success signal</td><td>First successful Final → Assembly → Export</td><td>Completed STL measure/edit/export job</td><td>Repeat sessions and keyboard action rate</td></tr>
+        </tbody>
+      </table>
+
+      <div class="grid grid-2" style="margin-top:18px">
+        <article class="card signal"><h3>Best recommendation: A</h3><p><b>Why:</b> Forge3D does not need another identity or another broad feature set yet. It needs a clear story across what is already there. Guided Maker Flow creates that story while retaining both the programmable IDE and the Builder promise.</p><p><b>Next step:</b> prototype only the welcome chooser, stage strip, and post-render Assembly handoff against the current interface. Test whether a new user can explain the three stages after five minutes.</p></article>
+        <article class="card warning"><h3>Counterpoint</h3><p>If Monroe’s strongest personal pain is specifically “Microsoft 3D Builder on Mac,” Option B may be the emotionally sharper product and marketing hook. The risk is trying to win a broad STL-editor category before hardening the existing Builder path and release distribution.</p><p>Option C is valuable later, especially History and command palette, but it should follow—not precede—journey coherence.</p></article>
+      </div>
+    </section>
+
+    <section id="plan">
+      <div class="section-head"><div class="eyebrow">04 · Phased plan</div><h2>Wrap the product before widening it</h2><p>This plan is deliberately gate-based. Each phase has a product truth check before the next layer begins.</p></div>
+      <div class="card">
+        <div class="phase"><div class="phase-id">Gate 0</div><div><h3>Reconcile truth</h3><p>Decide which branch is canonical, compare it with <code>origin/main</code>, and document which Assembly capabilities are actually release-ready. Update README, status, roadmap, catalog metadata, screenshots, and version claims together. Do not market unmerged or unvalidated work.</p></div></div>
+        <div class="phase"><div class="phase-id">Phase 1</div><div><h3>Prototype the chosen posture</h3><p>Build a disposable interaction prototype for the selected direction. For Option A, limit it to three elements: first-run outcome chooser, persistent stage strip, and a contextual “ready for Assembly” handoff.</p></div></div>
+        <div class="phase"><div class="phase-id">Phase 2</div><div><h3>Simplify entry and chrome</h3><p>Consolidate Start/Quick Start/template entry points, increase high-value control targets, improve contrast, and move secondary toggles into contextual menus. Preserve keyboard shortcuts and resizable panels.</p></div></div>
+        <div class="phase"><div class="phase-id">Phase 3</div><div><h3>Harden the full maker journey</h3><p>Dogfood three tasks: create a parametric part, import and measure an STL, combine two parts and export. Capture failures at every transition—OpenSCAD missing, stale render, boolean failure, locked part, scene save failure.</p></div></div>
+        <div class="phase"><div class="phase-id">Phase 4</div><div><h3>Release the proof</h3><p>Produce current Design and Assembly screenshots, a 45–60 second demo, accurate installer/prerequisite copy, and a release checklist. Confirm the downloaded artifact—not only a source build—matches the public claims.</p></div></div>
+        <div class="phase"><div class="phase-id">Later</div><div><h3>Only then choose expansion</h3><p>Add the strongest slice from B (Builder-first launch) or C (History / command palette). Keep Print Mode separate until Assembly is legible, reliable, and genuinely used.</p></div></div>
+      </div>
+
+      <div class="grid grid-3" style="margin-top:18px">
+        <article class="card"><h3>Accessibility</h3><ul><li>44px targets for primary toolbar and mode controls</li><li>Visible focus and complete keyboard traversal</li><li>Do not encode state by cyan/amber color alone</li><li>Raise contrast for metadata, inactive tabs, and dimensions</li><li>Text alternatives for viewport state and measurement history</li></ul></article>
+        <article class="card"><h3>Performance</h3><ul><li>Keep booleans and native renders off the renderer thread</li><li>Expose progress and cancellation consistently</li><li>Avoid rebuilding Three.js scenes for unrelated UI state</li><li>Virtualize long Start/Workspace/part lists</li><li>Record task timings before promising “instant” workflows</li></ul></article>
+        <article class="card"><h3>Onboarding</h3><ul><li>Detect OpenSCAD before asking users to build</li><li>Offer a known-good example and explicit first task</li><li>Explain Quick vs Final at point of use</li><li>Teach Assembly via a two-part fit exercise</li><li>Let repeat users permanently dismiss coaching</li></ul></article>
+      </div>
+    </section>
+
+    <section id="decide">
+      <div class="section-head"><div class="eyebrow">05 · Monroe’s decision</div><h2>Pick a direction and answer the product questions</h2><p>Your selections stay in this document only. Use “Build decision summary,” then copy the result into the next implementation task.</p></div>
+      <form id="decision-form" class="card">
+        <div class="question">
+          <label>Which outcome should a new user achieve in their first ten minutes?</label>
+          <div class="checks">
+            <label><input type="radio" name="first-win" value="Edit parameters and render a working OpenSCAD model">Edit parameters and render a working OpenSCAD model</label>
+            <label><input type="radio" name="first-win" value="Import, measure, and export an STL">Import, measure, and export an STL</label>
+            <label><input type="radio" name="first-win" value="Combine two parts and export a printable result">Combine two parts and export a printable result</label>
+            <label><input type="radio" name="first-win" value="Write OpenSCAD faster with IDE tools">Write OpenSCAD faster with IDE tools</label>
+          </div>
+        </div>
+        <div class="question"><label for="primary-user">Who is the primary user for the next release?</label><input id="primary-user" name="primary-user" type="text" placeholder="Example: Mac maker who knows basic OpenSCAD and needs quick STL fit/merge tools"></div>
+        <div class="question">
+          <label>What must be in the next polished release?</label>
+          <div class="checks">
+            <label><input type="checkbox" name="must-have" value="First-run guided project">First-run guided project</label>
+            <label><input type="checkbox" name="must-have" value="Design-to-Assembly handoff">Design-to-Assembly handoff</label>
+            <label><input type="checkbox" name="must-have" value="STL measurement workflow">STL measurement workflow</label>
+            <label><input type="checkbox" name="must-have" value="Boolean workflow">Boolean workflow</label>
+            <label><input type="checkbox" name="must-have" value="Current screenshots and demo">Current screenshots and demo</label>
+            <label><input type="checkbox" name="must-have" value="Signed or clearly explained installer path">Signed or clearly explained installer path</label>
+          </div>
+        </div>
+        <div class="question"><label for="non-goals">What is explicitly out of scope?</label><textarea id="non-goals" name="non-goals" placeholder="Recommended defaults: Print Mode, slicer integration, AI generation, broad mesh repair, cloud accounts"></textarea></div>
+        <div class="question"><label for="success">What evidence would make you call the upgrade successful?</label><textarea id="success" name="success" placeholder="Example: three new users complete Final render → Assembly → measured export without coaching"></textarea></div>
+        <div class="question"><label for="notes">Other questions, constraints, or instincts</label><textarea id="notes" name="notes" placeholder="What still feels wrong? Which option excites you? What should never change?"></textarea></div>
+        <div class="action-row">
+          <button class="button primary" type="button" id="build-summary">Build decision summary</button>
+          <button class="button" type="button" id="copy-summary">Copy summary</button>
+          <button class="button" type="reset">Clear answers</button>
+        </div>
+        <div id="summary" class="card" aria-live="polite">No decision summary built yet.</div>
+      </form>
+    </section>
+
+    <div class="footer">
+      <p><b>Audit basis:</b> local Forge3D checkout, repo instructions, README, architecture/status/workflow/Assembly/Builder documents, current React/Electron source, repo screenshots, product metadata, Git history, and GitHub release listing inspected 2026-07-12.</p>
+      <p><b>Known boundary:</b> this is a product/UX planning artifact, not proof that the current branch is merged, that every checked-in Assembly behavior has passed installed-app validation, or that a public installer matches the checkout.</p>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const form = document.querySelector('#decision-form');
+      const output = document.querySelector('#summary');
+      const selectedValues = (name) => [...form.querySelectorAll(`[name="${name}"]:checked`)].map((input) => input.value);
+      const textValue = (name) => (form.elements[name]?.value || '').trim();
+
+      function buildSummary() {
+        const directions = [...document.querySelectorAll('input[name="direction"]:checked')].map((input) => input.value);
+        const lines = [
+          'FORGE3D UX DECISION — 2026-07-12',
+          '',
+          `Direction: ${directions.join(' + ') || 'Not selected'}`,
+          `First 10-minute win: ${selectedValues('first-win')[0] || 'Not answered'}`,
+          `Primary user: ${textValue('primary-user') || 'Not answered'}`,
+          `Must-have release scope: ${selectedValues('must-have').join('; ') || 'Not answered'}`,
+          `Non-goals: ${textValue('non-goals') || 'Not answered'}`,
+          `Success evidence: ${textValue('success') || 'Not answered'}`,
+          `Notes/questions: ${textValue('notes') || 'None'}`,
+          '',
+          'Required first gate: reconcile the canonical branch and public/release truth before implementation.'
+        ];
+        output.textContent = lines.join('\n');
+      }
+
+      document.querySelector('#build-summary').addEventListener('click', buildSummary);
+      document.querySelector('#copy-summary').addEventListener('click', async () => {
+        if (output.textContent.startsWith('No decision')) buildSummary();
+        try {
+          await navigator.clipboard.writeText(output.textContent);
+          const original = output.textContent;
+          output.textContent = `${original}\n\nCopied to clipboard.`;
+        } catch {
+          output.textContent += '\n\nClipboard access was blocked. Select and copy this text manually.';
+        }
+      });
+      form.addEventListener('reset', () => { setTimeout(() => { output.textContent = 'No decision summary built yet.'; }, 0); });
+    })();
+  </script>
+</body>
+</html>
