@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
 import MonacoEditor, { DiffEditor, loader } from '@monaco-editor/react';
 import * as monacoApi from 'monaco-editor/esm/vs/editor/editor.api';
 import 'monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu.js';
@@ -9,6 +9,7 @@ import 'monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.j
 import 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { configureMonacoOpenScad, ensureForge3DThemes, extractOpenScadSymbols, OPENSCAD_LANGUAGE_ID, resolveOpenScadReference } from './editor-language.js';
+import { detachAndDisposeDiffModels } from './editor-lifecycle.js';
 
 const INLINE_ACCEPT_ID = 'editor.action.inlineSuggest.commit';
 const INLINE_ACCEPT_WORD_ID = 'editor.action.inlineSuggest.acceptNextWord';
@@ -177,6 +178,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
   showDiff = false,
   theme,
 }, ref) {
+  const containerRef = useRef(null);
   const editorRef = useRef(null);
   const diffEditorRef = useRef(null);
   const modifiedEditorRef = useRef(null);
@@ -358,6 +360,31 @@ export const CodeEditor = forwardRef(function CodeEditor({
     interactionDisposablesRef.current = [];
   }, []);
 
+  useLayoutEffect(() => {
+    // The wrapper attaches models before its later onMount callback. Capture
+    // only this container's widget so an intervening teardown also detaches it.
+    const subscription = monacoApi.editor.onDidCreateDiffEditor((editor) => {
+      if (containerRef.current?.contains(editor.getContainerDomNode())) diffEditorRef.current = editor;
+    });
+    return () => subscription.dispose();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!showDiff) return;
+    return () => {
+      // Run before Monaco React's passive cleanup disposes attached models.
+      const editor = diffEditorRef.current;
+      if (!editor) return;
+      interactionDisposablesRef.current.forEach((disposable) => disposable?.dispose?.());
+      interactionDisposablesRef.current = [];
+      detachAndDisposeDiffModels(editor);
+      diffEditorRef.current = null;
+      modifiedEditorRef.current = null;
+      editorRef.current = null;
+      decorationIdsRef.current = [];
+    };
+  }, [showDiff]);
+
   const handleBeforeMount = useCallback((monaco) => {
     monacoRef.current = monaco;
     configureMonacoOpenScad(monaco);
@@ -390,7 +417,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
   }), [theme]);
 
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', height: '100%' }}>
       <style>{`
         .forge3d-symbol-module {
           border-left: 3px solid #4fc3f7;
