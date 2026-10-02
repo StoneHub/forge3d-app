@@ -7,12 +7,15 @@ import { getThemeColors } from '../src/forge3d/theme.js';
 
 // Exercise the production component's hooks with controlled frames and terminal
 // disposables. The opt-in Electron companion covers real xterm/DOM behavior.
-const source = fs.readFileSync(new URL('../src/forge3d/terminal.jsx', import.meta.url), 'utf8')
-  .replace(/^import .*;\n/gm, '')
-  .replace('export default TerminalPane;', 'globalThis.TerminalPane = TerminalPane;');
-const compiled = transformSync(source, { loader: 'jsx', jsx: 'transform' }).code;
+const source = fs.readFileSync(new URL('../src/forge3d/terminal.jsx', import.meta.url), 'utf8');
+function compileComponent(componentSource) {
+  const body = componentSource.replace(/\r\n/g, '\n')
+    .replace(/^import .*;\n/gm, '')
+    .replace('export default TerminalPane;', 'globalThis.TerminalPane = TerminalPane;');
+  return transformSync(body, { loader: 'jsx', jsx: 'transform' }).code;
+}
 
-function createHarness() {
+function createHarness(componentSource = source) {
   const refs = [];
   const effects = [];
   const frames = new Map();
@@ -86,7 +89,7 @@ function createHarness() {
     clearTimeout: (id) => timers.delete(id),
     Promise,
   });
-  vm.runInContext(compiled, context);
+  vm.runInContext(compileComponent(componentSource), context);
   const ref = {};
   function render(changes = {}) {
     harness.props = { ...harness.props, ...changes };
@@ -198,4 +201,15 @@ test('activating an idle terminal requests one session; cosmetic changes reuse a
   assert.equal(sessions, 1);
   assert.equal(h.calls.subscriptions, 1);
   h.unmount();
+});
+
+test('production-component hook tests accept both LF and CRLF source checkouts', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const h = createHarness(source.replace(/\r?\n/g, newline));
+    h.render({ active: true }); h.flush();
+    assert.equal(h.terminals.length, 1);
+    assert.equal(h.terminals[0].opens, 1);
+    h.unmount();
+    assert.equal(h.calls.subscriptions, h.calls.unsubscriptions);
+  }
 });
