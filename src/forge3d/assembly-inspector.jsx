@@ -109,6 +109,7 @@ export default function AssemblyInspector({
   booleanOperandOptions,
   building,
   canRefreshCurrentRender,
+  refreshCurrentRenderBlockReason,
   colors,
   measurement,
   metrics,
@@ -250,9 +251,12 @@ export default function AssemblyInspector({
             colors={colors}
             disabled={!canRefreshCurrentRender}
             emphasis="accent"
-            label="Replace Selected Part"
+            label="Refresh Geometry"
             onClick={onRefreshCurrentRender}
           />
+          <span style={{ color: colors.textMuted, fontSize: '11px', lineHeight: 1.5 }}>
+            {refreshCurrentRenderBlockReason || 'Updates geometry from this design while keeping position, rotation, and scale.'}
+          </span>
         </div>
       )}
 
