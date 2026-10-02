@@ -5,10 +5,39 @@ import 'xterm/css/xterm.css';
 import './terminal.css';
 import { requireForgeAPI } from './forge-api.js';
 
+function getTerminalTheme(colors) {
+  return {
+    background: colors.bgPanel,
+    foreground: colors.text,
+    cursor: colors.accent,
+    selectionBackground: `${colors.accent}44`,
+    black: '#000000',
+    red: '#e06c75',
+    green: '#98c379',
+    yellow: '#d19a66',
+    blue: '#61afef',
+    magenta: '#c678dd',
+    cyan: '#56b6c2',
+    white: '#abb2bf',
+    brightBlack: '#5c6370',
+    brightRed: '#e06c75',
+    brightGreen: '#98c379',
+    brightYellow: '#d19a66',
+    brightBlue: '#61afef',
+    brightMagenta: '#c678dd',
+    brightCyan: '#56b6c2',
+    brightWhite: '#ffffff',
+  };
+}
+
 const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusToken = 0, onEnsureSession, resetToken = 0, sessionState = {} }, ref) {
   const containerRef = useRef(null);
   const terminalRef = useRef(null);
-  const fitAddonRef = useRef(null);
+  const scheduleLayoutRef = useRef(null);
+  const activeRef = useRef(active);
+  const colorsRef = useRef(colors);
+  activeRef.current = active;
+  colorsRef.current = colors;
   const lastErrorRef = useRef('');
   const requestingSessionRef = useRef(false);
   const forgeAPI = requireForgeAPI();
@@ -58,46 +87,47 @@ const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusTok
   }), [forgeAPI]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Consolas, "Courier New", monospace',
       convertEol: true,
-      theme: {
-        background: colors.bgPanel,
-        foreground: colors.text,
-        cursor: colors.accent,
-        selectionBackground: `${colors.accent}44`,
-        black: '#000000',
-        red: '#e06c75',
-        green: '#98c379',
-        yellow: '#d19a66',
-        blue: '#61afef',
-        magenta: '#c678dd',
-        cyan: '#56b6c2',
-        white: '#abb2bf',
-        brightBlack: '#5c6370',
-        brightRed: '#e06c75',
-        brightGreen: '#98c379',
-        brightYellow: '#d19a66',
-        brightBlue: '#61afef',
-        brightMagenta: '#c678dd',
-        brightCyan: '#56b6c2',
-        brightWhite: '#ffffff',
-      },
+      theme: getTerminalTheme(colorsRef.current),
     });
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(containerRef.current);
-    fitAddon.fit();
+    let opened = false;
+    let frameId = null;
+    let focusPending = false;
+
+    // Opening xterm schedules viewport work that must not outlive StrictMode's
+    // first setup/cleanup pass. Wait for a visible, measurable terminal pane.
+    const scheduleLayout = (focus = false) => {
+      focusPending ||= focus;
+      if (frameId !== null) return;
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        if (!activeRef.current || document.visibilityState === 'hidden' || container.offsetParent === null
+          || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+        if (!opened) {
+          terminal.open(container);
+          opened = true;
+        }
+        fitAddon.fit();
+        forgeAPI.resizeTerminal(terminal.cols, terminal.rows);
+        if (focusPending) terminal.focus();
+        focusPending = false;
+      });
+    };
 
     terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
+    scheduleLayoutRef.current = scheduleLayout;
 
-    terminal.onData((data) => {
+    const inputSubscription = terminal.onData((data) => {
       forgeAPI.writeTerminal(data);
     });
 
@@ -134,11 +164,10 @@ const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusTok
       terminal.write(data);
     });
 
-    const handleResize = () => {
-      if (!containerRef.current || containerRef.current.offsetParent === null) return;
-      fitAddon.fit();
-      forgeAPI.resizeTerminal(terminal.cols, terminal.rows);
-    };
+    const handleResize = () => scheduleLayout();
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
+    document.addEventListener('visibilitychange', handleResize);
 
     window.addEventListener('resize', handleResize);
     const handlePaste = (event) => {
@@ -154,19 +183,28 @@ const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusTok
       event.clipboardData?.setData('text/plain', selection);
       void writeClipboardText(selection);
     };
-    containerRef.current.addEventListener('paste', handlePaste);
-    containerRef.current.addEventListener('copy', handleCopy);
-    const timeoutId = setTimeout(handleResize, 100);
+    container.addEventListener('paste', handlePaste);
+    container.addEventListener('copy', handleCopy);
+    scheduleLayout();
 
     return () => {
-      clearTimeout(timeoutId);
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+      document.removeEventListener('visibilitychange', handleResize);
       window.removeEventListener('resize', handleResize);
-      containerRef.current?.removeEventListener('paste', handlePaste);
-      containerRef.current?.removeEventListener('copy', handleCopy);
+      container.removeEventListener('paste', handlePaste);
+      container.removeEventListener('copy', handleCopy);
       unsubscribe();
+      inputSubscription.dispose();
+      scheduleLayoutRef.current = null;
+      terminalRef.current = null;
       terminal.dispose();
     };
-  }, [colors, forgeAPI]);
+  }, [forgeAPI]);
+
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = getTerminalTheme(colors);
+  }, [colors.bgPanel, colors.text, colors.accent]);
 
   useEffect(() => {
     if (!active || sessionState?.status !== 'idle' || requestingSessionRef.current) return;
@@ -197,16 +235,7 @@ const TerminalPane = forwardRef(function TerminalPane({ active, colors, focusTok
 
   useEffect(() => {
     if (!active) return;
-    const terminal = terminalRef.current;
-    const fitAddon = fitAddonRef.current;
-    const focusTerminal = () => {
-      if (!containerRef.current || containerRef.current.offsetParent === null) return;
-      fitAddon?.fit();
-      forgeAPI.resizeTerminal(terminal?.cols || 80, terminal?.rows || 24);
-      terminal?.focus();
-    };
-    const frameId = requestAnimationFrame(focusTerminal);
-    return () => cancelAnimationFrame(frameId);
+    scheduleLayoutRef.current?.(true);
   }, [active, focusToken, forgeAPI, sessionState?.pid]);
 
   return (
