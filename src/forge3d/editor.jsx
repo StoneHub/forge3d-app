@@ -369,10 +369,12 @@ export const CodeEditor = forwardRef(function CodeEditor({
     return () => subscription.dispose();
   }, []);
 
-  useLayoutEffect(() => {
-    if (!showDiff) return;
-    return () => {
-      // Run before Monaco React's passive cleanup disposes attached models.
+  // Keep the ref callback stable through Fast Refresh. Effect cleanup can run
+  // while the wrapper is retained; DOM removal is the actual ownership boundary.
+  const diffContainerRef = useRef(null);
+  if (!diffContainerRef.current) {
+    diffContainerRef.current = (container) => {
+      if (container) return;
       const editor = diffEditorRef.current;
       if (!editor) return;
       interactionDisposablesRef.current.forEach((disposable) => disposable?.dispose?.());
@@ -383,7 +385,7 @@ export const CodeEditor = forwardRef(function CodeEditor({
       editorRef.current = null;
       decorationIdsRef.current = [];
     };
-  }, [showDiff]);
+  }
 
   const handleBeforeMount = useCallback((monaco) => {
     monacoRef.current = monaco;
@@ -438,19 +440,21 @@ export const CodeEditor = forwardRef(function CodeEditor({
       `}</style>
 
       {showDiff ? (
-        <DiffEditor
-          beforeMount={handleBeforeMount}
-          height="100%"
-          language={OPENSCAD_LANGUAGE_ID}
-          modified={code}
-          onChange={(value) => {
-            if (typeof value === 'string' && value !== code) onChange(value);
-          }}
-          onMount={handleDiffMount}
-          options={diffOptions}
-          original={comparisonCode || ''}
-          theme={editorTheme}
-        />
+        <div ref={diffContainerRef.current} style={{ height: '100%' }}>
+          <DiffEditor
+            beforeMount={handleBeforeMount}
+            height="100%"
+            language={OPENSCAD_LANGUAGE_ID}
+            modified={code}
+            onChange={(value) => {
+              if (typeof value === 'string' && value !== code) onChange(value);
+            }}
+            onMount={handleDiffMount}
+            options={diffOptions}
+            original={comparisonCode || ''}
+            theme={editorTheme}
+          />
+        </div>
       ) : (
         <MonacoEditor
           beforeMount={handleBeforeMount}

@@ -19,6 +19,17 @@ async function run() {
     await win.loadURL(process.env.FORGE3D_EDITOR_TEST_URL);
     await waitFor('window.editorLifecycle?.ready()', 'cold StrictMode diff result');
     result.initial = await evaluate('window.editorLifecycle.snapshot()');
+    console.log('FORGE3D_EDITOR_REFRESH_REQUEST');
+    await waitFor(`window.editorLifecycle.calls.creationSubscriptions > ${result.initial.calls.creationSubscriptions}`, 'CodeEditor Fast Refresh effect replay');
+    await pause(100);
+    result.refreshedDiff = await evaluate('window.editorLifecycle.snapshot()');
+    assert.equal(result.refreshedDiff.liveOwnedModels, 2, 'Fast Refresh must preserve the retained diff models');
+    assert.equal(result.refreshedDiff.diffEditors, 1);
+    assert.deepEqual(result.refreshedDiff.errors, []);
+    assert.equal(await evaluate('window.editorLifecycle.insert("// refreshed edit\\n")'), true, 'Fast Refresh must preserve the imperative editor API');
+    assert.match((await evaluate('window.editorLifecycle.snapshot()')).modifiedText, /refreshed edit/);
+    await evaluate('window.editorLifecycle.update({code:"cube([24,12,8]);"})');
+    await waitFor('window.editorLifecycle.snapshot().modifiedText === "cube([24,12,8]);"', 'external update after Fast Refresh');
     assert.equal(result.initial.liveOwnedModels, 2);
     for (let i = 0; i < 3; i++) {
       await evaluate('window.editorLifecycle.update({showDiff:false})');
@@ -68,7 +79,7 @@ async function run() {
     win.close();
     app.exit(0);
   } catch (error) {
-    result.final = await evaluate('window.editorLifecycle?.snapshot()').catch(() => null);
+    result.final = win ? await evaluate('window.editorLifecycle?.snapshot()').catch(() => null) : null;
     console.error('FORGE3D_EDITOR_RESULT '+JSON.stringify({ ok:false,error:error.stack,...result }));
     win?.close();
     app.exit(1);

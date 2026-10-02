@@ -26,7 +26,19 @@ test('native CodeEditor detaches diff models before disposal under StrictMode', 
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let text = '';
-      child.stdout.on('data', data => { text += data; });
+      let refreshSent = false;
+      child.stdout.on('data', data => {
+        text += data;
+        if (text.includes('FORGE3D_EDITOR_REFRESH_REQUEST') && !refreshSent) {
+          refreshSent = true;
+          const modulePath = '/src/forge3d/editor.jsx';
+          const module = server.moduleGraph.getModuleById(path.join(repo, modulePath.slice(1)));
+          assert.ok(module, 'the real CodeEditor module must be loaded for Fast Refresh');
+          server.moduleGraph.invalidateModule(module);
+          server.ws.send({ type: 'update', updates: [{ type: 'js-update', path: modulePath,
+            acceptedPath: modulePath, timestamp: Date.now() }] });
+        }
+      });
       child.stderr.on('data', data => { text += data; });
       const deadline = setTimeout(() => child.kill(), 45_000);
       child.once('error', error => { clearTimeout(deadline); reject(error); });

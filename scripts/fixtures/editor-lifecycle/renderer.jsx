@@ -35,7 +35,8 @@ window.editorLifecycle = {
   earlyModels: 0,
   ready: () => Array.isArray(monaco.editor.getDiffEditors()[0]?.getLineChanges()),
   snapshot: () => ({ errors: [...errors], calls, liveOwnedModels: monaco.editor.getModels().filter(model => model !== sharedModel).length,
-    sharedModelAlive: !sharedModel.isDisposed(), diffEditors: monaco.editor.getDiffEditors().length }),
+    sharedModelAlive: !sharedModel.isDisposed(), diffEditors: monaco.editor.getDiffEditors().length,
+    modifiedText: monaco.editor.getDiffEditors()[0]?.getModel()?.modified.getValue() ?? null }),
 };
 window.addEventListener('error', event => errors.push(event.error?.stack || event.message));
 window.addEventListener('unhandledrejection', event => errors.push(event.reason?.stack || String(event.reason)));
