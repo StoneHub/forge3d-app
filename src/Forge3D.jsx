@@ -1,3 +1,4 @@
+import { getAssemblyRefreshBlockReason, isCurrentDesignRender, refreshAssemblyPartFromRender } from './forge3d/assembly-refresh.js';
 import { cloneMeasurementState, clearMeasurementDraft, appendMeasurementPick } from './forge3d/measurement.js';
 import { createHoleTool } from './forge3d/surface-hole.js';
 import { COLLAPSED_BOTTOM_PANEL_HEIGHT, DEFAULT_BOTTOM_PANEL_HEIGHT, clampBottomPanelHeight } from './forge3d/bottom-panel-layout.js';
@@ -372,6 +373,7 @@ export default function Forge3D() {
   const [buildStatusDetail, setBuildStatusDetail] = useState('');
   const [currentFileName, setCurrentFileName] = useState(initialWorkspace.currentFileName || DEFAULT_FILE_NAME);
   const [currentFilePath, setCurrentFilePath] = useState(initialWorkspace.currentFilePath || null);
+  const designDocumentIdRef = useRef(crypto.randomUUID());
   const [savedCode, setSavedCode] = useState(initialWorkspace.lastSavedCode ?? initialWorkspace.code);
   const [comparisonCode, setComparisonCode] = useState(initialWorkspace.comparisonCode ?? initialWorkspace.lastSavedCode ?? initialWorkspace.code);
   const [statusMessage, setStatusMessage] = useState('Workspace restored');
@@ -459,6 +461,12 @@ export default function Forge3D() {
   const renderRequestIdRef = useRef(null);
   const renderLogBufferRef = useRef([]);
   const latestRenderedGeometryRef = useRef(null);
+  const latestRenderMetaRef = useRef(currentRenderMeta);
+  const latestDesignDocumentRef = useRef(null);
+  const updateCurrentRenderMeta = useCallback((meta) => {
+    latestRenderMetaRef.current = meta;
+    setCurrentRenderMeta(meta);
+  }, []);
   const currentBuildProfileRef = useRef(getRenderProfileConfig(initialWorkspace.renderProfile || 'quick'));
   const BUILD_TIMEOUT = 5 * 60 * 1000;
   const BOOLEAN_TIMEOUT = 30 * 1000;
@@ -476,10 +484,14 @@ export default function Forge3D() {
     () => (selectedAssemblyPart ? getAssemblyPartMetrics(selectedAssemblyPart) : null),
     [selectedAssemblyPart],
   );
-  const hasCurrentRenderableGeometry = Boolean(stlGeometry) && currentRenderMeta.sourceCode === previewCode;
+  const currentDesignDocument = { documentId: designDocumentIdRef.current, filePath: currentFilePath, sourceCode: previewCode };
+  latestDesignDocumentRef.current = currentDesignDocument;
+  const currentRenderContext = { geometry: stlGeometry, renderMeta: currentRenderMeta, document: currentDesignDocument, building };
+  const hasCurrentRenderableGeometry = isCurrentDesignRender(currentRenderContext);
   const hasCurrentFinalRender = hasCurrentRenderableGeometry && currentRenderMeta.profileId === 'final';
   const canEnterAssembly = Boolean(hasCurrentRenderableGeometry || assemblyScene.parts.length > 0);
-  const canRefreshCurrentRender = hasCurrentRenderableGeometry;
+  const refreshCurrentRenderBlockReason = getAssemblyRefreshBlockReason(selectedAssemblyPart, currentRenderContext);
+  const canRefreshCurrentRender = !refreshCurrentRenderBlockReason;
   const booleanBusy = assemblyBooleanState.running;
   const booleanOperandOptions = useMemo(
     () => assemblyScene.parts.filter((part) => part.id !== selectedAssemblyPart?.id),
@@ -612,13 +624,36 @@ export default function Forge3D() {
     setFitViewSignal((value) => value + 1);
   }, [queueAutoFitView]);
 
+  const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (buildTimeoutRef.current === timeoutHandle) {
+      buildTimeoutRef.current = null;
+    }
+  }, []);
+
   const resetAssemblyState = useCallback(({ keepMode = false } = {}) => {
+    // Every caller starts a different design document, including unsaved examples.
+    designDocumentIdRef.current = crypto.randomUUID();
+    buildIdRef.current += 1;
+    clearBuildTimeout();
+    const requestId = renderRequestIdRef.current;
+    renderRequestIdRef.current = null;
+    if (requestId) {
+      Promise.resolve().then(() => forgeAPI.cancelOpenScadRender(requestId)).catch(() => {});
+    }
+    latestRenderedGeometryRef.current = null;
+    updateCurrentRenderMeta({ profileId: null, sourceCode: null });
+    setStlGeometry(null);
+    setBuilding(false);
+    setBuildStatusDetail('');
     setAssemblyHistory(replaceHistoryState(DEFAULT_ASSEMBLY_SCENE));
     setAssemblyMeasurement(DEFAULT_ASSEMBLY_MEASUREMENT);
     setAssemblyScenePath(null);
     setBooleanOperandId(null);
     if (!keepMode) setMode('design');
-  }, []);
+  }, [clearBuildTimeout, forgeAPI, updateCurrentRenderMeta]);
 
   const replaceAssemblySceneWithoutHistory = useCallback((nextScene) => {
     setAssemblyHistory(replaceHistoryState(nextScene));
@@ -722,7 +757,8 @@ export default function Forge3D() {
 
   const addCurrentRenderToAssembly = useCallback(({ centerOnAdd = false, switchMode = true } = {}) => {
     const geometry = latestRenderedGeometryRef.current || stlGeometry;
-    if (!geometry || !hasCurrentRenderableGeometry) {
+    const renderMeta = latestRenderMetaRef.current;
+    if (!isCurrentDesignRender({ geometry, renderMeta, document: latestDesignDocumentRef.current, building: Boolean(renderRequestIdRef.current) })) {
       setStatusMessage('Build the current design before adding it to Assembly Mode');
       return null;
     }
@@ -730,22 +766,23 @@ export default function Forge3D() {
     const baseName = currentFileName.replace(/\.scad$/i, '') || 'Current Render';
     const nextPart = addAssemblyPart({
       name: baseName,
-      source: { kind: 'active-render', filePath: currentFilePath || null },
+      source: { kind: 'active-render', filePath: renderMeta.filePath || null, documentId: renderMeta.documentId },
       geometry: createAssemblyGeometryFromDesignGeometry(geometry),
       centerOnAdd,
       switchMode,
     });
     setStatusMessage(`Added ${nextPart.name} to Assembly Mode`);
     return nextPart;
-  }, [addAssemblyPart, currentFileName, currentFilePath, hasCurrentRenderableGeometry, stlGeometry]);
+  }, [addAssemblyPart, currentFileName, stlGeometry]);
 
   const updateAssemblyPart = useCallback((partId, updater) => {
     updateAssemblyScene((current) => {
       let changed = false;
       const nextParts = current.parts.map((part) => {
         if (part.id !== partId) return part;
-        changed = true;
-        return typeof updater === 'function' ? updater(part) : { ...part, ...updater };
+        const nextPart = typeof updater === 'function' ? updater(part) : { ...part, ...updater };
+        if (nextPart !== part) changed = true;
+        return nextPart;
       });
       return changed ? { ...current, parts: nextParts } : current;
     });
@@ -777,25 +814,23 @@ export default function Forge3D() {
   }, [updateAssemblyScene]);
 
   const refreshSelectedCurrentRenderPart = useCallback(() => {
-    if (!selectedAssemblyPart || selectedAssemblyPart.source?.kind !== 'active-render' || !stlGeometry) {
-      setStatusMessage('Build the current design before refreshing this Assembly part');
+    const context = {
+      geometry: stlGeometry,
+      renderMeta: currentRenderMeta,
+      document: { documentId: designDocumentIdRef.current, filePath: currentFilePath, sourceCode: previewCode },
+      building,
+    };
+    const part = latestAssemblySceneRef.current.parts.find((entry) => entry.id === selectedAssemblyPart?.id);
+    const reason = getAssemblyRefreshBlockReason(part, context);
+    if (reason) {
+      setStatusMessage(reason);
       return;
     }
 
-    updateAssemblyPart(selectedAssemblyPart.id, (part) => {
-      const refreshedGeometry = createAssemblyGeometryFromDesignGeometry(stlGeometry);
-      return {
-        ...part,
-        geometry: refreshedGeometry,
-        transform: createFloorAlignedTransform({
-          ...part,
-          geometry: refreshedGeometry,
-        }),
-      };
-    });
-    queueAssemblyFitView();
-    setStatusMessage(`Refreshed ${selectedAssemblyPart.name} from the current Design render`);
-  }, [queueAssemblyFitView, selectedAssemblyPart, stlGeometry, updateAssemblyPart]);
+    // Recheck inside the history update too, so a queued lock/removal cannot be bypassed.
+    updateAssemblyPart(part.id, (currentPart) => refreshAssemblyPartFromRender(currentPart, context));
+    setStatusMessage(`Refreshed ${part.name} from the current Design render; placement preserved`);
+  }, [building, currentFilePath, currentRenderMeta, previewCode, selectedAssemblyPart, stlGeometry, updateAssemblyPart]);
 
   const duplicateSelectedAssemblyPart = useCallback((partId) => {
     const sourcePart = assemblyScene.parts.find((part) => part.id === partId);
@@ -1094,14 +1129,7 @@ export default function Forge3D() {
     }
   }, [holePreview, holeTarget, holeDiameter, holePick, booleanBusy, runAssemblyBooleanOperation, updateAssemblyScene]);
 
-  const clearBuildTimeout = useCallback((timeoutHandle = buildTimeoutRef.current) => {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-    if (buildTimeoutRef.current === timeoutHandle) {
-      buildTimeoutRef.current = null;
-    }
-  }, []);
+
 
   useEffect(() => () => {
     terminateBooleanWorker();
@@ -1155,6 +1183,7 @@ export default function Forge3D() {
     const sourceCode = options.codeOverride ?? previewCode;
     const sourceName = options.sourceName || currentFileName || DEFAULT_FILE_NAME;
     const sourcePath = options.sourcePath ?? currentFilePath ?? null;
+    const documentId = designDocumentIdRef.current;
     const id = ++buildIdRef.current;
     const requestId = `render-${Date.now()}-${id}`;
     renderRequestIdRef.current = requestId;
@@ -1180,7 +1209,7 @@ export default function Forge3D() {
       latestRenderedGeometryRef.current = null;
       setBuilding(false);
       setBuildStatusDetail(`Timed out after ${formatBuildElapsed(BUILD_TIMEOUT)}`);
-      setCurrentRenderMeta({ profileId: null, sourceCode: null });
+      updateCurrentRenderMeta({ profileId: null, sourceCode: null });
       setResult({
         objects: [],
         logs: [...renderLogBufferRef.current],
@@ -1200,16 +1229,17 @@ export default function Forge3D() {
         defineOverrides: targetProfile.defineOverrides,
       });
       clearBuildTimeout(timeoutHandle);
-      if (buildIdRef.current !== id) return; // stale build
+      if (buildIdRef.current !== id || renderRequestIdRef.current !== requestId) return; // stale/cancelled/timed-out build
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
+      if (designDocumentIdRef.current !== documentId) return false; // document changed while rendering
       const elapsed = Math.round(performance.now() - buildStartRef.current);
       setBuildElapsedMs(elapsed);
 
       if (response.error) {
         latestRenderedGeometryRef.current = null;
         setStlGeometry(null);
-        setCurrentRenderMeta({ profileId: null, sourceCode: null });
+        updateCurrentRenderMeta({ profileId: null, sourceCode: null });
         const diagnostics = buildRenderDiagnostics(response, sourceCode);
         const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
         const lifecycleLogs = [
@@ -1226,11 +1256,11 @@ export default function Forge3D() {
         let triangleCount = 0;
         try {
           triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
-          setCurrentRenderMeta({ profileId: targetProfile.id, sourceCode });
+          updateCurrentRenderMeta({ profileId: targetProfile.id, sourceCode, filePath: sourcePath, documentId });
         } catch (loadError) {
           latestRenderedGeometryRef.current = null;
           setStlGeometry(null);
-          setCurrentRenderMeta({ profileId: null, sourceCode: null });
+          updateCurrentRenderMeta({ profileId: null, sourceCode: null });
           const diagnostics = createRenderStageError('STL ingest', loadError, response, sourceCode);
           const primaryIssue = diagnostics.errors[0] || diagnostics.warnings[0];
           setResult({
@@ -1268,12 +1298,13 @@ export default function Forge3D() {
       }
     } catch (err) {
       clearBuildTimeout(timeoutHandle);
-      if (buildIdRef.current !== id) return; // stale build
+      if (buildIdRef.current !== id || renderRequestIdRef.current !== requestId) return; // stale/cancelled/timed-out build
       if (renderRequestIdRef.current === requestId) renderRequestIdRef.current = null;
       setBuilding(false);
+      if (designDocumentIdRef.current !== documentId) return false;
       latestRenderedGeometryRef.current = null;
       setStlGeometry(null);
-      setCurrentRenderMeta({ profileId: null, sourceCode: null });
+      updateCurrentRenderMeta({ profileId: null, sourceCode: null });
       const failureResponse = {
         error: err.message || 'OpenSCAD render failed.',
         stdout: err.stdout || '',
@@ -1297,24 +1328,25 @@ export default function Forge3D() {
       setStatusMessage(primaryIssue ? `Render failed: ${primaryIssue.message}` : 'Render failed. See Problems for details.');
       return false;
     }
-  }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode, renderProfile]);
+  }, [BUILD_TIMEOUT, clearBuildTimeout, currentFileName, currentFilePath, forgeAPI, loadStlBytes, previewCode, renderProfile, updateCurrentRenderMeta]);
 
   const cancelBuild = useCallback(async () => {
     buildIdRef.current += 1;
     clearBuildTimeout();
     const requestId = renderRequestIdRef.current;
     renderRequestIdRef.current = null;
+    // Invalidate synchronously; a slow cancellation must not clear a newer render.
+    latestRenderedGeometryRef.current = null;
+    updateCurrentRenderMeta({ profileId: null, sourceCode: null });
+    setBuilding(false);
+    setBuildStatusDetail('Render cancelled');
+    setStatusMessage('Build cancelled');
     if (requestId) {
       try {
         await forgeAPI.cancelOpenScadRender(requestId);
       } catch (_) {}
     }
-    latestRenderedGeometryRef.current = null;
-    setCurrentRenderMeta({ profileId: null, sourceCode: null });
-    setBuilding(false);
-    setBuildStatusDetail('Render cancelled');
-    setStatusMessage('Build cancelled');
-  }, [clearBuildTimeout, forgeAPI]);
+  }, [clearBuildTimeout, forgeAPI, updateCurrentRenderMeta]);
 
   const startResize = useCallback((panel, event) => {
     resizingRef.current = panel;
@@ -2481,6 +2513,7 @@ export default function Forge3D() {
                 booleanOperandOptions={booleanOperandOptions}
                 building={building}
                 canRefreshCurrentRender={canRefreshCurrentRender}
+                refreshCurrentRenderBlockReason={refreshCurrentRenderBlockReason}
                 colors={colors}
                 measurement={assemblyMeasurement}
                 metrics={selectedAssemblyMetrics}
