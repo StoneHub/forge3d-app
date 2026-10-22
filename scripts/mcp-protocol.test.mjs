@@ -393,7 +393,9 @@ test('real child process IPC round trip and stdin EOF shutdown are clean', async
 test('launcher options are explicit and CLI help never contaminates stdout', () => {
   assert.deepEqual(parseLauncherArgs([]), { electronPath: undefined, help: false })
   assert.equal(parseLauncherArgs(['--help']).help, true)
-  assert.equal(parseLauncherArgs(['--electron', '/opt/electron']).electronPath, '/opt/electron')
+  // Use this platform's absolute executable path (POSIX paths acquire a drive
+  // prefix on Windows when the launcher intentionally normalizes them).
+  assert.equal(parseLauncherArgs(['--electron', process.execPath]).electronPath, process.execPath)
   assert.throws(() => parseLauncherArgs(['--no-sandbox']), /Unknown/)
   assert.throws(() => parseLauncherArgs(['--electron']), /incomplete/)
   const result = spawnSync(process.execPath, ['electron/mcp-server.mjs', '--help'], { cwd: APP_ROOT, encoding: 'utf8' })
