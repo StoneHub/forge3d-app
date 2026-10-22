@@ -13,6 +13,9 @@ on:
       - 'src/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'product.json'
+      - 'CHANGELOG.md'
+      - 'docs/MCP.md'
   workflow_dispatch:
     inputs:
       tag:
@@ -114,9 +117,32 @@ jobs:
           path: docs/screenshots/release/forge3d-showcase-${{ matrix.screenshot }}.png
           if-no-files-found: warn
 
+  companion:
+    name: Package MCP companion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build dependency-free MCP companion
+        run: |
+          node scripts/package-mcp-companion.mjs
+          version=$(node -p "require('./package.json').version")
+          cd release
+          zip -qr "forge3d-mcp-${version}.zip" "forge3d-mcp-${version}"
+      - name: Upload MCP companion
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge3d-mcp-companion
+          path: release/forge3d-mcp-*.zip
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
-    needs: package
+    needs: [package, companion]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
@@ -136,25 +162,7 @@ jobs:
 
       - name: Prepare release notes
         run: |
-          cat > release-notes.md <<'NOTES'
-          Forge3D v3.1.0 adds a practical assembly workflow to its native OpenSCAD editor.
-
-          Highlights:
-          - Measure between two model surfaces and keep a session log.
-          - Place non-destructive round through-holes while retaining source parts and cutters.
-          - Read automatic dimensions and picked distances with consistent, zoom-independent labels.
-          - Use a cleaner assembly inspector, compact viewport tools, and a fully collapsible bottom panel.
-          - Explore six editable Math Lab studies in knots, recursion, waves, polar curves, phyllotaxis, and ruled surfaces.
-          - Import SCAD with relative dependencies and export corrected STL coordinates.
-
-          Requirements:
-          - OpenSCAD must be installed locally for rendering.
-          - macOS DMGs are unsigned native Apple Silicon development previews. Gatekeeper may require manual approval or quarantine removal after download.
-          - OpenSCAD language-server support is limited to Windows development builds. Packaged Windows support and macOS/Linux binaries remain follow-up work.
-          - Print Mode and slicer workflows remain planned work, not release features.
-
-          This release includes installer artifacts. When screenshot capture succeeds, it also includes the current platform image generated from `docs/release-assets/forge3d-showcase.scad`.
-          NOTES
+          node scripts/release-notes.mjs "$RELEASE_TAG" > release-notes.md
 
       - name: Create or update release
         run: |
@@ -183,3 +191,5 @@ jobs:
           \) -print0)
 
           find release-assets -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          gh release upload "$RELEASE_TAG" release-assets/SHA256SUMS.txt --clobber

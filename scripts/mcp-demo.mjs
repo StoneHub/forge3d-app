@@ -13,8 +13,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputIndex = process.argv.indexOf('--output');
 const output = outputIndex >= 0 ? path.resolve(process.argv[outputIndex + 1]) : path.join(root, 'output', 'mcp-demo');
 const keepOpen = process.argv.includes('--keep-open');
+const appIndex = process.argv.indexOf('--app');
+const appArgs = appIndex >= 0 ? ['--app', process.argv[appIndex + 1]] : [];
+if (appIndex >= 0 && (!appArgs[1] || !path.isAbsolute(appArgs[1]))) throw new Error('--app requires an absolute packaged executable path');
+const launcherIndex = process.argv.indexOf('--launcher');
+const launcher = launcherIndex >= 0 ? process.argv[launcherIndex + 1] : path.join(root, 'electron/mcp-server.mjs');
+if (!launcher || !path.isAbsolute(launcher)) throw new Error('--launcher requires an absolute MCP launcher path');
 await fs.mkdir(output, { recursive: true });
-const child = spawn(process.execPath, [path.join(root, 'electron/mcp-server.mjs')], {
+const child = spawn(process.execPath, [launcher, ...appArgs], {
   cwd: root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'],
 });
 let sequence = 0, stderr = '', finished = false;

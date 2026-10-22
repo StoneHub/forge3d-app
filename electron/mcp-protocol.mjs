@@ -95,7 +95,7 @@ export function validateToolArguments(name, args = {}) {
   return name === 'forge3d_render' ? { profile: args.profile ?? 'final' } : structuredClone(args)
 }
 
-export function createMcpProtocol({ callTool, serverVersion = '3.1.0' }) {
+export function createMcpProtocol({ callTool, serverVersion = '3.2.0' }) {
   let state = 'new'
   let protocolVersion = null
   let pendingCalls = 0

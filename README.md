@@ -2,7 +2,7 @@
 
 A desktop OpenSCAD IDE built with Electron. Write parametric code, render it with the native OpenSCAD executable, and export STL for your slicer.
 
-![Version](https://img.shields.io/badge/version-3.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Version](https://img.shields.io/badge/version-3.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -41,7 +41,7 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-The [v3.1.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.1.0) has a Windows installer, a Linux AppImage, and an unsigned native Apple Silicon DMG.
+The [v3.2.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0) includes a Windows installer, a Linux AppImage, an unsigned native Apple Silicon DMG, and a separate MCP companion ZIP. The desktop app needs native OpenSCAD; the optional [MCP companion](docs/MCP.md) also needs Node.js 22+, but no source checkout or npm dependencies.
 
 > **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. Downloaded macOS DMGs are unsigned development previews, so Gatekeeper may report the app as damaged or require manual approval. For the cleanest macOS path, build from source.
 >
@@ -75,7 +75,7 @@ npm run capture:release-screenshot
 ## Features
 
 - **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
-- **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
+- **Live build** — Auto Render is on by default for new workspaces, re-rendering edits after a 400 ms debounce; saved off choices are preserved
 - **Automatic dimension brackets** — CAD-style measurement overlays showing width, depth, and height of rendered objects
 - **[Math Lab](docs/math-lab.md)** — six original, editable studies in knots, recursion, wave interference, polar curves, phyllotaxis, and ruled surfaces (current source)
 - **Smart templates** — categorized OpenSCAD templates with safe append, cursor, and replace workflows
@@ -86,7 +86,7 @@ npm run capture:release-screenshot
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
 - **Workspace helpers** — recent files, workspace browser, and parameter jump-to-source links
 - **STL export** — one-click export of the rendered geometry
-- **[Local MCP modeling tools](docs/MCP.md)** (current source) — an isolated stdio session for revision-checked source/parameter edits, native renders, model bounds, final STL export, and viewport PNG capture
+- **[Local MCP modeling tools](docs/MCP.md)** — an isolated stdio session for revision-checked source/parameter edits, native renders, model bounds, final STL export, and viewport PNG capture
 - **Dark / light theme**
 
 ---

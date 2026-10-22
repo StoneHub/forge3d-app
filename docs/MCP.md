@@ -16,15 +16,47 @@ The server opens no HTTP/TCP listener, creates no API keys, and edits no global 
 
 ## Prerequisites and launch
 
-This first implementation supports a **source checkout** with:
+The launcher supports both a **packaged Forge3D app** and a **source checkout**. Both require Node.js 22 or later, native OpenSCAD installed and discoverable by Forge3D for rendering, and a working graphical desktop. The MCP session is a real Electron window, not a headless mesh service.
 
-- Node.js 22 or later and npm 10 or later.
-- Project dependencies installed, including Electron.
-- A built renderer in `dist/`.
-- Native OpenSCAD installed and discoverable by Forge3D for rendering.
-- A working graphical desktop. The MCP session is a real Electron window, not a headless mesh service.
+The launcher waits for MCP JSON on stdin. No terminal prompt or startup text is written to stdout. Electron and OpenSCAD diagnostics go to stderr. It never invokes a shell or automatically adds `--no-sandbox`; run under a normal desktop user with the normal Electron sandbox enabled.
 
-From the repository root:
+### Installed app with the MCP companion ZIP
+
+1. Install the Forge3D app for your platform and obtain the MCP companion ZIP from the **same release**. Older apps that predate MCP support cannot serve these tools.
+2. Extract the companion ZIP to a stable location. Keep its directory layout intact: `package.json` at the root, plus `electron/mcp-server.mjs` and `electron/mcp-protocol.mjs` together in `electron/`. The package metadata supplies the server version.
+3. Point `--app` at the **absolute path of the installed native executable**, not a shortcut or a macOS `.app` directory.
+
+Packaged mode needs no source checkout, npm install, Electron npm dependency, or local `dist/` build. It runs the selected app executable directly with no checkout argument, while preserving the same private IPC channel, isolated profile, visible session, and shutdown protections.
+
+Example executable paths (replace them with the actual installation on your machine):
+
+- macOS: `/Applications/Forge3D.app/Contents/MacOS/Forge3D`.
+- Windows: `C:\Users\YOU\AppData\Local\Programs\Forge3D\Forge3D.exe`.
+- Linux: `/opt/Forge3D/forge3d`, the native executable from an installed or extracted app bundle, not a `.desktop` launcher. Available release packages and desktop runtime dependencies vary by platform.
+
+For example, on macOS:
+
+```sh
+node /absolute/path/to/forge3d-mcp/electron/mcp-server.mjs --app "/Applications/Forge3D.app/Contents/MacOS/Forge3D"
+```
+
+On Windows PowerShell:
+
+```powershell
+node "C:\Tools\forge3d-mcp\electron\mcp-server.mjs" --app "C:\Users\YOU\AppData\Local\Programs\Forge3D\Forge3D.exe"
+```
+
+On Linux:
+
+```sh
+node /absolute/path/to/forge3d-mcp/electron/mcp-server.mjs --app /opt/Forge3D/forge3d
+```
+
+**Unsigned development preview:** release builds may be unsigned or unnotarized, particularly on macOS. Use only the verified project release, read its platform caveats, and open/approve the app yourself through the OS's normal security UI before connecting a client. The launcher does not remove quarantine, bypass security warnings, change security settings, or make an unsupported platform work automatically. Native rendering still requires OpenSCAD.
+
+### Source checkout
+
+Source mode additionally needs npm 10 or later, project dependencies including Electron, and a built renderer in `dist/`. From the repository root:
 
 ```sh
 npm install
@@ -32,34 +64,38 @@ npm run build
 node electron/mcp-server.mjs
 ```
 
-The launcher waits for MCP JSON on stdin. No terminal prompt or startup text is written to stdout. Electron and OpenSCAD diagnostics go to stderr.
-
 The convenient npm equivalent is `npm run --silent mcp`. When configuring a client, prefer invoking `node` directly: plain `npm run mcp` may add npm banners to stdout and break stdio framing.
 
-An optional executable override is available:
+An optional Electron executable override selects the runtime used to open this checkout:
 
 ```sh
 node electron/mcp-server.mjs --electron /absolute/path/to/electron
 ```
 
-This selects an Electron executable to run this checkout, not an arbitrary packaged Forge3D executable. The launcher never invokes a shell or automatically adds `--no-sandbox`. Run under a normal desktop user with the normal Electron sandbox enabled. Packaged-app registration and attaching to existing desktop sessions are not included in this version.
+`--electron` is source mode; `--app` is packaged mode. They are mutually exclusive. Neither mode attaches to an existing Forge3D session. There is no need to start Vite or run `npm run dev`: source mode loads the checkout's built `dist/` renderer, while packaged mode uses the installed app's bundled renderer. Rebuild source changes or update the installed app as appropriate, then reconnect.
 
 ## Connect an MCP client
 
-Add an entry using your client's documented MCP configuration format. For clients using an `mcpServers` object, the entry is:
+Add an entry using your client's documented MCP configuration format. For clients using an `mcpServers` object, a packaged-app entry is:
 
 ```json
 {
   "mcpServers": {
     "forge3d": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/forge3d/electron/mcp-server.mjs"]
+      "args": [
+        "/absolute/path/to/forge3d-mcp/electron/mcp-server.mjs",
+        "--app",
+        "/absolute/path/to/installed/Forge3D-executable"
+      ]
     }
   }
 }
 ```
 
-Use absolute paths appropriate to your machine; Windows JSON paths require doubled backslashes. There is no need to start Vite or run `npm run dev`: the MCP session loads the built `dist/` renderer. Rebuild after renderer changes, then reconnect the client. This documentation does not install or modify any client configuration automatically.
+Use the platform-specific executable path described above. Keep paths with spaces as single array elements; do not add shell quoting inside JSON strings. Windows JSON paths require doubled backslashes.
+
+For a source checkout, omit the `--app` argument and executable path, leaving only the absolute path to that checkout's `electron/mcp-server.mjs` in `args`. This documentation does not install or modify client configuration automatically.
 
 ## Available tools
 
@@ -119,9 +155,9 @@ A correct tool sequence is:
 
 The initial revision is session-specific; do not assume it is zero or hard-code parameter IDs in a reusable client.
 
-## Reproducible desktop smoke test
+## Reproducible source-checkout desktop smoke test
 
-With a built renderer, a graphical desktop, and native OpenSCAD available, run:
+With a source checkout, a built renderer, a graphical desktop, and native OpenSCAD available, run:
 
 ```sh
 node scripts/mcp-demo.mjs --output /absolute/path/to/a/new-demo-directory
@@ -155,8 +191,9 @@ The framing and lifecycle follow the official [transport](https://modelcontextpr
 
 ## Troubleshooting and verification
 
-- **Renderer build not found:** run `npm run build` in this checkout, then reconnect.
-- **Electron does not become ready:** inspect the client's captured stderr. Confirm graphical desktop access, dependencies, sandbox support, and a current renderer build. Do not work around this by disabling the sandbox.
+- **Renderer build not found:** in source mode, run `npm run build` in the checkout and reconnect. For an installed app, use `--app` with its absolute executable path; do not build or install dependencies into the companion directory.
+- **Electron does not become ready:** inspect the client's captured stderr. Confirm graphical desktop access and sandbox support. In source mode, check dependencies and the renderer build. In packaged mode, use the matching app/companion release, verify the native executable path, and open the app yourself first if OS approval is needed. Do not work around this by disabling the sandbox.
+- **Packaged executable not found or is a directory:** use the actual binary, including `Contents/MacOS/Forge3D` inside a macOS app bundle; never pass the `.app` directory, a Windows shortcut, or a Linux `.desktop` file. `--app` requires an absolute path.
 - **OpenSCAD missing or render failure:** inspect the tool's diagnostics and configure/install the native OpenSCAD executable using the normal Forge3D workflow. Startup alone does not prove a native renderer is available.
 - **Model changed:** read `forge3d_get_model` and use its current revision. Keep the human's newer edits.
 - **No current final render:** render at `"final"` after the last edit, then export.
@@ -173,4 +210,4 @@ npm run test:node
 npm run build
 ```
 
-The focused tests cover framing, lifecycle/version negotiation, schemas, revision argument checks, error envelopes, IPC correlation, timeouts, shutdown, and a real Node child-process IPC round trip. That process fixture is **not** an Electron/OpenSCAD end-to-end test. Before claiming native modeling works on a platform, run the demonstration in a real graphical Electron session with native OpenSCAD and inspect the captured image and exported mesh.
+The focused tests cover framing, lifecycle/version negotiation, schemas, revision argument checks, error envelopes, IPC correlation, timeouts, shutdown, a real Node child-process IPC round trip, and a dependency-free companion-layout packaged-mode fixture. That process fixture is **not** an Electron/OpenSCAD end-to-end test. Before claiming native modeling works on a platform, run the demonstration in a real graphical Electron session with native OpenSCAD and inspect the captured image and exported mesh.

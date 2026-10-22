@@ -75,7 +75,7 @@ export function createElectronBridge(child, {
       fail(new Error(`Forge3D IPC send failed: ${error.message}`))
     }
   }
-  const startupTimer = setTimeout(() => fail(new Error(`Forge3D did not become ready within ${startupTimeoutMs} ms. Build the renderer and check Electron's stderr output.`)), startupTimeoutMs)
+  const startupTimer = setTimeout(() => fail(new Error(`Forge3D did not become ready within ${startupTimeoutMs} ms. Check the application and Electron's stderr output.`)), startupTimeoutMs)
 
   child.on('message', (message) => {
     if (closed || !message || typeof message !== 'object') return
@@ -132,16 +132,23 @@ export function launchMcpServer({
   input = process.stdin,
   output = process.stdout,
   diagnostics = process.stderr,
-  electronPath = require('electron'),
+  electronPath,
+  appPath,
   appRoot = APP_ROOT,
   env = process.env,
   spawnProcess = spawn,
   bridgeOptions = {},
 } = {}) {
+  if (appPath !== undefined && electronPath !== undefined) throw new Error('--app and --electron are mutually exclusive')
+  if (appPath !== undefined && (typeof appPath !== 'string' || !path.isAbsolute(appPath) || appPath.includes('\0'))) throw new Error('--app requires an absolute path to the packaged Forge3D executable')
+  // The companion ZIP has no npm dependencies. Resolve Electron only when
+  // launching a source checkout, never when an installed app was selected.
+  const executable = appPath ?? electronPath ?? require('electron')
+  const args = appPath === undefined ? [appRoot] : []
   const serverVersion = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version
   const childEnv = { ...env, FORGE3D_MCP_CHILD: '1', FORGE3D_SKIP_START_PREVIEWS: '1' }
   delete childEnv.ELECTRON_RUN_AS_NODE
-  const child = spawnProcess(electronPath, [appRoot], {
+  const child = spawnProcess(executable, args, {
     cwd: appRoot, env: childEnv, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], shell: false,
   })
   // Electron and native tools are chatty. Stdout belongs exclusively to MCP.
@@ -166,23 +173,36 @@ export function launchMcpServer({
 
 export function parseLauncherArgs(argv) {
   let electronPath
+  let appPath
   let help = false
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--help' || argv[i] === '-h') help = true
-    else if (argv[i] === '--electron' && argv[i + 1] && !argv[i + 1].startsWith('--')) electronPath = path.resolve(argv[++i])
-    else throw new Error(`Unknown or incomplete option: ${argv[i]}`)
+    const option = argv[i]
+    if (option === '--help' || option === '-h') help = true
+    else if ((option === '--electron' || option === '--app') && argv[i + 1] && !argv[i + 1].startsWith('--')) {
+      if (electronPath !== undefined || appPath !== undefined) throw new Error('Specify only one --app or --electron option; they are mutually exclusive')
+      const executable = argv[++i]
+      if (executable.includes('\0')) throw new Error(`${option} requires a valid executable path`)
+      if (option === '--app') {
+        if (!path.isAbsolute(executable)) throw new Error('--app requires an absolute path to the packaged Forge3D executable')
+        appPath = executable
+      } else electronPath = path.resolve(executable)
+    } else throw new Error(`Unknown or incomplete option: ${option}`)
   }
-  return { electronPath, help }
+  return { electronPath, appPath, help }
 }
 
 async function main() {
-  const { help, electronPath } = parseLauncherArgs(process.argv.slice(2))
+  const { help, electronPath, appPath } = parseLauncherArgs(process.argv.slice(2))
   if (help) {
-    process.stderr.write('Forge3D MCP stdio server\nUsage: node electron/mcp-server.mjs [--electron /path/to/electron]\nRun npm run build first. Starts a new isolated visible Forge3D session.\n')
+    process.stderr.write('Forge3D MCP stdio server\nUsage: node electron/mcp-server.mjs [--electron /path/to/electron | --app /absolute/path/to/Forge3D]\nSource mode: install dependencies and run npm run build first.\nPackaged mode (--app): Node.js and the matching installed Forge3D app; no npm install or dist build required.\nStarts a new isolated visible Forge3D session.\n')
     return
   }
-  if (!fs.existsSync(path.join(APP_ROOT, 'dist', 'index.html'))) throw new Error('Renderer build not found. Run npm run build before starting Forge3D MCP.')
-  const server = launchMcpServer({ electronPath })
+  if (appPath !== undefined) {
+    let executable
+    try { executable = fs.statSync(appPath) } catch { throw new Error(`Packaged Forge3D executable not found: ${appPath}`) }
+    if (!executable.isFile()) throw new Error('--app must point to the executable file, not a directory or .app bundle. On macOS use Forge3D.app/Contents/MacOS/Forge3D.')
+  } else if (!fs.existsSync(path.join(APP_ROOT, 'dist', 'index.html'))) throw new Error('Renderer build not found. Run npm run build before starting Forge3D MCP, or use --app with an installed Forge3D executable.')
+  const server = launchMcpServer({ electronPath, appPath })
   const stop = () => server.close()
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)

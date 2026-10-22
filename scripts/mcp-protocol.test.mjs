@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { spawn, spawnSync } from 'node:child_process'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
 import {
@@ -21,7 +25,7 @@ async function readyProtocol(callTool = async () => textResult(), version) {
   return protocol
 }
 async function until(predicate, label = 'condition') {
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 500; i++) {
     if (predicate()) return
     await delay(5)
   }
@@ -391,15 +395,140 @@ test('real child process IPC round trip and stdin EOF shutdown are clean', async
 })
 
 test('launcher options are explicit and CLI help never contaminates stdout', () => {
-  assert.deepEqual(parseLauncherArgs([]), { electronPath: undefined, help: false })
+  assert.deepEqual(parseLauncherArgs([]), { electronPath: undefined, appPath: undefined, help: false })
   assert.equal(parseLauncherArgs(['--help']).help, true)
   // Use this platform's absolute executable path (POSIX paths acquire a drive
   // prefix on Windows when the launcher intentionally normalizes them).
   assert.equal(parseLauncherArgs(['--electron', process.execPath]).electronPath, process.execPath)
+  assert.equal(parseLauncherArgs(['--electron', 'relative-electron']).electronPath, path.resolve('relative-electron'))
+  assert.equal(parseLauncherArgs(['--app', process.execPath]).appPath, process.execPath)
+  assert.throws(() => parseLauncherArgs(['--app', 'relative-app']), /absolute path/)
+  assert.throws(() => parseLauncherArgs(['--app', process.execPath, '--electron', process.execPath]), /mutually exclusive/)
+  assert.throws(() => parseLauncherArgs(['--electron', process.execPath, '--app', process.execPath]), /mutually exclusive/)
+  assert.throws(() => parseLauncherArgs(['--app', process.execPath, '--app', process.execPath]), /only one/)
+  assert.throws(() => parseLauncherArgs(['--app']), /incomplete/)
+  assert.throws(() => parseLauncherArgs(['--app', `${process.execPath}\0`]), /valid executable path/)
   assert.throws(() => parseLauncherArgs(['--no-sandbox']), /Unknown/)
   assert.throws(() => parseLauncherArgs(['--electron']), /incomplete/)
   const result = spawnSync(process.execPath, ['electron/mcp-server.mjs', '--help'], { cwd: APP_ROOT, encoding: 'utf8' })
   assert.equal(result.status, 0)
   assert.equal(result.stdout, '')
   assert.match(result.stderr, /new isolated visible Forge3D session/)
+  assert.match(result.stderr, /--app/)
+})
+
+test('packaged launcher spawns only the selected executable while preserving IPC and isolation', async (t) => {
+  const child = new MockChild()
+  const input = new PassThrough()
+  const output = new PassThrough()
+  const diagnostics = new PassThrough()
+  capture(output)
+  capture(diagnostics)
+  const appPath = path.join(os.tmpdir(), 'Forge3D release with spaces', process.platform === 'win32' ? 'Forge3D.exe' : 'Forge3D')
+  let launch
+  const server = launchMcpServer({
+    input, output, diagnostics, appPath,
+    env: { ELECTRON_RUN_AS_NODE: '1', CHECK: 'preserved' },
+    spawnProcess: (...args) => { launch = args; return child },
+  })
+  t.after(async () => { server.close(); await server.finished })
+  assert.equal(launch[0], appPath)
+  assert.deepEqual(launch[1], [])
+  assert.equal(launch[2].shell, false)
+  assert.equal(launch[2].cwd, APP_ROOT)
+  assert.deepEqual(launch[2].stdio, ['ignore', 'pipe', 'pipe', 'ipc'])
+  assert.equal(launch[2].env.FORGE3D_MCP_CHILD, '1')
+  assert.equal(launch[2].env.FORGE3D_SKIP_START_PREVIEWS, '1')
+  assert.equal(launch[2].env.ELECTRON_RUN_AS_NODE, undefined)
+  assert.equal(launch[2].env.CHECK, 'preserved')
+  server.close()
+  await server.finished
+  assert.equal(child.sent.at(-1).type, 'forge3d:mcp:shutdown')
+})
+
+test('programmatic launcher rejects ambiguous or relative packaged targets before spawning', () => {
+  let spawned = false
+  const spawnProcess = () => { spawned = true; throw new Error('Should not spawn') }
+  assert.throws(() => launchMcpServer({ appPath: process.execPath, electronPath: process.execPath, spawnProcess }), /mutually exclusive/)
+  for (const appPath of ['', 'relative-app', null, 5, `${process.execPath}\0`]) {
+    assert.throws(() => launchMcpServer({ appPath, spawnProcess }), /absolute path/)
+  }
+  assert.equal(spawned, false)
+})
+
+test('packaged CLI validates a native executable file without falling back to source mode', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'forge3d-mcp-app-path-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  for (const [target, diagnostic] of [[directory, /executable file, not a directory/], [path.join(directory, 'missing-app'), /executable not found/]]) {
+    const result = spawnSync(process.execPath, ['electron/mcp-server.mjs', '--app', target], { cwd: APP_ROOT, encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assert.match(result.stderr, diagnostic)
+    assert.doesNotMatch(result.stderr, /Cannot find module 'electron'/)
+  }
+})
+
+test('standalone companion layout runs packaged IPC without Electron dependency or dist renderer', async (t) => {
+  const companion = await fs.mkdtemp(path.join(os.tmpdir(), 'forge3d-mcp-companion-'))
+  t.after(() => fs.rm(companion, { recursive: true, force: true }))
+  await fs.mkdir(path.join(companion, 'electron'))
+  for (const name of ['mcp-server.mjs', 'mcp-protocol.mjs']) {
+    await fs.copyFile(path.join(APP_ROOT, 'electron', name), path.join(companion, 'electron', name))
+  }
+  await fs.writeFile(path.join(companion, 'package.json'), JSON.stringify({ name: 'forge3d-mcp-companion', version: '9.8.7' }))
+  await assert.rejects(fs.access(path.join(companion, 'node_modules')), { code: 'ENOENT' })
+  await assert.rejects(fs.access(path.join(companion, 'dist')), { code: 'ENOENT' })
+
+  // A Node executable is a portable stand-in for the installed Electron app.
+  // NODE_OPTIONS preloads this only in the child; unlike a shebang script, the
+  // fixture works on Windows too and requires no shell or executable chmod.
+  const preload = path.join(companion, 'fake-packaged-app.mjs')
+  await fs.writeFile(preload, `
+    if (process.env.FORGE3D_MCP_CHILD === '1') {
+      console.log('packaged app stdout diagnostic');
+      process.on('message', message => {
+        if (message.type === 'forge3d:mcp:shutdown') { process.disconnect(); process.exit(0); }
+        if (message.type === 'forge3d:mcp:request') process.send({
+          type: 'forge3d:mcp:response', id: message.id,
+          result: {content: [{type: 'text', text: JSON.stringify({argv: process.argv, name: message.name})}]}
+        });
+      });
+      process.send({type: 'forge3d:mcp:ready'});
+    }
+  `)
+  const env = { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` }
+  delete env.FORGE3D_MCP_CHILD
+  delete env.NODE_PATH
+  const script = path.join(companion, 'electron', 'mcp-server.mjs')
+  const child = spawn(process.execPath, [script, '--app', process.execPath], { cwd: companion, env, stdio: ['pipe', 'pipe', 'pipe'] })
+  const stdout = capture(child.stdout)
+  const stderr = capture(child.stderr)
+  const exited = new Promise((resolve, reject) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }))
+    child.once('error', reject)
+  })
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return
+    child.stdin.end()
+    const fallback = setTimeout(() => child.kill(), 2000)
+    try { await exited } finally { clearTimeout(fallback) }
+  })
+  child.stdin.write(`${JSON.stringify(init())}\n${JSON.stringify(initialized)}\n${JSON.stringify(request('packaged', 'tools/call', { name: 'forge3d_get_model' }))}\n`)
+  await until(() => stdout().trim().split('\n').length === 2, 'standalone packaged tool result')
+  const responses = stdout().trim().split('\n').map(JSON.parse)
+  assert.equal(responses[0].result.serverInfo.version, '9.8.7')
+  assert.equal(responses[1].id, 'packaged')
+  const result = JSON.parse(responses[1].result.content[0].text)
+  assert.equal(result.name, 'forge3d_get_model')
+  assert.deepEqual(result.argv, [process.execPath], 'Packaged executable must receive no checkout argument')
+  assert.match(stderr(), /packaged app stdout diagnostic/)
+  assert.doesNotMatch(stdout(), /packaged app stdout diagnostic/)
+  child.stdin.end()
+  assert.deepEqual(await exited, { code: 0, signal: null })
+
+  const sourceMode = spawnSync(process.execPath, [script], { cwd: companion, encoding: 'utf8' })
+  assert.equal(sourceMode.status, 1)
+  assert.match(sourceMode.stderr, /Renderer build not found/)
+  assert.match(sourceMode.stderr, /--app/)
+  assert.equal(sourceMode.stdout, '')
 })

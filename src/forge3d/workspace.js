@@ -86,7 +86,7 @@ export function getDefaultWorkspace() {
     code: '',
     lastSavedCode: '',
     viewSettings: { grid: true, axes: true, wireframe: true, dimensions: true, appearance: { ...DEFAULT_RENDER_APPEARANCE } },
-    autoRun: false,
+    autoRun: true,
     renderProfile: 'quick',
     currentFileName: DEFAULT_FILE_NAME,
     currentFilePath: null,
@@ -116,7 +116,7 @@ export function loadWorkspace() {
     return {
       ...getDefaultWorkspace(),
       ...parsed,
-      autoRun: false,
+      autoRun: typeof parsed.autoRun === 'boolean' ? parsed.autoRun : true,
       renderProfile: parsed.renderProfile === 'final' ? 'final' : 'quick',
       lastSavedCode: parsed.lastSavedCode ?? parsed.code ?? '',
       viewSettings: {

@@ -2,7 +2,7 @@
 
 _Last updated: 2026-04-09_
 
-**Current-source update (2026-10-22):** [Local MCP modeling](MCP.md) is implemented as a transient, isolated stdio session with six tools: model/source inspection, revision-checked code and parameter edits, native renders, current-final STL export, and viewport PNG capture. It is not part of the existing v3.1.0 release assets. Existing-window attachment, assembly control, and code-to-geometry mapping remain future work. The older status inventory below has not been fully refreshed.
+**v3.2.0 update (2026-10-22):** [Local MCP modeling](MCP.md) is implemented as a transient, isolated stdio session with six tools: model/source inspection, revision-checked code and parameter edits, native renders, current-final STL export, and viewport PNG capture. A separate MCP companion can launch an installed desktop executable; source-checkout mode remains available. New ordinary workspaces default Auto Render to on, while saved off choices and MCP explicit renders are preserved. Existing-window attachment, assembly control, and code-to-geometry mapping remain future work. The older status inventory below has not been fully refreshed.
 
 ## ✅ Completed Features
 

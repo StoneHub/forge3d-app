@@ -11,6 +11,6 @@ if (process.argv.includes('--describe-mode')) {
   const mode = describeMacReleaseMode(process.env);
   console.log(`macOS release mode: ${mode.mode}`);
   if (!mode.publishableForGeneralMacUsers) {
-    console.log('This macOS artifact is an unsigned development preview. Gatekeeper may require manual approval or quarantine removal after download.');
+    console.log('This macOS artifact is an unsigned development preview. macOS may block launch; use the normal approval flow and do not disable system protections.');
   }
 }

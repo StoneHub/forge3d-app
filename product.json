@@ -1,20 +1,20 @@
 {
   "slug": "forge3d",
   "name": "Forge3D",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "kind": "desktop-app",
   "summary": "Desktop OpenSCAD modeling IDE with preview packages for Windows, macOS, and Linux.",
-  "status": "preview; v3.1.0 prerelease packages published",
+  "status": "v3.2.0 prerelease",
   "repo": "https://github.com/StoneHub/forge3d-app",
   "liveUrl": "",
-  "releaseUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.1.0",
-  "downloadUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.1.0",
+  "releaseUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0",
+  "downloadUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0",
   "supportUrl": "https://github.com/StoneHub/forge3d-app/issues",
   "license": "MIT",
   "platforms": ["Windows", "macOS", "Linux"],
   "requirements": [
     "OpenSCAD installed locally",
-    "The macOS v3.1.0 DMG is an unsigned development preview",
+    "The macOS v3.2.0 DMG is an unsigned development preview",
     "Node.js 22+ and npm 10+ for source builds",
     "OpenSCAD language-server support is limited to Windows development builds"
   ],
@@ -24,7 +24,7 @@
     "Parameter controls from OpenSCAD variables and // @param annotations",
     "File open/save, STL export, recent files, and workspace browser",
     "Surface measurement and non-destructive through-hole assembly tools",
-    "Published v3.1.0 preview packages for Windows, macOS, and Linux"
+    "Local MCP modeling, native renders, final STL export, and viewport capture"
   ],
   "screenshots": [
     {
