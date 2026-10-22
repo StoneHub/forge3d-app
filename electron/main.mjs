@@ -9,12 +9,25 @@ import { fileURLToPath, pathToFileURL } from 'url'
 import { spawn, spawnSync } from 'child_process'
 import { resolveOpenScadLaunch } from './openscad-bin.mjs'
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
+import { installMcpBridge } from './mcp-bridge.mjs'
+import { getAppIconPath, setDevelopmentDockIcon } from './app-icons.mjs'
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
-if (isDev) await import('@dev-feedback/electron/register')
+const isMcpSession = process.env.FORGE3D_MCP_CHILD === '1' && typeof process.send === 'function'
+const mcpSessionRoot = isMcpSession ? fsSync.mkdtempSync(path.join(os.tmpdir(), 'forge3d-mcp-')) : null
+if (isMcpSession) app.setPath('userData', path.join(mcpSessionRoot, 'profile'))
+if (isDev && !isMcpSession) await import('@dev-feedback/electron/register')
+let mcpNativeRender = null
+const mcpBridge = isMcpSession ? installMcpBridge({
+  ipcMain,
+  getWindow: () => mainWin,
+  sessionRoot: mcpSessionRoot,
+  getNativeRender: () => mcpNativeRender,
+  shutdown: () => app.quit(),
+}) : null
 
 // ── OpenSCAD native binary ──────────────────────────────────────────────────
 const OPENSCAD_RENDER_TIMEOUT_MS = 5 * 60 * 1000
@@ -61,7 +74,7 @@ function shouldForceStartupPreviewGeneration() {
 }
 
 async function maybeGenerateStartPreviewsOnStartup() {
-  if (!isDev) return
+  if (!isDev || isMcpSession) return
   if (shouldSkipStartupPreviewGeneration()) {
     console.log('[StartPreviews] Skipping startup preview generation')
     return
@@ -270,12 +283,7 @@ let activeFileWatchTimer = null
 let activeOpenScadRender = null
 
 function getWindowIconPath() {
-  const iconName = process.platform === 'linux' ? 'icon.png' : 'icon.ico'
-  const iconPath = isDev
-    ? path.join(__dirname, '..', 'public', iconName)
-    : path.join(__dirname, '..', 'dist', iconName)
-
-  return fsSync.existsSync(iconPath) ? iconPath : undefined
+  return getAppIconPath({ appRoot: path.join(__dirname, '..'), isPackaged: app.isPackaged })
 }
 
 function stopWatchingFile() {
@@ -428,11 +436,16 @@ function createWindow() {
   })
 
   mainWin = win
+  mcpBridge?.watchWindow(win)
+  if (isMcpSession) {
+    win.setTitle('Forge3D · isolated MCP session')
+    win.on('page-title-updated', (event) => event.preventDefault())
+  }
   buildAppMenu()
   win.setMenuBarVisibility(false)
   setWindowZoomFactor(win, initialZoom, { persist: false, notify: false })
 
-  const useDevServer = isDev && !isReleaseScreenshotMode()
+  const useDevServer = isDev && !isReleaseScreenshotMode() && !isMcpSession
   const packagedEntryPath = path.join(__dirname, '..', 'dist', 'index.html')
   const rendererEntryUrl = useDevServer
     ? 'http://localhost:5173'
@@ -926,6 +939,7 @@ ipcMain.handle('viewport:saveCapture', async (_event, payload = {}) => {
 })
 
 ipcMain.handle('app:getLaunchContext', () => ({
+  mcp: { enabled: isMcpSession },
   releaseScreenshot: {
     enabled: isReleaseScreenshotMode(),
     scadPath: process.env.FORGE3D_RELEASE_SCREENSHOT_SCAD || null,
@@ -1117,6 +1131,7 @@ ipcMain.handle('workspace:listFiles', async () => {
 
 // ── Native OpenSCAD render ────────────────────────────────────────────────────
 ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath, requestId, defineOverrides } = {}) => {
+  if (isMcpSession) mcpNativeRender = null
   try {
     const renderResult = await renderScadCode(code, {
       sourceName,
@@ -1125,6 +1140,7 @@ ipcMain.handle('openscad:render', async (_event, { code, sourceName, sourcePath,
       webContents: _event.sender,
       defineOverrides: Array.isArray(defineOverrides) ? defineOverrides.filter(Boolean) : [],
     })
+    if (isMcpSession) mcpNativeRender = { requestId, stlBuffer: renderResult.stlBuffer }
     // Return as a plain array so it survives IPC serialization
     return {
       stl: Array.from(renderResult.stlBuffer),
@@ -1432,6 +1448,7 @@ ipcMain.handle('terminal:kill', () => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  setDevelopmentDockIcon({ app, appRoot: path.join(__dirname, '..') })
   await maybeGenerateStartPreviewsOnStartup()
   createWindow()
 })
@@ -1440,7 +1457,14 @@ app.on('window-all-closed', () => {
   stopWatchingFile()
   if (lspProcess) { lspProcess.kill(); lspProcess = null }
   if (ptyProcess) { ptyProcess.kill(); ptyProcess = null }
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform !== 'darwin' || isMcpSession) app.quit()
+})
+
+app.on('before-quit', () => {
+  if (isMcpSession && activeOpenScadRender) {
+    activeOpenScadRender.cancelled = true
+    activeOpenScadRender.child.kill()
+  }
 })
 
 app.on('activate', () => {

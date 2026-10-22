@@ -319,7 +319,8 @@ Make the editor and viewport feel connected, similar to how the Params panel alr
 5. **Module-level visibility toggles**
    - Eye icons to hide/show subassemblies or code blocks without editing source
 6. **Agent API / MCP layer**
-   - Expose viewport screenshots, orbit presets, model stats, scene/build tree, and source links to coding agents
+   - **Initial local slice implemented:** [stdio MCP](MCP.md) exposes active Design source, revision-checked source/parameter edits, native quick/final render, model statistics/bounds, non-overwriting final STL export, and viewport PNG capture in an isolated session
+   - Remaining: attach to an existing authorized workspace, assembly/build-tree inspection, orbit presets, and source-region mapping
    - Allow agents to inspect code, geometry, and render state together instead of guessing from text alone
 
 **Practical note:** because Forge3D renders through native OpenSCAD, the most realistic first version is a lightweight scene/build tree plus editor jump/highlight links, not perfect AST-level mapping for every triangle.

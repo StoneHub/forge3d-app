@@ -1,7 +1,8 @@
 export function describeMacReleaseMode() {
   return {
-    mode: 'unsigned-dev-preview',
-    signed: false,
+    mode: 'ad-hoc-dev-preview',
+    signed: true,
+    developerIdSigned: false,
     notarized: false,
     publishableForGeneralMacUsers: false,
   };
@@ -11,6 +12,6 @@ if (process.argv.includes('--describe-mode')) {
   const mode = describeMacReleaseMode(process.env);
   console.log(`macOS release mode: ${mode.mode}`);
   if (!mode.publishableForGeneralMacUsers) {
-    console.log('This macOS artifact is an unsigned development preview. Gatekeeper may require manual approval or quarantine removal after download.');
+    console.log('This macOS preview has an ad-hoc integrity signature, without an Apple-trusted Developer ID or notarization. Downloaded copies may require macOS user approval or remain blocked.');
   }
 }

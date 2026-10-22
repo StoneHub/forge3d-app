@@ -2,6 +2,8 @@
 
 _Last updated: 2026-04-09_
 
+**v3.2.0 update (2026-10-22):** [Local MCP modeling](MCP.md) is implemented as a transient, isolated stdio session with six tools: model/source inspection, revision-checked code and parameter edits, native renders, current-final STL export, and viewport PNG capture. A separate MCP companion can launch an installed desktop executable; source-checkout mode remains available. New ordinary workspaces default Auto Render to on, while saved off choices and MCP explicit renders are preserved. Existing-window attachment, assembly control, and code-to-geometry mapping remain future work. The older status inventory below has not been fully refreshed.
+
 ## ✅ Completed Features
 
 ### Core Functionality
@@ -66,7 +68,7 @@ See [next-features.md](next-features.md) for detailed implementation plans.
    - Jump from viewport/build tree/params back to source
    - Highlight model regions tied to code blocks
    - Debug model construction step-by-step
-   - Expose an API/MCP layer so agents can inspect screenshots, scene state, and code links together
+   - Extend the implemented [local MCP layer](MCP.md) with assembly/build-tree state and source links
 
 ---
 

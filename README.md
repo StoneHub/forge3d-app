@@ -2,7 +2,7 @@
 
 A desktop OpenSCAD IDE built with Electron. Write parametric code, render it with the native OpenSCAD executable, and export STL for your slicer.
 
-![Version](https://img.shields.io/badge/version-3.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![Version](https://img.shields.io/badge/version-3.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 ![Forge3D with automatic dimension brackets showing width, depth, and height measurements](docs/screenshots/forge3d-dimensions-demo.png)
 
@@ -24,7 +24,7 @@ Current workflow: write `.scad`, render, export STL, then send the file to your 
 
 - **Windows**, **macOS**, or **Linux**
 - **[OpenSCAD](https://openscad.org/downloads.html)** installed locally
-- **Node.js 22+** and **npm 10+**
+- **Node.js 22+** for the MCP companion; **Node.js 22+ and npm 10+** for source builds (neither is required by the installed GUI)
 
 Forge3D looks for OpenSCAD in common platform locations and on `PATH`. Set `FORGE3D_OPENSCAD_BIN` when your OpenSCAD executable lives somewhere custom.
 Set `FORGE3D_OPENSCAD_ARCH=x86_64` on macOS if a universal OpenSCAD build exposes an unstable native Apple Silicon renderer and you want Forge3D to force the Rosetta slice.
@@ -41,9 +41,9 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-The [v3.1.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.1.0) has a Windows installer, a Linux AppImage, and an unsigned native Apple Silicon DMG.
+The [v3.2.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0) includes a locally built ad-hoc-signed Apple Silicon Mac DMG and a separate provider-neutral MCP companion ZIP. Windows and Linux installers are not included in this release. The desktop app needs native OpenSCAD; the optional [MCP companion](docs/MCP.md) also needs Node.js 22+, but no source checkout or npm dependencies.
 
-> **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. Downloaded macOS DMGs are unsigned development previews, so Gatekeeper may report the app as damaged or require manual approval. For the cleanest macOS path, build from source.
+> **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. The app has a verified ad-hoc integrity signature but no Apple Developer ID or notarization. Downloaded copies may require individual approval. See [Mac installation](docs/INSTALL-MAC.md) for drag-to-Applications and Apple’s normal Open Anyway flow. Managed Macs may prohibit this approval.
 >
 > **macOS OpenSCAD note:** Homebrew's stable OpenSCAD cask may require Gatekeeper approval and Rosetta because the stable cask can be Intel-based. The snapshot cask includes an Apple Silicon slice and is preferred for local Forge3D development.
 > If the snapshot app crashes during render on your Mac, run Forge3D with `FORGE3D_OPENSCAD_ARCH=x86_64` until the upstream native snapshot is stable.
@@ -75,7 +75,7 @@ npm run capture:release-screenshot
 ## Features
 
 - **Full OpenSCAD compatibility** — runs your installed binary, supports all fonts, includes, and libraries
-- **Live build** — Auto-run mode re-renders on every keystroke (debounced 400ms)
+- **Live build** — Auto Render is on by default for new workspaces, re-rendering edits after a 400 ms debounce; saved off choices are preserved
 - **Automatic dimension brackets** — CAD-style measurement overlays showing width, depth, and height of rendered objects
 - **[Math Lab](docs/math-lab.md)** — six original, editable studies in knots, recursion, wave interference, polar curves, phyllotaxis, and ruled surfaces (current source)
 - **Smart templates** — categorized OpenSCAD templates with safe append, cursor, and replace workflows
@@ -86,7 +86,12 @@ npm run capture:release-screenshot
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
 - **Workspace helpers** — recent files, workspace browser, and parameter jump-to-source links
 - **STL export** — one-click export of the rendered geometry
+- **[Local MCP modeling tools](docs/MCP.md)** — 15 provider-neutral tools for Design, multi-part Assembly, print-bed arrangement, STL export, and actual viewport PNG capture. The companion generates local client configuration; no provider account is required by Forge3D
 - **Dark / light theme**
+
+![54-part assembly built and captured through the packaged Mac MCP tools](docs/screenshots/forge3d-mcp-assembly.png)
+
+The packaged Mac demo renders three OpenSCAD part sources, creates 51 additional instances, and exports all 54 parts as a 7,960-triangle STL. Agents can also arrange the parts on a visible bed and export selected parts for an external slicer.
 
 ---
 

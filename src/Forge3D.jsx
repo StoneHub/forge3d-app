@@ -15,6 +15,7 @@ import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
 import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
 import { requireForgeAPI } from "./forge3d/forge-api.js";
+import { useMcpModelBridge } from './forge3d/mcp-model-bridge.js';
 import ForgeToolbar from "./forge3d/toolbar.jsx";
 import StatusBar from "./forge3d/status-bar.jsx";
 import StartSidebar from "./forge3d/start-sidebar.jsx";
@@ -368,6 +369,7 @@ export default function Forge3D() {
   const [sidebarOpen, setSidebarOpen] = useState(initialPanelLayout.sidebarOpen ?? true);
   const [sidebarTab, setSidebarTab] = useState(initialWorkspace.activeActivity || (initialWorkspace.code.trim() ? 'workspace' : 'start'));
   const [autoRun, setAutoRun] = useState(initialWorkspace.autoRun);
+  const [autoRunAllowed, setAutoRunAllowed] = useState(false);
   const [renderProfile, setRenderProfile] = useState(initialWorkspace.renderProfile || 'quick');
   const [buildElapsedMs, setBuildElapsedMs] = useState(0);
   const [buildStatusDetail, setBuildStatusDetail] = useState('');
@@ -1256,7 +1258,7 @@ export default function Forge3D() {
         let triangleCount = 0;
         try {
           triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
-          updateCurrentRenderMeta({ profileId: targetProfile.id, sourceCode, filePath: sourcePath, documentId });
+          updateCurrentRenderMeta({ profileId: targetProfile.id, sourceCode, filePath: sourcePath, documentId, requestId });
         } catch (loadError) {
           latestRenderedGeometryRef.current = null;
           setStlGeometry(null);
@@ -1443,15 +1445,28 @@ export default function Forge3D() {
     }
   }, [code, currentFileName, currentFilePath, forgeAPI]);
 
+  // Automatic renders wait for launch mode, even when launch-context IPC is slow.
+  // MCP and release screenshots own their explicit render lifecycle instead.
   useEffect(() => {
-    if (!autoRun) return;
+    let cancelled = false;
+    forgeAPI.getLaunchContext().then((context) => {
+      if (cancelled) return;
+      const explicitRender = context?.mcp?.enabled || context?.releaseScreenshot?.enabled;
+      if (explicitRender) setAutoRun(false);
+      setAutoRunAllowed(context?.mcp?.enabled === false && !explicitRender);
+    }).catch(() => {}); // Unknown launch mode fails closed; manual rendering still works.
+    return () => { cancelled = true; };
+  }, [forgeAPI]);
+
+  useEffect(() => {
+    if (!autoRunAllowed || !autoRun) return;
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       if (!code.trim()) return;
       runCode();
     }, 400);
     return () => clearTimeout(timerRef.current);
-  }, [autoRun, code, runCode]);
+  }, [autoRunAllowed, autoRun, code, runCode]);
 
   useEffect(() => () => clearBuildTimeout(), [clearBuildTimeout]);
 
@@ -2246,6 +2261,28 @@ export default function Forge3D() {
       () => setStatusMessage('Failed to copy to clipboard')
     );
   }, [code, allErrors, allWarnings, currentFileName]);
+
+  useMcpModelBridge({
+    forgeAPI, document: currentDesignDocument, fileName: currentFileName, dirty: isDirty,
+    mode, result, geometryRef: latestRenderedGeometryRef, renderMetaRef: latestRenderMetaRef,
+    renderRequestIdRef, canvasRef, applyCodeChange, runCode, setStatusMessage,
+    assemblyScene, updateAssemblyScene, assemblyBooleanBusy: booleanBusy,
+    showMode: (nextMode) => {
+      setMode(nextMode);
+      setSidebarOpen(true);
+      setSidebarTab(nextMode === 'assembly' ? 'assembly' : 'params');
+      setFitViewSignal((value) => value + 1);
+    },
+    fitAssembly: queueAssemblyFitView,
+    disableAutoRun: () => { setAutoRun(false); clearTimeout(timerRef.current); },
+    showParameters: () => { setSidebarOpen(true); setSidebarTab('params'); },
+    prepareRender: (profile) => {
+      setAutoRun(false);
+      clearTimeout(timerRef.current);
+      setRenderProfile(profile);
+      queueAutoFitView();
+    },
+  });
 
   // ─── RENDER ──────────────────────────────────────────────────────────
   return (

@@ -9,7 +9,7 @@ const workflow = fs
 test('manual releases check out the requested tag', () => {
   assert.match(workflow, /tag:\n\s+description: Existing tag to publish, for manual release runs\.\n\s+required: true/);
   const checkoutRef = /ref: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.tag \|\| github\.ref \}\}/g;
-  assert.equal([...workflow.matchAll(checkoutRef)].length, 2);
+  assert.equal([...workflow.matchAll(checkoutRef)].length, 3);
 });
 
 test('pull requests exercise packaging without publishing a release', () => {
@@ -31,4 +31,13 @@ test('release screenshots are isolated by runner and remain optional', () => {
 test('only the publish job can write repository contents', () => {
   assert.match(workflow, /permissions:\n\s+contents: read/);
   assert.match(workflow, /publish:[\s\S]*?permissions:\n\s+contents: write/);
+});
+
+test('release requires the companion and publishes checksums with versioned changelog notes', () => {
+  assert.match(workflow, /needs: \[package, companion\]/);
+  assert.match(workflow, /node scripts\/package-mcp-companion\.mjs/);
+  assert.match(workflow, /path: release\/forge3d-mcp-\*\.zip/);
+  assert.match(workflow, /node scripts\/release-notes\.mjs "\$RELEASE_TAG"/);
+  assert.match(workflow, /sha256sum \* > SHA256SUMS\.txt/);
+  assert.match(workflow, /gh release upload "\$RELEASE_TAG" release-assets\/SHA256SUMS\.txt/);
 });

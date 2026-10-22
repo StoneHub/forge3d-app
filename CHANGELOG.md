@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 3.2.0 - 2026-10-22
+
+Forge3D v3.2.0 adds a real local MCP modeling workflow and fixes everyday preview behavior.
+
+### Included
+
+- Fifteen provider-neutral stdio MCP tools for Design modeling, multi-part Assembly, and print preparation. Agents can render OpenSCAD parts, instance and transform them, inspect the visible scene, arrange parts on a print bed, capture actual viewport PNGs, and export STL.
+- A dependency-free MCP companion launcher and configuration generator for installed Forge3D executables. The companion requires Node.js 22+, but does not need a source checkout, npm install, or an Electron development dependency.
+- Atomic parameter edits, stale-model/export protection, bounded requests, and clean session shutdown. Ordinary app windows and profiles remain separate.
+- Auto Render defaults to on for new ordinary workspaces while preserving an explicitly saved off preference. MCP sessions remain explicitly rendered.
+- Correct model framing in narrow viewports and the Forge3D Dock icon in macOS source sessions.
+- Repeatable native MCP demonstration, protocol/lifecycle/model tests, and companion packaging checks.
+- Reliable companion startup from macOS temporary folders and symlinked installation paths.
+
+### Install and trust boundary
+
+- This release ships a locally built Apple Silicon Mac DMG and the MCP companion. Windows and Linux installers are not included in v3.2.0. Install native OpenSCAD separately. For MCP, also download `forge3d-mcp-3.2.0.zip` and follow its README or [the MCP guide](https://github.com/StoneHub/forge3d-app/blob/v3.2.0/docs/MCP.md).
+- Launch the installed `Forge3D.app` for the Forge3D Dock name and icon. Source previews launched through the stock `Electron.app` retain the Electron Dock name.
+- The Apple Silicon macOS DMG is an **ad-hoc-signed, unnotarized development preview** with a verified resource seal, without Apple Developer ID signing. It is arm64 only. Follow [Mac installation](https://github.com/StoneHub/forge3d-app/blob/v3.2.0/docs/INSTALL-MAC.md) for individual macOS approval; never disable security protections. Managed Macs may prohibit this approval.
+- The MCP companion starts a new visible isolated window. It does not attach to existing workspaces or install a global client configuration.
+- OpenSCAD source is trusted executable input and can read local files with OS permissions. This is not a filesystem sandbox. No network listener, API key, shell tool, or AI-provider account is required by Forge3D.
+- `SHA256SUMS.txt` covers the downloadable assets. Node.js is needed for the MCP companion/source builds, not ordinary packaged GUI use.
+- Print preparation checks bed fit, floor contact and conservative bounding-box overlaps. It does not guarantee manifold meshes or exact collision detection. Combined STL exports do not boolean-union overlapping parts. Slicing, G-code generation, printer control, per-call cancellation, and expanded language-server packaging remain future work.
+
 ## 3.1.0 - 2026-09-09
 
 Forge3D v3.1.0 adds a practical assembly workflow while keeping OpenSCAD source portable and editable.

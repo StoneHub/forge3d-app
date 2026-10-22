@@ -1,6 +1,6 @@
 {
   "name": "forge3d",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "description": "Forge3D — Parametric 3D modeling IDE for OpenSCAD (Electron desktop app)",
   "license": "MIT",
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "mcp": "node electron/mcp-server.mjs",
     "test:node": "node --test scripts/*.test.mjs",
     "verify:mac-release": "node scripts/macos-release-config.mjs --describe-mode",
     "generate:start-previews": "node scripts/generate-start-previews.mjs",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@dev-feedback/electron": "file:vendor/dev-feedback-electron-0.2.1.tgz",
+    "@electron/osx-sign": "1.3.1",
     "@electron/rebuild": "^3.7.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
@@ -43,6 +45,7 @@
     "wait-on": "^8.0.1"
   },
   "build": {
+    "afterPack": "scripts/macos-adhoc-sign.mjs",
     "appId": "com.forge3d.app",
     "productName": "Forge3D",
     "directories": {
@@ -66,7 +69,7 @@
         }
       ],
       "icon": "public/icon.png",
-      "artifactName": "${productName}-${version}-${os}-${arch}-unsigned-dev-preview.${ext}",
+      "artifactName": "${productName}-${version}-${os}-${arch}-ad-hoc-dev-preview.${ext}",
       "category": "public.app-category.developer-tools",
       "identity": null,
       "hardenedRuntime": true,
