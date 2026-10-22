@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
 contextBridge.exposeInMainWorld('forgeAPI', {
+  // Narrow model bridge; main installs these handlers only for a transient
+  // child session with an inherited IPC channel. No eval or generic IPC API.
+  onMcpRequest: (callback) => {
+    const handler = (_event, request) => callback(request)
+    ipcRenderer.on('mcp:request', handler)
+    return () => ipcRenderer.removeListener('mcp:request', handler)
+  },
+  respondToMcp: (response) => ipcRenderer.send('mcp:response', response),
+  notifyMcpReady: () => ipcRenderer.send('mcp:ready'),
   // File dialogs
   onMenuAction: (callback) => {
     const handler = (_event, action) => callback(action)

@@ -15,6 +15,7 @@ import { parseSTL } from "./forge3d/stl-parser.js";
 import { useLSP } from "./forge3d/lsp-client.js";
 import { parseParams, applyParamChange } from "./forge3d/param-parser.js";
 import { requireForgeAPI } from "./forge3d/forge-api.js";
+import { useMcpModelBridge } from './forge3d/mcp-model-bridge.js';
 import ForgeToolbar from "./forge3d/toolbar.jsx";
 import StatusBar from "./forge3d/status-bar.jsx";
 import StartSidebar from "./forge3d/start-sidebar.jsx";
@@ -1256,7 +1257,7 @@ export default function Forge3D() {
         let triangleCount = 0;
         try {
           triangleCount = loadStlBytes(new Uint8Array(response.stl), elapsed);
-          updateCurrentRenderMeta({ profileId: targetProfile.id, sourceCode, filePath: sourcePath, documentId });
+          updateCurrentRenderMeta({ profileId: targetProfile.id, sourceCode, filePath: sourcePath, documentId, requestId });
         } catch (loadError) {
           latestRenderedGeometryRef.current = null;
           setStlGeometry(null);
@@ -2246,6 +2247,20 @@ export default function Forge3D() {
       () => setStatusMessage('Failed to copy to clipboard')
     );
   }, [code, allErrors, allWarnings, currentFileName]);
+
+  useMcpModelBridge({
+    forgeAPI, document: currentDesignDocument, fileName: currentFileName, dirty: isDirty,
+    mode, result, geometryRef: latestRenderedGeometryRef, renderMetaRef: latestRenderMetaRef,
+    renderRequestIdRef, canvasRef, applyCodeChange, runCode, setStatusMessage,
+    disableAutoRun: () => { setAutoRun(false); clearTimeout(timerRef.current); },
+    showParameters: () => { setSidebarOpen(true); setSidebarTab('params'); },
+    prepareRender: (profile) => {
+      setAutoRun(false);
+      clearTimeout(timerRef.current);
+      setRenderProfile(profile);
+      queueAutoFitView();
+    },
+  });
 
   // ─── RENDER ──────────────────────────────────────────────────────────
   return (

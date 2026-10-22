@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { getAssemblyPartWorldBox, getGeometryWorldBox, applyAssemblyTransform, scadToViewportMatrix } from './assembly-transform.js';
 import { getMaterialSwatch, getViewportBackgroundStops, normalizeRenderAppearance } from './render-appearance.js';
 import { getThemeColors } from './theme.js';
+import { getCameraFitDistance } from './camera-fit.js';
 
 const DEFAULT_CAMERA = { theta: 0.8, phi: 0.6, dist: 50, panX: 0, panY: 0, panZ: 0 };
 
@@ -95,7 +96,7 @@ function frameBoundingBox(camera, state, box) {
   if (!box || box.isEmpty()) return;
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1);
-  const distance = (radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.15;
+  const distance = getCameraFitDistance(radius, camera.fov, camera.aspect);
   Object.assign(state, DEFAULT_CAMERA, { dist: distance, panX: center.x, panY: center.y, panZ: center.z });
   updateCamera(camera, state);
 }

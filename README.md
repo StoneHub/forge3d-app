@@ -86,6 +86,7 @@ npm run capture:release-screenshot
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
 - **Workspace helpers** — recent files, workspace browser, and parameter jump-to-source links
 - **STL export** — one-click export of the rendered geometry
+- **[Local MCP modeling tools](docs/MCP.md)** (current source) — an isolated stdio session for revision-checked source/parameter edits, native renders, model bounds, final STL export, and viewport PNG capture
 - **Dark / light theme**
 
 ---

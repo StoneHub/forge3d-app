@@ -13,6 +13,7 @@
   },
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "mcp": "node electron/mcp-server.mjs",
     "test:node": "node --test scripts/*.test.mjs",
     "verify:mac-release": "node scripts/macos-release-config.mjs --describe-mode",
     "generate:start-previews": "node scripts/generate-start-previews.mjs",

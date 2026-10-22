@@ -10,7 +10,7 @@ const mainSource = fs.readFileSync(path.join(repoRoot, 'electron', 'main.mjs'), 
 const preloadSource = fs.readFileSync(path.join(repoRoot, 'electron', 'preload.cjs'), 'utf8')
 
 test('Electron Inspector costs the Host App one development-only registration line', () => {
-  assert.match(mainSource, /if \(isDev\) await import\('@dev-feedback\/electron\/register'\)/)
+  assert.match(mainSource, /if \(isDev && !isMcpSession\) await import\('@dev-feedback\/electron\/register'\)/)
   assert.equal((mainSource.match(/@dev-feedback\/electron/g) || []).length, 1)
   assert.doesNotMatch(preloadSource, /@dev-feedback\/electron/)
   assert.doesNotMatch(JSON.stringify(packageJson.scripts), /bundle:preload/)
