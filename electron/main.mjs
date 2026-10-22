@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'child_process'
 import { resolveOpenScadLaunch } from './openscad-bin.mjs'
 import { isAllowedExternalUrl, isAllowedRendererNavigation } from './security.mjs'
 import { installMcpBridge } from './mcp-bridge.mjs'
+import { getAppIconPath, setDevelopmentDockIcon } from './app-icons.mjs'
 
 // ── node-pty import (with fallback) ─────────────────────────────────────────
 let pty = null
@@ -282,12 +283,7 @@ let activeFileWatchTimer = null
 let activeOpenScadRender = null
 
 function getWindowIconPath() {
-  const iconName = process.platform === 'linux' ? 'icon.png' : 'icon.ico'
-  const iconPath = isDev
-    ? path.join(__dirname, '..', 'public', iconName)
-    : path.join(__dirname, '..', 'dist', iconName)
-
-  return fsSync.existsSync(iconPath) ? iconPath : undefined
+  return getAppIconPath({ appRoot: path.join(__dirname, '..'), isPackaged: app.isPackaged })
 }
 
 function stopWatchingFile() {
@@ -1452,6 +1448,7 @@ ipcMain.handle('terminal:kill', () => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  setDevelopmentDockIcon({ app, appRoot: path.join(__dirname, '..') })
   await maybeGenerateStartPreviewsOnStartup()
   createWindow()
 })
