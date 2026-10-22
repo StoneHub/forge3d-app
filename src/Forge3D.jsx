@@ -2266,6 +2266,14 @@ export default function Forge3D() {
     forgeAPI, document: currentDesignDocument, fileName: currentFileName, dirty: isDirty,
     mode, result, geometryRef: latestRenderedGeometryRef, renderMetaRef: latestRenderMetaRef,
     renderRequestIdRef, canvasRef, applyCodeChange, runCode, setStatusMessage,
+    assemblyScene, updateAssemblyScene, assemblyBooleanBusy: booleanBusy,
+    showMode: (nextMode) => {
+      setMode(nextMode);
+      setSidebarOpen(true);
+      setSidebarTab(nextMode === 'assembly' ? 'assembly' : 'params');
+      setFitViewSignal((value) => value + 1);
+    },
+    fitAssembly: queueAssemblyFitView,
     disableAutoRun: () => { setAutoRun(false); clearTimeout(timerRef.current); },
     showParameters: () => { setSidebarOpen(true); setSidebarTab('params'); },
     prepareRender: (profile) => {

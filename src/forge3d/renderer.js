@@ -6,6 +6,7 @@ import { getAssemblyPartWorldBox, getGeometryWorldBox, applyAssemblyTransform, s
 import { getMaterialSwatch, getViewportBackgroundStops, normalizeRenderAppearance } from './render-appearance.js';
 import { getThemeColors } from './theme.js';
 import { getCameraFitDistance } from './camera-fit.js';
+import { createPrintBedOutline } from './print-bed.js';
 
 const DEFAULT_CAMERA = { theta: 0.8, phi: 0.6, dist: 50, panX: 0, panY: 0, panZ: 0 };
 
@@ -97,6 +98,8 @@ function frameBoundingBox(camera, state, box) {
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1);
   const distance = getCameraFitDistance(radius, camera.fov, camera.aspect);
+  camera.far = Math.max(2000, distance + radius * 2);
+  camera.updateProjectionMatrix();
   Object.assign(state, DEFAULT_CAMERA, { dist: distance, panX: center.x, panY: center.y, panZ: center.z });
   updateCamera(camera, state);
 }
@@ -267,6 +270,7 @@ export function useThreeRenderer({
       axes: new THREE.AxesHelper(15),
       designRoot: new THREE.Group(),
       assemblyRoot: new THREE.Group(),
+      printBedRoot: new THREE.Group(),
       selectionRoot: new THREE.Group(),
       gizmoRoot: new THREE.Group(),
       measureRoot: new THREE.Group(),
@@ -276,10 +280,10 @@ export function useThreeRenderer({
       frameId: null,
     };
     applyViewportAppearance(resources, theme, appearance);
-    [resources.grid, resources.axes, resources.selectionRoot, resources.gizmoRoot, resources.measureRoot, resources.dimRoot].forEach((item) => {
+    [resources.grid, resources.axes, resources.printBedRoot, resources.selectionRoot, resources.gizmoRoot, resources.measureRoot, resources.dimRoot].forEach((item) => {
       item.userData.forgeExcludeFromExport = true;
     });
-    [resources.grid, resources.axes, resources.designRoot, resources.assemblyRoot, resources.selectionRoot, resources.gizmoRoot, resources.measureRoot, resources.dimRoot].forEach((item) => {
+    [resources.grid, resources.axes, resources.designRoot, resources.assemblyRoot, resources.printBedRoot, resources.selectionRoot, resources.gizmoRoot, resources.measureRoot, resources.dimRoot].forEach((item) => {
       nextScene.add(item);
     });
     resourcesRef.current = resources;
@@ -424,6 +428,7 @@ export function useThreeRenderer({
       resizeObserver?.disconnect();
       clearOverlay(resources.measureRoot);
       clearOverlay(resources.dimRoot);
+      clearOverlay(resources.printBedRoot);
       renderer.dispose();
       envTexture.dispose();
       resources.background?.dispose?.();
@@ -445,6 +450,11 @@ export function useThreeRenderer({
     resources.grid.visible = viewSettings.grid;
     resources.axes.visible = viewSettings.axes;
     clearOverlay(resources.dimRoot);
+    clearOverlay(resources.printBedRoot);
+    if (mode === 'assembly') {
+      const bed = createPrintBedOutline(assemblyScene?.printBed, theme);
+      if (bed) resources.printBedRoot.add(bed);
+    }
     if (mode === 'design') {
       resources.designRoot.clear();
       resources.displayMeshes = [];
@@ -516,7 +526,11 @@ export function useThreeRenderer({
     signalsRef.current = { reset: resetViewSignal, fit: fitViewSignal };
     if (shouldReset) Object.assign(cameraStateRef.current, DEFAULT_CAMERA);
     if (shouldReset) updateCamera(resources.camera, cameraStateRef.current);
-    if ((shouldReset || shouldFit) && box) frameBoundingBox(resources.camera, cameraStateRef.current, box);
+    if (shouldReset || shouldFit) {
+      const fitBox = box?.clone() || new THREE.Box3();
+      if (mode === 'assembly' && resources.printBedRoot.children.length) fitBox.union(new THREE.Box3().setFromObject(resources.printBedRoot));
+      if (!fitBox.isEmpty()) frameBoundingBox(resources.camera, cameraStateRef.current, fitBox);
+    }
   }, [mode, viewSettings, stlGeometry, assemblyScene, selectedPartId, measurement, holeTool, holePreview, resetViewSignal, fitViewSignal, theme]);
 
   return scene;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { MAX_PENDING_CALLS, startStdioServer } from './mcp-protocol.mjs'
@@ -212,7 +212,10 @@ async function main() {
   if (server.error) process.exitCode = 1
 }
 
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+// Node resolves module URLs through symlinks, while argv retains the launch
+// path (notably /var versus /private/var on macOS). Compare real paths so an
+// extracted companion or a symlinked installation still starts the server.
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main().catch((error) => {
     process.stderr.write(`[Forge3D MCP] ${error.message}\n`)
     process.exitCode = 1

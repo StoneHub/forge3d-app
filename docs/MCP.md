@@ -1,6 +1,6 @@
 # Forge3D MCP: local modeling tools
 
-Forge3D includes a local [Model Context Protocol (MCP)](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) stdio server. An MCP-compatible client can inspect a model, edit OpenSCAD source or parameters, run native OpenSCAD, export STL, and receive an actual viewport image.
+Forge3D includes a local [Model Context Protocol (MCP)](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) stdio server with 15 tools for Design, Assembly, and print-bed preparation. An MCP-compatible client can inspect or edit an unsaved Design buffer, build assemblies from native OpenSCAD renders, arrange parts on a bed, export STL meshes, and receive actual viewport images. Print preparation checks placement and fit; an external slicer is still needed to produce G-code.
 
 ![Reinforced mounting bracket created, resized, rendered, exported, and captured through the Forge3D MCP tools](screenshots/forge3d-mcp-bracket.png)
 
@@ -52,7 +52,7 @@ On Linux:
 node /absolute/path/to/forge3d-mcp/electron/mcp-server.mjs --app /opt/Forge3D/forge3d
 ```
 
-**Unsigned development preview:** release builds may be unsigned or unnotarized, particularly on macOS. Use only the verified project release, read its platform caveats, and open/approve the app yourself through the OS's normal security UI before connecting a client. The launcher does not remove quarantine, bypass security warnings, change security settings, or make an unsupported platform work automatically. Native rendering still requires OpenSCAD.
+**Mac development preview:** v3.2.0 has an ad-hoc integrity signature but no Apple Developer ID or notarization. Follow [Mac installation](INSTALL-MAC.md) for individual approval. Use only the verified project release, read its platform caveats, and open/approve the app yourself through the OS's normal security UI before connecting a client. The launcher does not remove quarantine, bypass security warnings, change security settings, or make an unsupported platform work automatically. Native rendering still requires OpenSCAD.
 
 ### Source checkout
 
@@ -76,7 +76,23 @@ node electron/mcp-server.mjs --electron /absolute/path/to/electron
 
 ## Connect an MCP client
 
-Add an entry using your client's documented MCP configuration format. For clients using an `mcpServers` object, a packaged-app entry is:
+Any MCP harness or provider that supports a local stdio server can launch Forge3D. Its configuration wrapper varies, so use the same `command`, `args`, and optional `env` values in the schema that client documents. Forge3D does not install a provider or change global MCP settings.
+
+The companion includes a helper that generates the common `mcpServers` JSON object. With Node.js 22 or later, run it after installing the app:
+
+```sh
+node "/absolute/path/to/forge3d-mcp/electron/mcp-config.mjs" --app "/Applications/Forge3D.app"
+```
+
+Pass the absolute path to the macOS `.app` bundle or the installed native executable on Windows or Linux. The helper resolves symlinks and prints the native executable path, server path, and current Node executable as JSON. It does not launch Forge3D or edit client configuration. If native OpenSCAD is installed in a location Forge3D cannot discover, pass its executable path too:
+
+```sh
+node "/absolute/path/to/forge3d-mcp/electron/mcp-config.mjs" --app "/Applications/Forge3D.app" --openscad "/absolute/path/to/openscad"
+```
+
+This adds `FORGE3D_OPENSCAD_BIN` to the generated entry's `env` object. The helper validates that both supplied paths are absolute executable files.
+
+For clients using an `mcpServers` object, a packaged-app entry has this shape:
 
 ```json
 {
@@ -101,12 +117,23 @@ For a source checkout, omit the `--app` argument and executable path, leaving on
 
 | Tool | Arguments | Result / behavior |
 | --- | --- | --- |
-| `forge3d_get_model` | `{}` | Source code, filename/path, revision, dirty state, mode, editable parameters, render status, and diagnostics. |
-| `forge3d_set_code` | `code`, `expectedRevision` | Replaces the active unsaved Design buffer. Requires the latest revision. No source file is saved or overwritten. |
-| `forge3d_set_parameters` | `values: [{id, value}]`, `expectedRevision` | Changes supported literal parameters in the unsaved buffer. Validates the entire edit before applying it. |
-| `forge3d_render` | Optional `profile`: `"quick"` or `"final"` | Runs native OpenSCAD against the active Design source and returns model/render state. Defaults to `"final"`. |
-| `forge3d_export_stl` | Optional `filename`, e.g. `"bracket.stl"` | Requires a successful **final** render that still matches the current model. Returns the exported local path and mesh information. |
-| `forge3d_capture_viewport` | `{}` | Requires a current rendered Design model. Returns PNG image content, not a fabricated preview or a full-desktop screenshot. |
+| `forge3d_get_model` | `{}` | Reads Design source, filename/path, Design revision, dirty state, mode, editable parameters, render status, and diagnostics. |
+| `forge3d_set_code` | `code`, `expectedRevision` | Replaces the active unsaved Design buffer. Requires the current **Design revision**. No source file is saved or overwritten. |
+| `forge3d_set_parameters` | `values: [{id, value}]`, `expectedRevision` | Changes supported literal parameters in the unsaved Design buffer. Uses the Design revision and validates the entire edit before applying it. |
+| `forge3d_render` | Optional `profile`: `"quick"` or `"final"` | Runs native OpenSCAD against the active Design source and returns render state. Defaults to `"final"`. |
+| `forge3d_export_stl` | Optional `filename`, e.g. `"bracket.stl"` | Requires a successful **final** render matching the current Design model. Returns a new file under this session's temporary exports directory. Copy it to durable storage. |
+| `forge3d_capture_viewport` | `{}` | Captures the actual current Design or Assembly viewport as PNG image content. Design needs a current render; Assembly needs at least one visible part. |
+| `forge3d_set_mode` | `mode: "design"` or `"assembly"` | Switches the visible session between Design and Assembly. Print preparation works on Assembly. |
+| `forge3d_get_assembly` | `{}` | Reads part IDs, names, transforms, visibility, geometry bounds, and the **assembly revision**, which is independent of the Design revision. Transforms use viewport Y-up millimeters and XYZ Euler degrees. |
+| `forge3d_add_assembly_part` | `code`, optional `name` and `transform`, `expectedRevision` | Renders trusted inline OpenSCAD source with native OpenSCAD and adds the resulting mesh to Assembly. Requires the current assembly revision. Does not save the source to disk. |
+| `forge3d_update_assembly_part` | `partId`, `expectedRevision`; optional `name`, `transform`, `visible`, `locked` | Updates an assembly part using the assembly revision. Position is millimeters, rotation is XYZ degrees, and scale components must be positive. |
+| `forge3d_duplicate_assembly_part` | `partId`, `instances: [{name, transform}]`, `expectedRevision` | Creates instances of an existing part without rerendering source. Each provided transform is absolute in viewport Y-up coordinates. |
+| `forge3d_remove_assembly_part` | `partId`, `expectedRevision` | Removes an unlocked part using the assembly revision. Does not delete source files. |
+| `forge3d_export_assembly_stl` | `expectedRevision`; optional `partIds`, `filename` | Exports selected visible assembly meshes (all visible parts by default) and transforms as a new temporary STL. The meshes are combined without boolean union or slicing. Copy the returned file to durable storage. |
+| `forge3d_get_print` | Optional `bed: {widthMm, depthMm, heightMm}`, `partIds: [...]` | Checks all visible parts by default or the requested IDs for bed-volume fit, floor contact, and conservative axis-aligned bounding-box (AABB) overlaps. It does not prove exact mesh collision or printability. |
+| `forge3d_prepare_print` | `expectedRevision`, required `bed`; optional `partIds`, `spacingMm` | Atomically arranges selected visible unlocked parts in rows on a centered X/Z bed with floor at Y=0. Preserves each part's rotation and scale, rejects parts that cannot fit, and returns updated placement checks. |
+
+The 15 tools are not one shared document revision. Use `forge3d_get_model` for Design edits and `forge3d_get_assembly` for Assembly edits. Each mutation must receive the latest revision for its own mode; read the state again after a stale-revision error. Assembly state can also change from visible UI actions such as selecting a different part, so reread if an edit is rejected. Assembly and bed coordinates are **viewport Y-up**: OpenSCAD/STL `[x, y, z]` maps to viewport `[x, z, -y]`. Source sent to `forge3d_set_code` or `forge3d_add_assembly_part` stays in the temporary session state and is not saved to a `.scad` file. OpenSCAD `include`, `use`, `import`, and `surface` can read local files with the app's OS permissions. Assembly export contains selected visible meshes (all visible meshes by default), including intersections as overlapping geometry; it does not perform a boolean union. If `partIds` selects only part of the assembly during print preparation, pass that same set to assembly export to export that layout. `forge3d_get_print` and `forge3d_prepare_print` only prepare and check bed placement. They do not slice, generate G-code, connect to a printer, create supports, or validate manifold geometry. AABB overlap results are conservative warnings, not exact collision tests.
 
 Ordinary model results contain JSON encoded in an MCP text content item. The viewport result uses `{"type":"image","mimeType":"image/png","data":"...base64..."}`. Clients should display or save that image content using their normal MCP support.
 
@@ -154,6 +181,56 @@ A correct tool sequence is:
 6. To demonstrate a parameter edit, read the latest model, locate the returned `width` parameter ID, call `forge3d_set_parameters` with its current revision and a new width, then render and capture again. The previous render must not be exported after the edit.
 
 The initial revision is session-specific; do not assume it is zero or hard-code parameter IDs in a reusable client.
+
+## Assembly and print-bed preparation example
+
+Assembly tools build on native OpenSCAD meshes, then position those meshes in the visible Assembly viewport. Switch to Assembly, read its revision, and add a base plate from trusted inline source:
+
+```json
+{"mode":"assembly"}
+```
+
+```json
+{"expectedRevision":0,"name":"Base plate","code":"cube([80, 50, 4], center=true);"}
+```
+
+The revision above is only an illustration. Call `forge3d_get_assembly` first and use its returned `revision`; then use each mutation's returned assembly `revision` for the next `expectedRevision`. Save the returned `addedPartId` values to address parts later. In this example, add one post and duplicate it into a four-corner set:
+
+```json
+{"expectedRevision":1,"name":"Corner post","code":"cylinder(h=18, d=8, $fn=48);","transform":{"position":[32,0,17]}}
+```
+
+Use the returned post ID and latest assembly revision:
+
+```json
+{"expectedRevision":2,"partId":"RETURNED_POST_ID","instances":[
+  {"name":"Post left front","transform":{"position":[-32,0,17]}},
+  {"name":"Post right back","transform":{"position":[32,0,-17]}},
+  {"name":"Post left back","transform":{"position":[-32,0,-17]}}
+]}
+```
+
+The numbers above demonstrate argument shape only; real revision numbers and part IDs come from tool results. Source geometry uses OpenSCAD's Z-up coordinates. Assembly transforms use viewport Y-up coordinates in millimeters, with OpenSCAD `[x, y, z]` mapping to viewport `[x, z, -y]`. Thus the base plate's OpenSCAD XY plane becomes the assembly XZ bed plane, and the cylinder's OpenSCAD Z axis becomes vertical Y. Each `forge3d_add_assembly_part` renders its inline source into a mesh; Forge3D does not save that source as a `.scad` file.
+
+Check the selected parts against the printer's actual bed dimensions, then arrange them:
+
+```json
+{"bed":{"widthMm":220,"depthMm":220,"heightMm":250}}
+```
+
+```json
+{"expectedRevision":3,"bed":{"widthMm":220,"depthMm":220,"heightMm":250},"spacingMm":4}
+```
+
+`forge3d_get_print` reports bed-volume fit, floor contact, and AABB overlaps for all visible parts by default, or the supplied `partIds`. `forge3d_prepare_print` arranges all visible parts by default, preserving their rotation and scale. Pass `partIds` to choose a subset. It requires explicit bed dimensions, rejects hidden or locked selected parts, and applies no position changes if a part cannot fit. Read the resulting assembly revision from its response, call `forge3d_get_print` again to inspect placement, and use `forge3d_capture_viewport` to see the current visible Assembly layout.
+
+Finally, export the visible assembly meshes for use in an external slicer:
+
+```json
+{"expectedRevision":4,"filename":"bracket-assembly.stl"}
+```
+
+Use the current assembly revision returned after preparation; the example assumes an empty assembly starting at revision zero and is illustrative. Assembly STL applies the visible part transforms and converts back to OpenSCAD/STL Z-up coordinates. It combines meshes into one STL file but does not boolean-union overlapping parts. If you prepared only a subset with `partIds`, pass that same list to `forge3d_export_assembly_stl`; otherwise the export includes every visible part. Print preparation checks bed layout and conservative AABB overlaps only. It does not slice, generate G-code, control a printer, add supports, or verify exact mesh intersections or manifold quality. Both Design and Assembly exports are created under the isolated session's temporary exports directory; copy any file you need to keep to durable storage before the session or temporary files are removed.
 
 ## Reproducible source-checkout desktop smoke test
 

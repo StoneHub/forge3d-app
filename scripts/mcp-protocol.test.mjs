@@ -91,7 +91,7 @@ test('initialize negotiates all supported protocol versions and preserves reques
     assert.equal(response.result.protocolVersion, version)
     assert.deepEqual(response.result.capabilities, { tools: { listChanged: false } })
     assert.deepEqual(response.result.serverInfo, { name: 'forge3d', version: '9.0.1' })
-    assert.match(response.result.instructions, /not your already-open app/)
+    assert.match(response.result.instructions, /not an already-open app/)
     assert.match(response.result.instructions, /read local files/)
   }
   const protocol = createMcpProtocol({ callTool: async () => textResult() })
@@ -108,7 +108,7 @@ test('lifecycle gates tools, accepts ping, ignores notifications, and rejects re
   assert.equal(await protocol.handle({ jsonrpc: '2.0', method: 'tools/call', params: { name: 'forge3d_get_model' } }), null)
   assert.equal(calls, 0)
   assert.equal(await protocol.handle(initialized), null)
-  assert.equal((await protocol.handle(request(3, 'tools/list'))).result.tools.length, 6)
+  assert.equal((await protocol.handle(request(3, 'tools/list'))).result.tools.length, 15)
   assert.equal((await protocol.handle(init())).error.code, -32600)
   assert.equal(await protocol.handle({ jsonrpc: '2.0', method: 'notifications/something-new' }), null)
   assert.equal(await protocol.handle({ jsonrpc: '2.0', id: 99, result: {} }), null)
@@ -120,7 +120,7 @@ test('tool discovery exposes conservative annotations and strict schemas', async
   assert.deepEqual(result.tools.map((tool) => tool.name), TOOL_DEFINITIONS.map((tool) => tool.name))
   for (const tool of result.tools) {
     assert.equal(tool.inputSchema.additionalProperties, false)
-    assert.equal(tool.annotations.readOnlyHint, ['forge3d_get_model', 'forge3d_capture_viewport'].includes(tool.name))
+    assert.equal(tool.annotations.readOnlyHint, ['forge3d_get_model', 'forge3d_capture_viewport', 'forge3d_get_assembly', 'forge3d_get_print'].includes(tool.name))
     if (!tool.annotations.readOnlyHint) assert.equal(tool.annotations.destructiveHint, true)
   }
   const old = await readyProtocol(undefined, '2024-11-05')

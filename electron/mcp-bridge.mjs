@@ -51,17 +51,24 @@ export function installMcpBridge({ ipcMain, getWindow, sessionRoot, getNativeRen
     try {
       validateToolArguments(message.name, message.arguments ?? {})
       const result = await requestRenderer({ id: message.id, name: message.name, arguments: message.arguments ?? {} })
-      if (message.name === 'forge3d_export_stl' && !result.isError) {
-        const native = getNativeRender()
-        if (!native || native.requestId !== result.nativeRenderRequestId) throw new Error('The native render changed. Render the current model again before exporting.')
+      if (['forge3d_export_stl', 'forge3d_export_assembly_stl'].includes(message.name) && !result.isError) {
+        let stlBuffer
+        if (message.name === 'forge3d_export_stl') {
+          const native = getNativeRender()
+          if (!native || native.requestId !== result.nativeRenderRequestId) throw new Error('The native render changed. Render the current model again before exporting.')
+          stlBuffer = native.stlBuffer
+        } else {
+          if (typeof result.assemblyStlContent !== 'string' || !result.assemblyStlContent.startsWith('solid ') || Buffer.byteLength(result.assemblyStlContent, 'utf8') > 128 * 1024 * 1024) throw new Error('Invalid or oversized assembly STL output.')
+          stlBuffer = Buffer.from(result.assemblyStlContent, 'utf8')
+        }
         const directory = path.join(sessionRoot, 'exports')
         await fs.mkdir(directory, { recursive: true })
         const filename = message.arguments?.filename || 'model.stl'
         // A unique prefix plus exclusive creation avoids overwriting any file.
         const filePath = path.join(directory, `${randomUUID()}-${filename}`)
-        await fs.writeFile(filePath, native.stlBuffer, { flag: 'wx' })
+        await fs.writeFile(filePath, stlBuffer, { flag: 'wx' })
         send({ type: 'forge3d:mcp:response', id: message.id, result: {
-          content: [{ type: 'text', text: JSON.stringify({ filePath, bytes: native.stlBuffer.length, ...result.model }) }],
+          content: [{ type: 'text', text: JSON.stringify({ ...result.model, filePath, bytes: stlBuffer.length }) }],
         } })
       } else send({ type: 'forge3d:mcp:response', id: message.id, result })
     } catch (error) {

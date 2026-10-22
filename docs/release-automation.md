@@ -66,13 +66,11 @@ Set `FORGE3D_OPENSCAD_BIN` when OpenSCAD is installed somewhere else.
 
 ## macOS preview policy
 
-The current macOS package is always an unsigned native Apple Silicon development preview. Environment credentials do not change that status because `package.json` fixes `identity` to `null` and disables notarization.
+The current macOS package is an ad-hoc signed native Apple Silicon development preview. `scripts/macos-adhoc-sign.mjs` runs in electron-builder's `afterPack` hook and signs the nested code and final app bundle, then requires `codesign --verify --deep --strict` to succeed before a DMG is produced. This fixes the invalid resource seal left by Electron's original linker signature after packaging.
 
-Downloaded unsigned apps may trigger Gatekeeper. Build from source for the cleanest local path. For an artifact you have independently decided to trust, macOS quarantine removal is a local user decision:
+The hook uses `@electron/osx-sign` with identity `-`, the configured main/inherited entitlements, hardened runtime, and no timestamp service. It does not search for certificates, embed a provisioning profile, change security settings, or remove quarantine attributes. `mac.identity` stays `null` to keep electron-builder 25 from trying a second certificate-based signing pass. Notarization remains disabled; environment credentials do not change this policy.
 
-```bash
-xattr -dr com.apple.quarantine /Applications/Forge3D.app
-```
+An ad-hoc signature proves bundle integrity locally. It does not establish an Apple-trusted Developer ID and does not make the app notarized. Downloaded copies can still require user approval through normal macOS controls or be blocked. A general macOS release requires Developer ID signing and Apple notarization.
 
 On Apple Silicon, the current OpenSCAD snapshot is the preferred development dependency:
 

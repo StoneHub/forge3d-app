@@ -101,8 +101,8 @@ try {
   assert.equal(initialized.result?.serverInfo.name, 'forge3d');
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
   const listed = await request('tools/list', {});
-  assert.equal(listed.result.tools.length, 6);
-  checks.push('MCP initialize, negotiated version, six discovered tools');
+  for (const name of ['forge3d_get_model', 'forge3d_set_code', 'forge3d_set_parameters', 'forge3d_render', 'forge3d_export_stl', 'forge3d_capture_viewport']) assert.ok(listed.result.tools.some((tool) => tool.name === name));
+  checks.push('MCP initialize, negotiated version, six Design tools discovered');
 
   let model = await tool('forge3d_get_model');
   assert.equal(model.code, '', 'MCP launches an isolated empty workspace');

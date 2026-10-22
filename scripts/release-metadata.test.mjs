@@ -21,16 +21,16 @@ test('release metadata agrees on version 3.2.0', () => {
 test('catalog metadata points at the preview release without overstating it', () => {
   assert.equal(product.releaseUrl, 'https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0');
   assert.equal(product.downloadUrl, product.releaseUrl);
-  assert.deepEqual(product.platforms, ['Windows', 'macOS', 'Linux']);
+  assert.deepEqual(product.platforms, ['macOS']);
   assert.match(product.status, /prerelease/i);
   assert.match(product.requirements.join('\n'), /OpenSCAD installed locally/);
-  assert.match(product.requirements.join('\n'), /unsigned/i);
+  assert.match(product.requirements.join('\n'), /ad-hoc-signed/i);
 });
 
 test('public docs state platform limitations', () => {
-  assert.match(readme, /unsigned development previews/i);
+  assert.match(readme, /ad-hoc integrity signature/i);
   assert.match(readme, /packaged Windows support and macOS\/Linux binaries remain follow-up work/i);
-  assert.match(changelog, /unsigned and unnotarized/i);
+  assert.match(changelog, /ad-hoc-signed, unnotarized/i);
 });
 
 test('release notes select only the requested version and reject missing tags', () => {

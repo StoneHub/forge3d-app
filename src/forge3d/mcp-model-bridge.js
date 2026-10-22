@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
+import { createAssemblyPart, createAssemblyGeometryFromStlBytes } from './assembly.js';
+import { assertAssemblyCapacity, assertAssemblyRevision, validateAssemblyTransform, getMcpAssemblySnapshot, updateMcpAssemblyPart, duplicateMcpAssemblyPart, removeMcpAssemblyPart, selectMcpAssemblyExportParts, exportMcpAssemblyStl } from './mcp-assembly.js';
+import { getMcpPrintSnapshot, prepareMcpPrint } from './mcp-print.js';
 import { isCurrentDesignRender } from './assembly-refresh.js';
 import { applyMcpParameters, assertMcpRevision, getMcpParameters, mcpTextResult } from './mcp-model.js';
 
@@ -22,6 +25,10 @@ export function useMcpModelBridge(options) {
   const version = useRef({ identity, revision: 0 });
   if (version.current.identity !== identity) version.current = { identity, revision: version.current.revision + 1 };
 
+  const assemblyVersion = useRef({ scene: options.assemblyScene, revision: 0 });
+  if (assemblyVersion.current.scene !== options.assemblyScene) assemblyVersion.current = { scene: options.assemblyScene, revision: assemblyVersion.current.revision + 1 };
+  const assemblyRendering = useRef(false);
+
   useEffect(() => {
     let disposed = false, removeListener;
     const getSnapshot = () => {
@@ -42,7 +49,75 @@ export function useMcpModelBridge(options) {
         diagnostics: { errors: o.result.errors, warnings: o.result.warnings },
       };
     };
+    const assemblySnapshot = () => getMcpAssemblySnapshot(latest.current.assemblyScene, assemblyVersion.current.revision, latest.current.mode);
+    const assertAssemblyEditable = (expectedRevision) => {
+      assertAssemblyRevision(assemblyVersion.current.revision, expectedRevision);
+      if (latest.current.renderRequestIdRef.current || latest.current.assemblyBooleanBusy || assemblyRendering.current) throw new Error('A model operation is running. Wait before editing the assembly.');
+    };
+    const commitAssembly = (nextScene) => {
+      flushSync(() => {
+        latest.current.disableAutoRun();
+        latest.current.updateAssemblyScene(nextScene);
+        latest.current.showMode('assembly');
+        latest.current.fitAssembly();
+      });
+    };
     const handle = async ({ name, arguments: args = {} }) => {
+      if (name === 'forge3d_get_assembly') return mcpTextResult(assemblySnapshot());
+      if (name === 'forge3d_get_print') return mcpTextResult({ revision: assemblyVersion.current.revision, ...getMcpPrintSnapshot(latest.current.assemblyScene, args) });
+      if (name === 'forge3d_prepare_print') {
+        assertAssemblyEditable(args.expectedRevision);
+        const prepared = prepareMcpPrint(latest.current.assemblyScene, args);
+        commitAssembly(prepared.scene);
+        return mcpTextResult({ revision: assemblyVersion.current.revision, ...prepared.print });
+      }
+      if (name === 'forge3d_set_mode') {
+        if (latest.current.renderRequestIdRef.current || latest.current.assemblyBooleanBusy) throw new Error('Wait for the current model operation before switching mode.');
+        if (!['design', 'assembly'].includes(args.mode)) throw new Error('Mode must be design or assembly.');
+        flushSync(() => latest.current.showMode(args.mode));
+        await settleViewport();
+        return mcpTextResult({ mode: latest.current.mode });
+      }
+      if (name === 'forge3d_add_assembly_part') {
+        assertAssemblyEditable(args.expectedRevision);
+        validateAssemblyTransform(args.transform || {});
+        assertAssemblyCapacity(latest.current.assemblyScene, 0, 1);
+        if (typeof args.code !== 'string' || !args.code.trim()) throw new Error('Provide OpenSCAD source for the new part.');
+        assemblyRendering.current = true;
+        flushSync(() => { latest.current.disableAutoRun(); latest.current.setStatusMessage(`Rendering assembly part ${args.name || 'Part'}...`); });
+        let geometry;
+        try {
+          const response = await latest.current.forgeAPI.renderOpenSCAD(args.code, { sourceName: `${args.name || 'Part'}.scad`, requestId: `mcp-assembly-${crypto.randomUUID()}` });
+          if (response.error) throw new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error));
+          assertAssemblyRevision(assemblyVersion.current.revision, args.expectedRevision);
+          geometry = createAssemblyGeometryFromStlBytes(response.stl);
+          if (!geometry.getAttribute('position').count) throw new Error('OpenSCAD produced no geometry.');
+          assertAssemblyCapacity(latest.current.assemblyScene, geometry.getAttribute('position').count / 3, 1);
+          const part = createAssemblyPart({ name: args.name || 'Part', source: { kind: 'mcp-openscad', code: args.code }, geometry, transform: args.transform });
+          commitAssembly({ ...latest.current.assemblyScene, parts: [...latest.current.assemblyScene.parts, part], selectedPartId: part.id });
+          latest.current.setStatusMessage(`Added ${part.name} to Assembly Mode`);
+          return mcpTextResult({ ...assemblySnapshot(), addedPartId: part.id, diagnostics: { stdout: response.stdout, stderr: response.stderr } });
+        } finally { assemblyRendering.current = false; geometry?.dispose(); }
+      }
+      if (['forge3d_update_assembly_part', 'forge3d_duplicate_assembly_part', 'forge3d_remove_assembly_part'].includes(name)) {
+        assertAssemblyEditable(args.expectedRevision);
+        const scene = latest.current.assemblyScene;
+        const nextScene = name === 'forge3d_update_assembly_part' ? updateMcpAssemblyPart(scene, args)
+          : name === 'forge3d_duplicate_assembly_part' ? duplicateMcpAssemblyPart(scene, args) : removeMcpAssemblyPart(scene, args.partId);
+        commitAssembly(nextScene);
+        return mcpTextResult(assemblySnapshot());
+      }
+      if (name === 'forge3d_export_assembly_stl') {
+        assertAssemblyEditable(args.expectedRevision);
+        const snapshot = assemblySnapshot();
+        const parts = selectMcpAssemblyExportParts(latest.current.assemblyScene, args.partIds);
+        return { assemblyStlContent: exportMcpAssemblyStl(latest.current.assemblyScene, args.partIds), model: {
+          revision: snapshot.revision, parts: parts.length, partIds: parts.map((part) => part.id),
+          triangles: parts.reduce((sum, part) => sum + part.geometry.getAttribute('position').count / 3, 0),
+          units: 'mm', coordinateSystem: 'OpenSCAD Z-up',
+          note: 'Combined visible meshes; overlapping parts are not boolean-unioned.',
+        } };
+      }
       const state = getSnapshot();
       if (name === 'forge3d_get_model') return mcpTextResult(state);
       if (name === 'forge3d_set_code' || name === 'forge3d_set_parameters') {
@@ -80,11 +155,13 @@ export function useMcpModelBridge(options) {
         };
       }
       if (name === 'forge3d_capture_viewport') {
-        if (state.mode !== 'design' || !state.render.current) throw new Error('Render the current Design model before capturing its viewport.');
+        if (state.mode === 'design' && !state.render.current) throw new Error('Render the current Design model before capturing its viewport.');
+        const capturedAssemblyRevision = assemblyVersion.current.revision;
+        if (state.mode === 'assembly' && !latest.current.assemblyScene.parts.some((part) => part.visible !== false)) throw new Error('Add a visible assembly part before capturing its viewport.');
         const visible = await settleViewport();
         const current = getSnapshot();
         if (!visible) throw new Error('The viewport is not drawing. Restore the Forge3D window and try capture again.');
-        if (current.mode !== 'design' || !current.render.current || state.revision !== current.revision) throw new Error('The model or mode changed before capture. Return to Design and render again.');
+        if (current.mode !== state.mode || (state.mode === 'design' ? !current.render.current || state.revision !== current.revision : assemblyVersion.current.revision !== capturedAssemblyRevision)) throw new Error('The model or mode changed before capture. Read the current state and capture again.');
         const canvas = latest.current.canvasRef.current;
         if (!canvas?.width || !canvas?.height) throw new Error('The viewport is not ready.');
         const data = canvas.toDataURL('image/png').split(',')[1];

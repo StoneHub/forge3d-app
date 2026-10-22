@@ -24,7 +24,7 @@ Current workflow: write `.scad`, render, export STL, then send the file to your 
 
 - **Windows**, **macOS**, or **Linux**
 - **[OpenSCAD](https://openscad.org/downloads.html)** installed locally
-- **Node.js 22+** and **npm 10+**
+- **Node.js 22+** for the MCP companion; **Node.js 22+ and npm 10+** for source builds (neither is required by the installed GUI)
 
 Forge3D looks for OpenSCAD in common platform locations and on `PATH`. Set `FORGE3D_OPENSCAD_BIN` when your OpenSCAD executable lives somewhere custom.
 Set `FORGE3D_OPENSCAD_ARCH=x86_64` on macOS if a universal OpenSCAD build exposes an unstable native Apple Silicon renderer and you want Forge3D to force the Rosetta slice.
@@ -41,9 +41,9 @@ brew install --cask openscad@snapshot
 
 ## Install
 
-The [v3.2.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0) includes a Windows installer, a Linux AppImage, an unsigned native Apple Silicon DMG, and a separate MCP companion ZIP. The desktop app needs native OpenSCAD; the optional [MCP companion](docs/MCP.md) also needs Node.js 22+, but no source checkout or npm dependencies.
+The [v3.2.0 preview release](https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0) includes a locally built ad-hoc-signed Apple Silicon Mac DMG and a separate provider-neutral MCP companion ZIP. Windows and Linux installers are not included in this release. The desktop app needs native OpenSCAD; the optional [MCP companion](docs/MCP.md) also needs Node.js 22+, but no source checkout or npm dependencies.
 
-> **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. Downloaded macOS DMGs are unsigned development previews, so Gatekeeper may report the app as damaged or require manual approval. For the cleanest macOS path, build from source.
+> **macOS development preview note:** Forge3D does not currently use a paid Apple Developer ID certificate. The app has a verified ad-hoc integrity signature but no Apple Developer ID or notarization. Downloaded copies may require individual approval. See [Mac installation](docs/INSTALL-MAC.md) for drag-to-Applications and Apple’s normal Open Anyway flow. Managed Macs may prohibit this approval.
 >
 > **macOS OpenSCAD note:** Homebrew's stable OpenSCAD cask may require Gatekeeper approval and Rosetta because the stable cask can be Intel-based. The snapshot cask includes an Apple Silicon slice and is preferred for local Forge3D development.
 > If the snapshot app crashes during render on your Mac, run Forge3D with `FORGE3D_OPENSCAD_ARCH=x86_64` until the upstream native snapshot is stable.
@@ -86,8 +86,12 @@ npm run capture:release-screenshot
 - **Embedded terminal** — PowerShell/bash terminal pane for running commands in workspace folder
 - **Workspace helpers** — recent files, workspace browser, and parameter jump-to-source links
 - **STL export** — one-click export of the rendered geometry
-- **[Local MCP modeling tools](docs/MCP.md)** — an isolated stdio session for revision-checked source/parameter edits, native renders, model bounds, final STL export, and viewport PNG capture
+- **[Local MCP modeling tools](docs/MCP.md)** — 15 provider-neutral tools for Design, multi-part Assembly, print-bed arrangement, STL export, and actual viewport PNG capture. The companion generates local client configuration; no provider account is required by Forge3D
 - **Dark / light theme**
+
+![54-part assembly built and captured through the packaged Mac MCP tools](docs/screenshots/forge3d-mcp-assembly.png)
+
+The packaged Mac demo renders three OpenSCAD part sources, creates 51 additional instances, and exports all 54 parts as a 7,960-triangle STL. Agents can also arrange the parts on a visible bed and export selected parts for an external slicer.
 
 ---
 

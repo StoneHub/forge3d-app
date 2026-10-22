@@ -3,7 +3,7 @@
   "name": "Forge3D",
   "version": "3.2.0",
   "kind": "desktop-app",
-  "summary": "Desktop OpenSCAD modeling IDE with preview packages for Windows, macOS, and Linux.",
+  "summary": "Desktop OpenSCAD IDE with a native Apple Silicon Mac preview and provider-neutral Design, Assembly, and print-preparation MCP tools.",
   "status": "v3.2.0 prerelease",
   "repo": "https://github.com/StoneHub/forge3d-app",
   "liveUrl": "",
@@ -11,10 +11,12 @@
   "downloadUrl": "https://github.com/StoneHub/forge3d-app/releases/tag/v3.2.0",
   "supportUrl": "https://github.com/StoneHub/forge3d-app/issues",
   "license": "MIT",
-  "platforms": ["Windows", "macOS", "Linux"],
+  "platforms": [
+    "macOS"
+  ],
   "requirements": [
     "OpenSCAD installed locally",
-    "The macOS v3.2.0 DMG is an unsigned development preview",
+    "The macOS v3.2.0 DMG is an ad-hoc-signed Apple Silicon development preview without Developer ID or notarization; individual macOS approval may be required",
     "Node.js 22+ and npm 10+ for source builds",
     "OpenSCAD language-server support is limited to Windows development builds"
   ],
@@ -24,7 +26,7 @@
     "Parameter controls from OpenSCAD variables and // @param annotations",
     "File open/save, STL export, recent files, and workspace browser",
     "Surface measurement and non-destructive through-hole assembly tools",
-    "Local MCP modeling, native renders, final STL export, and viewport capture"
+    "15 local MCP tools: native Design modeling, multi-part Assembly, print-bed layout, STL export, and real viewport capture"
   ],
   "screenshots": [
     {
@@ -34,6 +36,10 @@
     {
       "src": "docs/screenshots/forge3d-electron-demo.png",
       "alt": "Forge3D Electron desktop app interface"
+    },
+    {
+      "src": "docs/screenshots/forge3d-mcp-assembly.png",
+      "alt": "54-part native OpenSCAD assembly built and captured using MCP"
     }
   ]
 }

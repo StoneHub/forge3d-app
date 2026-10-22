@@ -8,7 +8,7 @@ import {
 
 const packageConfig = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-test('macOS releases are native arm64 unsigned development preview DMGs', () => {
+test('macOS releases seal native arm64 development preview DMGs with an explicit ad-hoc hook', () => {
   const macConfig = packageConfig.build?.mac || {};
   const dmgTarget = Array.isArray(macConfig.target)
     ? macConfig.target.find((target) => target?.target === 'dmg')
@@ -16,7 +16,9 @@ test('macOS releases are native arm64 unsigned development preview DMGs', () => 
 
   assert.equal(packageConfig.version, '3.2.0');
   assert.deepEqual(dmgTarget, { target: 'dmg', arch: ['arm64'] });
-  assert.match(macConfig.artifactName, /unsigned-dev-preview/);
+  assert.match(macConfig.artifactName, /ad-hoc-dev-preview/);
+  assert.equal(packageConfig.build.afterPack, 'scripts/macos-adhoc-sign.mjs');
+  assert.equal(packageConfig.devDependencies['@electron/osx-sign'], '1.3.1');
   assert.equal(macConfig.identity, null);
   assert.equal(macConfig.hardenedRuntime, true);
   assert.equal(macConfig.gatekeeperAssess, false);
@@ -27,10 +29,11 @@ test('macOS releases are native arm64 unsigned development preview DMGs', () => 
   assert.equal(fs.existsSync(new URL('../build/entitlements.mac.inherit.plist', import.meta.url)), true);
 });
 
-test('macOS release mode follows the fixed unsigned packaging configuration', () => {
+test('macOS release mode distinguishes ad-hoc integrity from Apple-trusted distribution', () => {
   assert.deepEqual(describeMacReleaseMode({}), {
-    mode: 'unsigned-dev-preview',
-    signed: false,
+    mode: 'ad-hoc-dev-preview',
+    signed: true,
+    developerIdSigned: false,
     notarized: false,
     publishableForGeneralMacUsers: false,
   });
@@ -40,8 +43,9 @@ test('macOS release mode follows the fixed unsigned packaging configuration', ()
     APPLE_API_KEY_ID: 'ABC123',
     APPLE_API_ISSUER: 'issuer-uuid',
   }), {
-    mode: 'unsigned-dev-preview',
-    signed: false,
+    mode: 'ad-hoc-dev-preview',
+    signed: true,
+    developerIdSigned: false,
     notarized: false,
     publishableForGeneralMacUsers: false,
   });

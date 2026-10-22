@@ -8,6 +8,13 @@ const objectSchema = (properties = {}, required = []) => ({ type: 'object', prop
 const revisionSchema = { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: 'The revision returned by forge3d_get_model; stale edits are rejected.' }
 const readOnly = { readOnlyHint: true, openWorldHint: false }
 const mutating = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+const assemblyRevisionSchema = { ...revisionSchema, description: 'The assembly revision returned by forge3d_get_assembly or forge3d_get_print; separate from the Design revision.' }
+const triple = { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
+const transformSchema = objectSchema({ position: triple, rotation: triple, scale: triple })
+const partIdSchema = { type: 'string', minLength: 1, maxLength: 200 }
+const partNameSchema = { type: 'string', minLength: 1, maxLength: 200 }
+const bedSchema = objectSchema({ widthMm: { type: 'number', exclusiveMinimum: 0, maximum: 10000 }, depthMm: { type: 'number', exclusiveMinimum: 0, maximum: 10000 }, heightMm: { type: 'number', exclusiveMinimum: 0, maximum: 10000 } }, ['widthMm', 'depthMm', 'heightMm'])
+const partIdsSchema = { type: 'array', items: partIdSchema, minItems: 1, maxItems: 200, uniqueItems: true }
 
 export const TOOL_DEFINITIONS = [
   {
@@ -40,8 +47,44 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'forge3d_capture_viewport',
-    description: 'Capture the visible Forge3D viewport as an MCP PNG image. Captures only this session, not the entire desktop.',
+    description: 'Capture the current Design or Assembly viewport as an actual MCP PNG image. Design requires a current render; Assembly requires visible parts. Captures only this session.',
     inputSchema: objectSchema(), annotations: readOnly,
+  },
+  {
+    name: 'forge3d_set_mode', description: 'Switch the visible session between Design and Assembly. Print preparation operates on Assembly; this app has no slicer or G-code tool.',
+    inputSchema: objectSchema({ mode: { type: 'string', enum: ['design', 'assembly'] } }, ['mode']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_get_assembly', description: 'Inspect all assembly parts, IDs, transforms, visibility, geometry bounds and the assembly revision. Coordinates are viewport Y-up; rotation is XYZ degrees. This revision is separate from the Design revision.',
+    inputSchema: objectSchema(), annotations: readOnly,
+  },
+  {
+    name: 'forge3d_add_assembly_part', description: 'Render trusted OpenSCAD source natively and add the resulting mesh as a visible Assembly part. Requires the current assembly revision. OpenSCAD source uses Z-up; part transforms use viewport Y-up. No source file is saved.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, code: { type: 'string' }, name: partNameSchema, transform: transformSchema }, ['expectedRevision', 'code']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_update_assembly_part', description: 'Update a part name, transform, visibility or lock using the current assembly revision. Position is millimeters, rotation XYZ degrees, scale positive; coordinates are viewport Y-up.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, partId: partIdSchema, name: partNameSchema, transform: transformSchema, visible: { type: 'boolean' }, locked: { type: 'boolean' } }, ['expectedRevision', 'partId']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_duplicate_assembly_part', description: 'Create up to 200 instances of an existing native-rendered part without rerendering source. Each optional transform is absolute in viewport Y-up coordinates. Requires the current assembly revision.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, partId: partIdSchema, instances: { type: 'array', minItems: 1, maxItems: 200, items: objectSchema({ name: partNameSchema, transform: transformSchema }) } }, ['expectedRevision', 'partId', 'instances']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_remove_assembly_part', description: 'Remove an unlocked part from the isolated assembly using its ID and the current assembly revision. Does not delete any source file.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, partId: partIdSchema }, ['expectedRevision', 'partId']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_export_assembly_stl', description: 'Export selected visible assembly meshes (all visible parts when partIds is omitted) and transforms to a new temporary STL in OpenSCAD Z-up coordinates. Requires the current assembly revision. This combines meshes without boolean union or slicing; copy the returned file to durable storage.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, filename: { type: 'string' }, partIds: partIdsSchema }, ['expectedRevision']), annotations: mutating,
+  },
+  {
+    name: 'forge3d_get_print', description: 'Inspect assembly print preparation for an optional bed and selected part IDs. Reports fit, floor contact and conservative bounding-box overlaps, not exact collision/manifold checks. No slicing, printer connection or G-code generation.',
+    inputSchema: objectSchema({ bed: bedSchema, partIds: partIdsSchema }), annotations: readOnly,
+  },
+  {
+    name: 'forge3d_prepare_print', description: 'Arrange selected visible unlocked parts on a bed centered in viewport X/Z with floor Y=0. Preserves rotation/scale; changes positions atomically, rejects parts that cannot fit. Use the assembly revision, then inspect/capture and export STL for an external slicer.',
+    inputSchema: objectSchema({ expectedRevision: assemblyRevisionSchema, bed: bedSchema, partIds: partIdsSchema, spacingMm: { type: 'number', minimum: 0, maximum: 1000 } }, ['expectedRevision', 'bed']), annotations: mutating,
   },
 ]
 
@@ -73,7 +116,7 @@ export function validateToolArguments(name, args = {}) {
   if (has(args, 'expectedRevision') && (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0)) {
     invalidParams('expectedRevision must be a non-negative safe integer')
   }
-  if (name === 'forge3d_set_code') {
+  if (name === 'forge3d_set_code' || name === 'forge3d_add_assembly_part') {
     if (typeof args.code !== 'string' || Buffer.byteLength(args.code, 'utf8') > MAX_CODE_BYTES) invalidParams('code must be a string of at most 2 MiB in UTF-8')
   }
   if (name === 'forge3d_set_parameters') {
@@ -89,8 +132,42 @@ export function validateToolArguments(name, args = {}) {
     }
   }
   if (name === 'forge3d_render' && has(args, 'profile') && !['quick', 'final'].includes(args.profile)) invalidParams('profile must be quick or final')
-  if (name === 'forge3d_export_stl' && has(args, 'filename')) {
+  if (['forge3d_export_stl', 'forge3d_export_assembly_stl'].includes(name) && has(args, 'filename')) {
     if (typeof args.filename !== 'string' || Buffer.byteLength(args.filename, 'utf8') > 200 || !/^[^<>:"/\\|?*\u0000-\u001f]+\.stl$/i.test(args.filename)) invalidParams('filename must be a .stl basename of at most 200 UTF-8 bytes without path separators or reserved characters')
+  }
+  const validateName = (value, label) => {
+    if (typeof value !== 'string' || !value.trim() || value.length > 200) invalidParams(`${label} must be a nonempty string of at most 200 characters`)
+  }
+  const validateTransform = (value) => {
+    assertKeys(value, ['position', 'rotation', 'scale'], 'transform')
+    for (const [key, vector] of Object.entries(value)) {
+      if (!Array.isArray(vector) || vector.length !== 3 || vector.some((n) => typeof n !== 'number' || !Number.isFinite(n) || Math.abs(n) > 1e6 || (key === 'scale' && n <= 0))) invalidParams(`transform.${key} requires three finite numbers within ±1000000 (scale must be positive)`)
+    }
+  }
+  if (has(args, 'partId')) validateName(args.partId, 'partId')
+  if (has(args, 'name')) validateName(args.name, 'name')
+  if (has(args, 'transform')) validateTransform(args.transform)
+  for (const key of ['visible', 'locked']) if (has(args, key) && typeof args[key] !== 'boolean') invalidParams(`${key} must be a boolean`)
+  if (name === 'forge3d_set_mode' && !['design', 'assembly'].includes(args.mode)) invalidParams('mode must be design or assembly')
+  if (has(args, 'instances')) {
+    if (!Array.isArray(args.instances) || !args.instances.length || args.instances.length > 200) invalidParams('instances must contain 1 to 200 entries')
+    for (const instance of args.instances) {
+      assertKeys(instance, ['name', 'transform'], 'instance')
+      if (has(instance, 'name')) validateName(instance.name, 'instance name')
+      if (has(instance, 'transform')) validateTransform(instance.transform)
+    }
+  }
+  if (has(args, 'bed')) {
+    assertKeys(args.bed, ['widthMm', 'depthMm', 'heightMm'], 'bed')
+    for (const key of ['widthMm', 'depthMm', 'heightMm']) {
+      const n = args.bed[key]
+      if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0 || n > 10000) invalidParams(`bed.${key} must be positive and at most 10000 mm`)
+    }
+  }
+  if (has(args, 'spacingMm') && (typeof args.spacingMm !== 'number' || !Number.isFinite(args.spacingMm) || args.spacingMm < 0 || args.spacingMm > 1000)) invalidParams('spacingMm must be between 0 and 1000')
+  if (has(args, 'partIds')) {
+    if (!Array.isArray(args.partIds) || !args.partIds.length || args.partIds.length > 200 || new Set(args.partIds).size !== args.partIds.length) invalidParams('partIds requires 1 to 200 unique IDs')
+    for (const id of args.partIds) validateName(id, 'partId')
   }
   return name === 'forge3d_render' ? { profile: args.profile ?? 'final' } : structuredClone(args)
 }
@@ -125,7 +202,7 @@ export function createMcpProtocol({ callTool, serverVersion = '3.2.0' }) {
         state = 'initializing'
         result = {
           protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'forge3d', version: serverVersion },
-          instructions: 'Tools control a new isolated visible Forge3D session, not your already-open app. Read the model revision before edits. Render before exporting. Source edits stay unsaved. OpenSCAD source is executable input and may read local files; only use trusted code.',
+          instructions: 'Tools control a new isolated visible Forge3D session, not an already-open app. Design: get_model, set_code/set_parameters with its revision, render final, capture_viewport, export_stl. Assembly: get_assembly, add_assembly_part from trusted OpenSCAD source, duplicate/update/remove with the latest assembly revision, capture_viewport, export_assembly_stl. Design and Assembly have separate revisions. Print preparation: get_print, prepare_print to arrange on a bed, then export STL for an external slicer. There is no G-code generation or printer control. Assembly transforms use viewport Y-up millimeters and XYZ degrees; OpenSCAD source and exported STL use Z-up. Source edits stay unsaved and exports are temporary: preserve wanted artifacts explicitly. OpenSCAD source is executable input and may read local files; only use trusted code.',
         }
       } else if (message.method === 'ping') {
         result = {}

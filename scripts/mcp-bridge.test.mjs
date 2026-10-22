@@ -6,6 +6,10 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
 import { installMcpBridge } from '../electron/mcp-bridge.mjs'
+import * as THREE from 'three'
+import { createAssemblyPart } from '../src/forge3d/assembly.js'
+import { exportMcpAssemblyStl } from '../src/forge3d/mcp-assembly.js'
+import { parseSTL } from '../src/forge3d/stl-parser.js'
 
 async function until(predicate, label = 'bridge event') {
   for (let i = 0; i < 200; i++) {
@@ -233,4 +237,81 @@ test('main bounds its own serialized request queue independently of the launcher
   assert.match((await f.waitForResponse(overflow)).error, /Too many pending/)
   await until(() => f.webContents.sent.length === 1)
   assert.equal(f.webContents.sent.length, 1)
+})
+
+test('assembly exports write actual transformed STL bytes with exclusive unique paths and explicit selection', async (t) => {
+  const f = await fixture(t)
+  f.ready()
+  // Assembly export must not depend on the Design native-render cache.
+  f.setNative(null)
+  const scene = { parts: [
+    createAssemblyPart({ id: 'chosen', geometry: new THREE.BoxGeometry(10, 20, 30).toNonIndexed(), transform: { position: [40, 50, -60] } }),
+    createAssemblyPart({ id: 'excluded', geometry: new THREE.BoxGeometry(20, 20, 20).toNonIndexed(), transform: { position: [1000, 1000, 1000] } }),
+  ] }
+  const stl = exportMcpAssemblyStl(scene, ['chosen'])
+  const exported = []
+  const writes = []
+  const writeFile = fs.writeFile
+  t.mock.method(fs, 'writeFile', async (file, data, options) => { writes.push(options); return writeFile(file, data, options) })
+  for (let i = 0; i < 2; i++) {
+    const id = f.request('forge3d_export_assembly_stl', { expectedRevision: 7, filename: 'assembly.stl', partIds: ['chosen'] })
+    await until(() => f.webContents.sent.length === i + 1)
+    assert.deepEqual(f.webContents.sent.at(-1).message.arguments.partIds, ['chosen'])
+    f.respond(id, { assemblyStlContent: stl, model: { revision: 7, parts: 1, triangles: 12 } })
+    const result = (await f.waitForResponse(id)).result
+    assert.notEqual(result.isError, true)
+    const artifact = JSON.parse(result.content[0].text)
+    assert.equal(path.dirname(artifact.filePath), path.join(f.sessionRoot, 'exports'))
+    assert.equal(artifact.revision, 7)
+    assert.equal(artifact.parts, 1)
+    const bytes = await fs.readFile(artifact.filePath)
+    assert.deepEqual(bytes, Buffer.from(stl))
+    const parsed = parseSTL(bytes)
+    assert.equal(parsed.vertices.length / 9, 12)
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(parsed.vertices, 3))
+    geometry.computeBoundingBox()
+    assert.deepEqual(geometry.boundingBox.min.toArray(), [35, 45, 40])
+    assert.deepEqual(geometry.boundingBox.max.toArray(), [45, 75, 60])
+    exported.push(artifact.filePath)
+  }
+  assert.notEqual(exported[0], exported[1])
+  assert.deepEqual(writes, [{ flag: 'wx' }, { flag: 'wx' }])
+})
+
+test('assembly export rejects stale renderer revision and malformed output without creating files', async (t) => {
+  const f = await fixture(t)
+  f.ready()
+  const stale = f.request('forge3d_export_assembly_stl', { expectedRevision: 2 })
+  await until(() => f.webContents.sent.length === 1)
+  f.fail(stale, 'Assembly changed (current revision 3). Read forge3d_get_assembly before editing.')
+  const staleResult = (await f.waitForResponse(stale)).result
+  assert.equal(staleResult.isError, true)
+  assert.match(staleResult.content[0].text, /current revision 3/)
+  for (const [index, assemblyStlContent] of [undefined, 'not an STL', Buffer.from('solid x')].entries()) {
+    const id = f.request('forge3d_export_assembly_stl', { expectedRevision: 3 })
+    await until(() => f.webContents.sent.length === index + 2)
+    f.respond(id, { assemblyStlContent, model: { revision: 3 } })
+    assert.equal((await f.waitForResponse(id)).result.isError, true)
+  }
+  await assert.rejects(fs.access(path.join(f.sessionRoot, 'exports')), { code: 'ENOENT' })
+})
+
+test('main independently validates assembly/print arguments before IPC and file writes', async (t) => {
+  const f = await fixture(t)
+  f.ready()
+  const invalid = [
+    ['forge3d_export_assembly_stl', { expectedRevision: 0, filename: '../escape.stl' }],
+    ['forge3d_export_assembly_stl', { expectedRevision: 0, partIds: ['a', 'a'] }],
+    ['forge3d_export_assembly_stl', { filename: 'assembly.stl' }],
+    ['forge3d_update_assembly_part', { expectedRevision: 0, partId: 'a', transform: { scale: [1, -1, 1] } }],
+    ['forge3d_prepare_print', { expectedRevision: 0, bed: { widthMm: 10001, depthMm: 100, heightMm: 100 } }],
+    ['forge3d_prepare_print', { expectedRevision: 0, bed: { widthMm: 100, depthMm: 100, heightMm: 100 }, spacingMm: 1001 }],
+  ]
+  for (const [name, args] of invalid) {
+    const id = f.request(name, args)
+    assert.equal((await f.waitForResponse(id)).result.isError, true)
+  }
+  assert.equal(f.webContents.sent.length, 0)
+  await assert.rejects(fs.access(path.join(f.sessionRoot, 'exports')), { code: 'ENOENT' })
 })
