@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { createMcpConfig } from '../electron/mcp-config.mjs'
 
-const NODE = '/Users/mstone/Documents/Codex/2026-10-22/task/runtime/node-v22.23.4-darwin-arm64/bin/node'
+const NODE = process.execPath
 const SCRIPT = new URL('../electron/mcp-config.mjs', import.meta.url).pathname
 
 function executable(file) {
