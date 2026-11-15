@@ -4,10 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createMcpConfig } from '../electron/mcp-config.mjs'
 
 const NODE = process.execPath
-const SCRIPT = new URL('../electron/mcp-config.mjs', import.meta.url).pathname
+const SCRIPT = fileURLToPath(new URL('../electron/mcp-config.mjs', import.meta.url))
 
 function executable(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
