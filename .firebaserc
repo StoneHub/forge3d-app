@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "possible-haven-471616-f0"
+  },
+  "targets": {
+    "possible-haven-471616-f0": {
+      "hosting": {
+        "forge3d-site": ["forge3d-space"]
+      }
+    }
+  }
+}

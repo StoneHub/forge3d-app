@@ -2,7 +2,7 @@
   "name": "forge3d",
   "version": "3.2.0",
   "private": true,
-  "description": "Forge3D — Parametric 3D modeling IDE for OpenSCAD (Electron desktop app)",
+  "description": "Forge3D \u2014 Parametric 3D modeling IDE for OpenSCAD (Electron desktop app)",
   "license": "MIT",
   "type": "module",
   "main": "electron/main.mjs",
@@ -20,7 +20,8 @@
     "capture:release-screenshot": "node scripts/capture-release-screenshots.mjs",
     "build": "vite build",
     "dist": "vite build && electron-builder",
-    "postinstall": "electron-rebuild || echo 'Warning: electron-rebuild failed. Terminal may not work.'"
+    "postinstall": "electron-rebuild || echo 'Warning: electron-rebuild failed. Terminal may not work.'",
+    "deploy:site": "npx --yes firebase-tools@latest deploy --only hosting:forge3d-site"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
