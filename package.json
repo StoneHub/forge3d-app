@@ -20,7 +20,8 @@
     "capture:release-screenshot": "node scripts/capture-release-screenshots.mjs",
     "build": "vite build",
     "dist": "vite build && electron-builder",
-    "postinstall": "electron-rebuild || echo 'Warning: electron-rebuild failed. Terminal may not work.'"
+    "postinstall": "electron-rebuild || echo 'Warning: electron-rebuild failed. Terminal may not work.'",
+    "deploy:site": "npx --yes firebase-tools@latest deploy --only hosting:forge3d-site"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
