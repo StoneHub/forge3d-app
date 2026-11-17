@@ -1,8 +1,8 @@
 # Site feature demos
 
-Records the looping MP4 demos used in the Features section of forge3d.space (`site/assets/demos/`). Each script drives the real Electron app with Playwright, takes a screenshot after every settled step (stop-motion), and `compose.py` turns those frames into a video with an eased cursor drawn on top. Recording step by step keeps the result smooth on machines with slow software WebGL, such as a headless Linux box, so playback is faster than real time.
+Records the looping MP4 demos used in the Features section of forge3d.space (`site/assets/demos/`). Each script drives the real Electron app with Playwright, takes a screenshot after every settled step (stop-motion), and `compose.py` turns those frames into a video with an eased cursor drawn on top. Recording step by step keeps the result smooth on machines with slow software WebGL, such as a headless Linux box, so OpenSCAD render time is cut from the playback. The sliders are clicked to each value and released, so every rebuild shown follows a real stop, as Auto Render does.
 
-Needs: Node 22 with `npm ci` done, Playwright installed globally (or on `NODE_PATH`), OpenSCAD on `PATH`, Python 3 with Pillow, and ffmpeg. On Linux, run under Xvfb with a 1440x900 screen.
+Needs: Node 22 with `npm ci` done, Playwright installed globally and visible through `NODE_PATH="$(npm root -g)"`, OpenSCAD on `PATH`, Python 3 with Pillow, and ffmpeg. On Linux, run under Xvfb with a 1440x900 screen.
 
 ```bash
 npx vite --port 5173 &                     # the app loads its renderer from the dev server

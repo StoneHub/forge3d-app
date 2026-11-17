@@ -1,4 +1,4 @@
-import { sleep, framesDir } from './lib.mjs';
+import { framesDir } from './lib.mjs';
 import { timeline, actions } from './stop.mjs';
 import { bracket } from './bracket-setup.mjs';
 const { app, win } = await bracket();

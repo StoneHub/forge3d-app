@@ -20,4 +20,4 @@ plate(leg);
 translate([0, thickness, 0]) rotate([90, 0, 0]) plate(leg);
 // gusset
 translate([width / 2 - thickness / 2, 0, 0]) rotate([90, 0, 90])
-  linear_extrude(thickness) polygon([[thickness, thickness], [leg * 0.6, thickness], [thickness, leg * 0.6]]);
+  linear_extrude(thickness) polygon([[thickness - 1, thickness - 1], [leg * 0.6, thickness - 1], [thickness - 1, leg * 0.6]]);

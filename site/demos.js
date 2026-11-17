@@ -13,14 +13,13 @@
   function open(link) {
     opener = link;
     title.textContent = link.querySelector('h3').textContent;
-    caption.textContent = (link.dataset.caption || '') + ' Captured from the app; playback is sped up.';
+    caption.textContent = (link.dataset.caption || '') + ' Recorded frame by frame from the app, with OpenSCAD render time cut.';
     video.poster = link.dataset.poster || '';
     video.src = link.getAttribute('href');
-    video.controls = reduceMotion.matches;
     dialog.showModal();
     if (!reduceMotion.matches) {
       const playing = video.play();
-      if (playing) playing.catch(() => { video.controls = true; });
+      if (playing) playing.catch(() => {});
     }
   }
 

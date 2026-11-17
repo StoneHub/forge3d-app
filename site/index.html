@@ -42,29 +42,30 @@
 
   <section class="wrap" id="features">
     <h2>What it does</h2>
-    <p class="section-note">Click a feature marked <span class="demo-tag">Demo</span> to watch it in the app.</p>
+    <p class="section-note">Select a feature marked <span class="demo-tag">Demo</span> to watch it in the app.</p>
     <ul class="grid">
-      <li class="demo-card"><a class="demo-link" href="assets/demos/live-build.mp4" data-poster="assets/demos/live-build.webp" data-caption="Dragging parameter sliders on a twisted vessel. Each change rewrites the code and rebuilds the model through OpenSCAD.">
-        <h3>Live build</h3><p>Drag a parameter slider or edit code and the model rebuilds 400 ms after you stop. The code updates as you drag.</p><span class="demo-tag">Demo</span>
+      <li class="demo-card"><a class="demo-link" aria-haspopup="dialog" href="assets/demos/live-build.mp4" data-poster="assets/demos/live-build.webp" data-caption="Setting parameter sliders on a twisted vessel. Each change rewrites the code, and Auto Render rebuilds the model through OpenSCAD.">
+        <h3>Live build</h3><p>With Auto on, move a parameter slider or edit code and the model rebuilds 400 ms after you stop. Sliders rewrite the code as they move.</p><span class="demo-tag">Demo</span>
       </a></li>
-      <li class="demo-card"><a class="demo-link" href="assets/demos/dimension-brackets.mp4" data-poster="assets/demos/dimension-brackets.webp" data-caption="Turning on dimension brackets, orbiting the part, then resizing it. The brackets follow the geometry.">
+      <li class="demo-card"><a class="demo-link" aria-haspopup="dialog" href="assets/demos/dimension-brackets.mp4" data-poster="assets/demos/dimension-brackets.webp" data-caption="Turning on dimension brackets, orbiting the part, then resizing it. The brackets follow the geometry.">
         <h3>Dimension brackets</h3><p>CAD-style width, depth and height overlays on every render, updated as the model changes.</p><span class="demo-tag">Demo</span>
       </a></li>
-      <li class="demo-card"><a class="demo-link" href="assets/demos/measure-tool.mp4" data-poster="assets/demos/measure-tool.webp" data-caption="Picking two points on a bracket to read the distance between them.">
+      <li class="demo-card"><a class="demo-link" aria-haspopup="dialog" href="assets/demos/measure-tool.mp4" data-poster="assets/demos/measure-tool.webp" data-caption="Picking two points on a bracket to read the distance between them.">
         <h3>Measure tool</h3><p>Click any two points on the surface to read the distance between them in millimetres.</p><span class="demo-tag">Demo</span>
       </a></li>
       <li><h3>Native OpenSCAD</h3><p>Runs your installed OpenSCAD binary, so every font, include and library you already use works.</p></li>
       <li><h3>Parameters</h3><p>Controls generated from top-level variables and <code>// @param</code> annotations, with jump-to-source.</p></li>
-      <li><h3>Three.js viewport</h3><p>Orbit, pan and zoom, with grid, axes and edge overlay. One click exports STL for your slicer.</p></li>
+      <li><h3>Three.js viewport</h3><p>Orbit, pan and zoom, with grid, axes and edge overlay.</p></li>
+      <li><h3>STL export</h3><p>One click to export the rendered geometry for your slicer.</p></li>
     </ul>
   </section>
 
-  <dialog class="demo-dialog" id="demo-dialog" aria-labelledby="demo-title">
+  <dialog class="demo-dialog" id="demo-dialog" aria-labelledby="demo-title" aria-describedby="demo-caption">
     <div class="demo-head">
       <h3 id="demo-title">Demo</h3>
       <button type="button" class="demo-close" aria-label="Close demo">&times;</button>
     </div>
-    <video id="demo-video" width="1280" height="800" muted loop playsinline preload="none"></video>
+    <video id="demo-video" width="1280" height="800" muted loop playsinline controls preload="none"></video>
     <p class="demo-caption" id="demo-caption"></p>
   </dialog>
 
