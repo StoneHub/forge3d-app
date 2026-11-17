@@ -27,14 +27,13 @@ async function setValue(track, value) {
   T.hold(1000);
 }
 
-await setValue(twist, 30);
-await setValue(twist, 0);
 await setValue(twist, 180);
-await setValue(lobes, 4);
 await setValue(lobes, 8);
-await setValue(flare, 0.8);
 await setValue(flare, 1.6);
+await setValue(lobes, 4);
+await setValue(flare, 0.8);
 await setValue(height, 86);
+await setValue(twist, 45);
 T.glide({ x: 1100, y: 520 }, 700);
 T.hold(1200);
 T.save();
