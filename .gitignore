@@ -15,3 +15,4 @@ npm-debug.log*
 .codex/
 .mcp.json
 .superpowers/
+__pycache__/

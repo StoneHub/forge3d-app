@@ -67,3 +67,19 @@ h3 { font-size: 1.05rem; margin: 0 0 6px; }
   .split.reverse > div { order: 0; }
   section { padding-top: 40px; }
 }
+.section-note { color: var(--muted); margin: -6px 0 18px; }
+.demo-tag { display: inline-block; font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 0 .6em; line-height: 1.6; }
+.grid li.demo-card { padding: 0; border-color: var(--accent); }
+.demo-link { display: block; height: 100%; padding: 18px; color: inherit; text-decoration: none; border-radius: 10px; }
+.demo-link p { margin-bottom: 12px; }
+.demo-link .demo-tag::before { content: "\25B6\00A0"; }
+.demo-link:hover, .demo-link:focus-visible { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.demo-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.demo-dialog { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); }
+.demo-dialog::backdrop { background: rgb(0 0 0 / .7); }
+.demo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.demo-head h3 { margin: 0; }
+.demo-close { font: inherit; font-size: 1.6rem; line-height: 1; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+.demo-close:hover { border-color: var(--accent); }
+.demo-dialog video { display: block; width: 100%; height: auto; max-height: calc(100vh - 170px); object-fit: contain; border-radius: 8px; background: #11131a; }
+.demo-caption { color: var(--muted); font-size: .9rem; margin: 10px 0 0; }
